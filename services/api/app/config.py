@@ -12,8 +12,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
+    # Absolute, so the API picks up the same .env no matter where it is launched from.
     model_config = SettingsConfigDict(
-        env_file=(".env", "../../.env"), env_file_encoding="utf-8", extra="ignore"
+        env_file=(REPO_ROOT / ".env",), env_file_encoding="utf-8", extra="ignore"
     )
 
     app_name: str = "Extract0r API"

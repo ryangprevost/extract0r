@@ -67,9 +67,24 @@ through the lattice.
 
 ## Running it
 
-**Prerequisites:** Python 3.11+. Node 20+ for the web app. ffmpeg only for Phase 2
-mixdown and loudness matching — ingest does not need it, because the bundled libsndfile
-reads MP3 directly.
+**Prerequisites:** Python 3.11+ and the .NET 9 SDK. Node 20+ only for the Next.js front
+end. ffmpeg only for Phase 2 mixdown and loudness matching — ingest does not need it,
+because the bundled libsndfile reads MP3 directly.
+
+### One command
+
+```bash
+powershell -File scripts/start.ps1
+```
+
+Starts the API (in its own window, so you can watch the separation logs), prints which
+backends the server actually has, starts the Studio front end, and opens a browser at
+`http://localhost:5080`. Ports already in use are reused rather than fought over.
+
+Add `-Stubs` to skip the ML backends entirely — instant startup, fake stems, useful when
+you are working on the UI.
+
+### Or start the pieces yourself
 
 ```bash
 powershell -File scripts/dev-api.ps1

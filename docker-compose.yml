@@ -1,0 +1,32 @@
+# Local stack. The api image installs the ML extras, so the first build is large
+# and slow; use the stub backends and run uvicorn directly for the fast dev loop.
+services:
+  api:
+    build:
+      context: ./services/api
+    environment:
+      SEPARATION_BACKEND: demucs
+      TRANSCRIPTION_BACKEND: basic_pitch
+      DRUM_BACKEND: onset
+      MASTERING_BACKEND: matchering
+      STORAGE_DIR: /data
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    volumes:
+      - extract0r-storage:/data
+      - demucs-models:/root/.cache/torch
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: ./apps/web
+    environment:
+      API_ORIGIN: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  extract0r-storage:
+  demucs-models:

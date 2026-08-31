@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# User audio and generated artifacts - never commit these
+storage/
+!storage/.gitkeep
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.x0r
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

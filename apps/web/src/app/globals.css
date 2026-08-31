@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0b0d10;
+  --color-panel: #14181d;
+  --color-edge: #232a32;
+  --color-muted: #8b96a5;
+  --color-accent: #35e08a;
+  --color-warn: #ffb454;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+}
+
+body {
+  background: var(--color-ink);
+  color: #e7ecf2;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Tab output is fixed-width art: it must never wrap or the staff falls apart. */
+.tab-output {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+  overflow-x: auto;
+}

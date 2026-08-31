@@ -1,0 +1,8 @@
+Sample - drums (Extract0r)
+==========================
+
+tempo: 120 BPM   grid: 1/16
+
+HH|x-x-x-x-x-x-x-x-|x-x-x-x-x-x-x-x|
+SD|----o-------o---|----o-------o--|
+BD|o-------o-------|o-------o------|

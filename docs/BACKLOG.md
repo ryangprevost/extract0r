@@ -3,8 +3,9 @@
 Sprint-ready cards. Each is independently demoable and sized in points (1 ≈ half a day,
 2 ≈ a day, 3 ≈ two days, 5 ≈ most of a week, 8 ≈ split it before you start).
 
-**Status legend** — `DONE` shipped and tested in this scaffold · `PARTIAL` structure and
-interfaces exist, the real implementation does not · `TODO` not started.
+**Status legend** — `DONE` shipped and verified · `PARTIAL` partly built, gaps named on
+the card · `TODO` not started. Individual criteria are marked ✅ done, ⏳ blocked on
+another card, ❌ not started.
 
 | Epic | Theme | Points | Phase |
 |---|---|---|---|
@@ -61,13 +62,17 @@ interfaces exist, the real implementation does not · `TODO` not started.
 
 ---
 
-### X0R-105 · CI pipeline · 3 · `TODO`
+### X0R-105 · CI pipeline · 3 · `PARTIAL`
 **As a** maintainer **I want** every push checked **so that** main stays releasable.
 
 **Acceptance criteria**
-- GitHub Actions matrix: `ruff check`, `pytest --cov`, `tsc --noEmit`, `next build`.
-- ML extras are **not** installed in CI; the stub backends cover the suite.
-- Coverage on `app/domain/` gated at ≥ 85%.
+- GitHub Actions: `ruff check`, `pytest --cov` on 3.11 and 3.12, `tsc --noEmit`, `next build`. ✅ written
+- ML extras are **not** installed in the fast job; the stub backends cover the suite. ✅
+- Coverage on `app/domain/` gated at >= 85%. ✅ written
+- Nightly `ml-smoke` job installs the real backends and runs the `ml`-marked tests. ✅ written
+
+Written but **never executed** — the project has no git remote, so nothing has run this
+workflow. Treat `.github/workflows/ci.yml` as unverified until the first push.
 
 ---
 
@@ -111,11 +116,20 @@ Click-to-select and the attestation gate are built; drag-and-drop, client-side d
 
 ---
 
-### X0R-205 · Audio probe and normalisation on ingest · 3 · `TODO`
+### X0R-205 · Audio probe and normalisation on ingest · 3 · `DONE`
 **Acceptance criteria**
-- `ffprobe` records duration, sample rate, channels, and codec on the track record.
-- Anything that is not 44.1 kHz stereo WAV is transcoded once at ingest, so downstream stages have one input format.
-- Files under 5 s or over the configured maximum duration are rejected with a clear message.
+- Duration, sample rate, channels, and codec recorded on the track record. ✅
+- Anything not 44.1 kHz stereo is normalised once, so downstream stages see one format. ✅
+- Files under 5 s or over the maximum duration are rejected with a clear message. ✅
+
+**Built differently from the card.** It specified `ffprobe`; the implementation prefers
+`soundfile`, because the bundled libsndfile 1.2 reads WAV/FLAC/OGG/AIFF **and MP3** with
+no system dependency at all. ffprobe is now only the fallback for m4a/aac. That took
+ffmpeg off the Phase 1 critical path entirely.
+
+Probing happens in the upload request — it is a header read, and it is what catches a
+file that merely has an audio extension. Normalisation happens as the first step of the
+separation job instead, so uploads stay fast and the decode gets a progress bar.
 
 ---
 
@@ -135,23 +149,44 @@ Click-to-select and the attestation gate are built; drag-and-drop, client-side d
 
 ---
 
-### X0R-302 · Demucs v4 integration · 5 · `PARTIAL`
-The adapter and CLI invocation are written; it has never run, because torch is not installed here.
+### X0R-302 · Demucs v4 integration · 5 · `DONE`
+Runs for real, verified on Python 3.12 / torch 2.13.0+cpu / demucs 4.1.0.
 
 **Acceptance criteria**
-- `htdemucs_6s` produces drums, bass, vocals, other, guitar, piano.
-- Model weights are cached in a mounted volume, not re-downloaded per container start.
-- A three-minute song separates in under five minutes on 4 CPU cores.
-- Failure surfaces as a `failed` job with the Demucs stderr tail, not a stack trace.
+- `htdemucs` produces drums, bass, vocals, other at 44.1 kHz with correct durations. ✅
+- Failure surfaces as a `failed` job carrying the tail of Demucs' own output. ✅
+- Model weights cached in a mounted volume, not re-downloaded per container start. ✅ compose config, unverified
+- A three-minute song separates in under five minutes on 4 CPU cores. ⏳ **unmeasured on real music**
+
+`htdemucs_6s` produces all six stems — drums, bass, vocals, other, guitar, piano —
+verified end to end via `tools/verify_pipeline.py`. 12 s of audio took 23 s on 4 CPU
+cores: **1.9× realtime**, which is right at the threshold that would trigger X0R-307
+(GPU). Extrapolating, a three-minute song lands near six minutes, so the five-minute
+target is probably already missed — but that extrapolation is from synthetic audio and
+needs confirming on real music.
+
+**The install was the hard part, not the code.** Windows MAX_PATH breaks
+`pip install torch` inside this project tree and leaves a half-installed torch behind,
+surfacing as `ModuleNotFoundError: No module named 'torchgen'`. The ML venv now lives on
+a short path. Full write-up in docs/RUNBOOK.md.
+
+**Found by running it:** Demucs exits 0 when handed a missing input file. A clean return
+code is not proof of success, so the adapter also checks that stems were actually written
+and includes Demucs' own output in the error.
 
 ---
 
-### X0R-303 · Real progress from the separator · 3 · `TODO`
+### X0R-303 · Real progress from the separator · 3 · `DONE`
 **As a** user **I want** the bar to move during separation **so that** I can tell the difference between working and hung.
 
 **Acceptance criteria**
-- Demucs stdout is parsed for its progress percentage and mapped onto `JobHandle.update`.
-- Progress is monotonic and reaches 1.0 exactly once.
+- Demucs' tqdm output is streamed, parsed, and mapped onto `JobHandle.update`. ✅
+- Progress is monotonic and reaches 1.0 exactly once. ✅
+
+`parse_progress()` is a pure function tested against captured CLI output, so a change in
+Demucs' bar format is caught without a model download. Progress is clamped
+non-decreasing because a bag-of-models run restarts its bar per model. Decoding owns the
+first 5% of the job; the model owns the rest.
 
 ---
 
@@ -170,12 +205,31 @@ The adapter and CLI invocation are written; it has never run, because torch is n
 
 ---
 
-### X0R-306 · Separation quality benchmark · 3 · `TODO`
+### X0R-306 · Separation and transcription quality benchmark · 5 · `TODO`
+**Now the gating card for the whole transcription epic — promoted to lead sprint 2, and
+re-sized from 3 to 5 because it must cover transcription as well as separation.**
+
 **As a** developer **I want** a repeatable quality number **so that** a model or parameter change is a measurement, not a vibe.
 
 **Acceptance criteria**
 - SDR/SIR/SAR computed against a small licensed multitrack set (MUSDB18-HQ or self-recorded).
-- Results written to `docs/benchmarks/separation.md` with the model and commit.
+- Note-level precision/recall/F1 for transcription, with and without octave tolerance.
+- Wall-clock separation time for a real three-minute song, as a realtime multiple.
+- Results written to `docs/benchmarks/` with the model, backend versions, and commit.
+
+**Why it was promoted.** Sprint 1 finished with every backend running and no idea whether
+any of it is accurate. The end-to-end run on synthetic audio returned a bass line an
+octave high and a tempo of 60 BPM against a true 120 — and a controlled check showed pYIN
+reads those notes correctly from the *unseparated* signal, so the fault lay in feeding
+Demucs synthetic sine waves it was never trained on.
+
+The lesson is the important part: **synthetic audio cannot measure quality.** It exercises
+the wiring and nothing else. Until there is a real eval set, every threshold in the
+transcription stack — confidence cutoffs, minimum note length, pitch ranges — is a guess,
+and X0R-405 and X0R-406 both have acceptance criteria parked waiting on this.
+
+Recording a few DI bass and guitar parts gives exact ground truth faster than licensing
+anything, and sidesteps the copyright question entirely.
 
 ---
 
@@ -199,11 +253,23 @@ The adapter and CLI invocation are written; it has never run, because torch is n
 **As a** guitarist **I want** the tab to keep my hand in one place **so that** it is playable rather than technically correct.
 
 **Acceptance criteria**
-- Optimises position across a phrase, not note by note (Viterbi over onset clusters).
-- Chord notes never share a string; hand span never exceeds the configured maximum.
-- Out-of-range pitches raise `UnplayableError` rather than being silently dropped.
-- Capo and span are configurable via `SolverConfig`.
-- Covered by tests asserting position stability, distinct strings, and total note assignment.
+- Optimises position across a phrase, not note by note (Viterbi over onset clusters). ✅
+- Chord notes never share a string; hand span never exceeds the configured maximum. ✅
+- Out-of-range pitches are handled by an explicit, configurable policy. ✅ *revised — see below*
+- Capo and span are configurable via `SolverConfig`. ✅
+- Covered by tests asserting position stability, distinct strings, and note accounting. ✅
+
+**Revised in sprint 1.** The original criterion — "out-of-range pitches raise
+`UnplayableError` rather than being silently dropped" — was written against hand-entered
+input and turned out to be wrong for model output. The first end-to-end run on real
+Demucs + basic-pitch output died on a single G1 (MIDI 31) leaking from the bass into the
+guitar stem: one stray note aborted the entire transcription.
+
+`SolverConfig.unplayable` now selects `RAISE` / `DROP` / `FOLD`, defaulting to `DROP`.
+`solve_with_report()` returns what was discarded, the counts reach the API as
+`dropped_count` / `folded_count`, and the pipeline logs them — so nothing is *silently*
+dropped, which was the point of the original criterion, without one bad note costing the
+whole job.
 
 ---
 
@@ -222,24 +288,50 @@ The adapter and CLI invocation are written; it has never run, because torch is n
 
 ---
 
-### X0R-405 · basic-pitch integration · 5 · `PARTIAL`
-The adapter exists; it has never run, because TensorFlow is not installed here.
+### X0R-405 · Pitched transcription · 5 · `DONE`
+Both backends run for real. The scope changed during the sprint — see below.
 
 **Acceptance criteria**
-- Polyphonic transcription of the bass, guitar, and piano stems.
-- Onset/frame thresholds exposed per stem, with defaults tuned separately for bass (monophonic, low) and guitar (polyphonic).
-- Notes below the confidence threshold are filtered before they reach the solver.
-- A clean DI bass line transcribes with ≥ 90% note accuracy on the eval set.
+- Polyphonic transcription of guitar and piano (basic-pitch). ✅
+- Monophonic transcription of bass and vocals (pYIN). ✅
+- Notes below the confidence threshold are filtered before reaching the solver. ✅
+- Output survives the fretboard solver without unplayable pitches. ✅ smoke-tested
+- A clean DI bass line transcribes with >= 90% note accuracy. ⏳ needs X0R-306's eval set
+
+**Split into two backends, which was not the plan.** A bass line is monophonic, so a
+polyphonic neural net is both slower and less accurate on it than a pitch tracker.
+`PyinTranscriber` (librosa, no extra dependencies) now handles bass and vocals;
+basic-pitch handles guitar, piano, and other. `TRANSCRIPTION_BACKEND=auto` chooses per
+stem. Useful side effect: bass transcription works anywhere librosa does — no ONNX, no
+torch.
+
+**basic-pitch cannot be pip-installed on Python 3.12.** It pins `tensorflow<2.15.1`;
+TensorFlow's oldest 3.12 wheel is 2.16. The package also ships ONNX weights, so it is
+installed `--no-deps` and runs on onnxruntime. Verified: a 220 Hz sine gives exactly one
+note, MIDI 57 (A3). `Transcription.backend` records `basic_pitch:onnx`, so the runtime is
+visible in every `.x0r`. Write-up in docs/RUNBOOK.md.
+
+**Found by running it:** librosa's default 2048-sample analysis frame is under two cycles
+of a 5-string bass low B, which makes pYIN return wrong pitches *without raising
+anything*. Frame length is now derived from the stem's lowest expected pitch.
 
 ---
 
 ### X0R-406 · Drum onset transcription · 5 · `PARTIAL`
-Spectral-flux onsets plus a three-band energy classifier are written but unrun.
+Runs for real against librosa. Onsets, GM key mapping, and tempo detection are verified;
+accuracy is not.
 
 **Acceptance criteria**
-- Kick, snare, and hi-hat separated with ≥ 80% F1 on the eval set.
-- Toms and cymbals classified, or explicitly reported as unsupported.
-- Tempo comes from beat tracking, not the 120 BPM default.
+- Finds the right number of onsets on a click track, and emits only GM drum keys. ✅
+- Tempo comes from beat tracking, not the 120 BPM default. ✅
+- Kick, snare, hi-hat separated with >= 80% F1 on the eval set. ⏳ needs X0R-306
+- Toms and cymbals classified, or explicitly reported as unsupported. ❌ not started
+
+**Found by running it: tempo octave ambiguity is real and immediate.** A 100 BPM click
+track and a 200 BPM one both report ~99.4 BPM. That is normal beat-tracker behaviour
+rather than a bug, but it means the tab grid can land at half or double time. Fixing it
+needs a time signature and bar structure — so **X0R-407 is a prerequisite for trusting
+drum output**, not a nice-to-have. Promote it accordingly.
 
 ---
 
@@ -368,10 +460,13 @@ Spectral-flux onsets plus a three-band energy classifier are written but unrun.
 
 ---
 
-### X0R-605 · Scheduled retention sweep · 1 · `TODO`
+### X0R-605 · Scheduled retention sweep · 1 · `DONE`
 **Acceptance criteria**
-- Sweep runs on a timer, not only at boot, so a long-lived process still honours retention.
-- Each sweep logs a count for audit.
+- Sweep runs on a timer (`RETENTION_SWEEP_MINUTES`), not only at boot. ✅
+- Each sweep logs a count for audit, including zero. ✅
+
+An asyncio task owned by the app lifespan and cancelled cleanly on shutdown. The purge
+runs in a worker thread so a large storage directory cannot block the event loop.
 
 ---
 

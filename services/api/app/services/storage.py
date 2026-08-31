@@ -66,11 +66,19 @@ class TrackStorage:
             size_bytes=len(data),
         )
 
+    def normalized_path(self, track_id: str) -> Path:
+        """Canonical 44.1 kHz stereo WAV, written once at the start of separation."""
+        return self.track_dir(track_id) / "source.normalized.wav"
+
     def source_path(self, track_id: str) -> Path | None:
         directory = self.track_dir(track_id)
         if not directory.is_dir():
             return None
-        return next((p for p in directory.glob("source.*")), None)
+        # Skip the normalised copy - callers asking for the source want the upload.
+        return next(
+            (p for p in directory.glob("source.*") if p.name != "source.normalized.wav"),
+            None,
+        )
 
     def delete(self, track_id: str) -> None:
         shutil.rmtree(self.track_dir(track_id), ignore_errors=True)

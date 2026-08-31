@@ -73,6 +73,8 @@ def start_transcription(
                     note_count=a.note_count,
                     download_url=f"/api/v1/tracks/{track_id}/tabs/{a.stem.value}",
                     preview=a.tab_text[:PREVIEW_CHARS],
+                    dropped_count=a.dropped_count,
+                    folded_count=a.folded_count,
                 )
                 for a in bundle.artifacts
             ],

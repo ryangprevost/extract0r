@@ -23,15 +23,21 @@ class Settings(BaseSettings):
     # --- storage -----------------------------------------------------------
     storage_dir: Path = Field(default=REPO_ROOT / "storage")
     max_upload_mb: int = 60
+    # Anything shorter is almost certainly a mis-drop; anything longer blows out job time.
+    min_duration_s: float = 5.0
+    max_duration_s: float = 600.0
     # Uploads are deleted this long after the job finishes. Keeping user audio around
     # is a legal liability, not a feature.
     retention_hours: int = 24
+    # How often the background sweep runs. 0 disables it (boot sweep still happens).
+    retention_sweep_minutes: int = 30
 
     # --- backends ----------------------------------------------------------
     separation_backend: str = "stub"        # stub | demucs
     demucs_model: str = "htdemucs_6s"
     demucs_device: str = "cpu"
-    transcription_backend: str = "stub"     # stub | basic_pitch
+    # auto = pyin for monophonic stems, basic_pitch for polyphonic ones.
+    transcription_backend: str = "stub"     # stub | auto | pyin | basic_pitch
     drum_backend: str = "stub"              # stub | onset
     mastering_backend: str = "loudness"     # loudness | matchering
 

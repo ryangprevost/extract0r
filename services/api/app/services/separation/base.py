@@ -6,6 +6,7 @@ pipeline never has to care whether Demucs, Spleeter, or the stub produced them.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -38,4 +39,34 @@ class Separator(Protocol):
     def available(self) -> bool:
         """True when this backend's heavy dependencies are actually installed."""
 
-    def separate(self, source: Path, out_dir: Path) -> SeparationResult: ...
+    def separate(
+        self,
+        source: Path,
+        out_dir: Path,
+        on_progress: Callable[[float], None] | None = None,
+    ) -> SeparationResult:
+        """Split ``source`` into stems under ``out_dir``.
+
+        ``on_progress`` receives a monotonically increasing 0..1 fraction when the
+        backend can report one; backends that cannot simply never call it.
+        """
+
+
+def describe_stem(kind: StemKind, path: Path) -> SeparatedStem:
+    """Build a :class:`SeparatedStem`, filling in real duration when it is cheap to read.
+
+    Probing is header-only, so this costs nothing next to the separation itself, and it
+    means the UI can show stem lengths without a second round trip.
+    """
+    from app.services.audio.probe import UnreadableAudioError, probe
+
+    try:
+        info = probe(path)
+    except UnreadableAudioError:
+        return SeparatedStem(kind=kind, path=path, sample_rate=44100, duration_s=0.0)
+    return SeparatedStem(
+        kind=kind,
+        path=path,
+        sample_rate=info.sample_rate,
+        duration_s=info.duration_s,
+    )

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from app.services.audio.probe import AudioInfo
 from app.services.separation.base import SeparationResult
 from app.services.storage import StoredTrack
 
@@ -19,6 +20,7 @@ from app.services.storage import StoredTrack
 class TrackRecord:
     stored: StoredTrack
     attestation: dict[str, Any]
+    audio: AudioInfo | None = None
     separation: SeparationResult | None = None
     uploaded_at: str = field(
         default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds")

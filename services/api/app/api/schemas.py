@@ -31,12 +31,17 @@ class TrackResponse(BaseModel):
     size_bytes: int
     sha256: str
     duration_s: float | None = None
+    sample_rate: int | None = None
+    channels: int | None = None
+    format: str | None = None
 
 
 class StemInfo(BaseModel):
     stem: StemKind
     filename: str
     bytes: int
+    duration_s: float = 0.0
+    sample_rate: int = 0
 
 
 class SeparationResponse(BaseModel):
@@ -60,6 +65,10 @@ class TabArtifact(BaseModel):
     note_count: int
     download_url: str
     preview: str
+    # Notes the instrument could not play (usually separation bleed), and notes shifted
+    # by whole octaves to fit. Non-zero is normal, not an error.
+    dropped_count: int = 0
+    folded_count: int = 0
 
 
 class TranscribeResponse(BaseModel):

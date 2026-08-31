@@ -15,30 +15,96 @@ the application.
 
 ---
 
-## Sprint 1 — Make it real · 20 pts
+## Sprint 1 — Make it real · 20 pts · **complete**
 
-X0R-302 (Demucs, 5) · X0R-405 (basic-pitch, 5) · X0R-205 (audio probe, 3) ·
-X0R-303 (real progress, 3) · X0R-105 (CI, 3) · X0R-605 (scheduled sweep, 1)
+X0R-302 (Demucs, 5) ✅ · X0R-405 (pitched transcription, 5) ✅ · X0R-205 (audio probe, 3) ✅ ·
+X0R-303 (real progress, 3) ✅ · X0R-605 (scheduled sweep, 1) ✅ · X0R-105 (CI, 3) — written,
+never executed
 
-The riskiest sprint: every estimate here depends on model behaviour nobody has measured
-yet. Budget the whole first day for getting torch and TensorFlow installed on Windows.
+**Demo:** `tools/verify_pipeline.py` runs a synthesised mix through the real backends end
+to end. Measured on this machine: `htdemucs_6s` produced all six stems (drums, bass,
+vocals, other, guitar, piano) from 12 s of audio in 23 s — **1.9× realtime on 4 CPU
+cores**, right at the threshold that would trigger X0R-307 (GPU). Transcription of four
+stems added 10 s.
 
-**Demo:** a real song separates and the bass line transcribes correctly.
+### What the sprint actually cost
 
-**Exit criteria:** stub backends are no longer the default in any environment.
+"Budget the whole first day for getting torch installed on Windows" turned out to be the
+accurate part of the plan. Two install blockers, neither of which is a code problem:
+
+1. **Windows MAX_PATH.** `pip install torch` fails inside this project tree — the path is
+   long enough that torch's bundled licence directory exceeds 260 characters — and leaves
+   a *half-installed* torch behind. The visible symptom is
+   `ModuleNotFoundError: No module named 'torchgen'`, which points nowhere near the cause.
+   Resolved with a second venv on a short path.
+2. **basic-pitch pins `tensorflow<2.15.1`**, and TensorFlow ships nothing below 2.16 for
+   Python 3.12. pip responds by backtracking to a source distribution and trying to build
+   numpy, so the error you see is `Failed to build 'numpy'`. Resolved by installing
+   `--no-deps` and running the bundled ONNX weights on onnxruntime.
+
+Both are now in docs/RUNBOOK.md and automated in `scripts/install-ml.ps1`, which verifies
+each backend imports before it claims success.
+
+### What changed versus the plan
+
+- **Ingest does not use ffprobe.** `soundfile`'s bundled libsndfile reads MP3, so probing
+  and decoding need no system dependency. ffmpeg left the Phase 1 critical path entirely.
+- **Pitched transcription became two backends, not one.** Bass is monophonic, so pYIN
+  (librosa, no extra install) beats a polyphonic neural net on it. basic-pitch now covers
+  only guitar and piano. `TRANSCRIPTION_BACKEND=auto` selects per stem.
+
+### Four things running the real backends taught us
+
+- **Demucs exits 0 on a missing input file.** A clean return code is not proof of success,
+  so the adapter checks that stems were written and surfaces Demucs' own output.
+- **librosa's default pYIN frame is too short for bass.** 2048 samples is under two cycles
+  of a 5-string low B, and it returns wrong pitches *without raising anything*. Frame
+  length is now derived from the stem's lowest expected pitch.
+- **Tempo octave ambiguity is immediate and unavoidable.** A 100 BPM click and a 200 BPM
+  click both report ~99.4 BPM. This makes X0R-407 a prerequisite for trusting drum output,
+  not the nice-to-have it was scheduled as.
+- **One out-of-range note aborted the whole transcription.** Bass bleed into the guitar
+  stem produced a G1, and the solver's strict `UnplayableError` — correct for
+  hand-entered input — killed the job. Real model output needs a policy, not an
+  exception. Now `DROP` by default, with the counts reported. This only surfaced because
+  the pipeline was run end to end on real output; no unit test would have found it.
+
+### Still open
+
+- **No accuracy number exists for anything**, and sprint 1 showed why that matters more
+  than it looked. The end-to-end run returned a bass line an octave high and a drum tempo
+  of 60 BPM against a true 120. A controlled check ruled pYIN out — it reads the same
+  notes correctly from the unseparated signal — so the fault is Demucs being fed
+  synthetic sine waves, far outside its training distribution. **The synthetic harness
+  cannot measure quality**; it only proves the wiring. X0R-306 is now the gating card for
+  the entire transcription epic.
+- Separation speed measured at 1.9× realtime on synthetic audio only. A real three-minute
+  song is still unmeasured, and 1.9× leaves almost no headroom.
+- CI has never run: no git remote.
 
 ---
 
-## Sprint 2 — Tab you would actually use · 21 pts
+## Sprint 2 — Trust the output · 21 pts · **re-ordered after sprint 1**
 
-X0R-406 (drum transcription, 5) · X0R-407 (tempo/key, 3) · X0R-409 (tuning detection, 3) ·
-X0R-203 (upload UX, 3) · X0R-304 (stem preview, 3) · X0R-306 (quality benchmark, 3) ·
+X0R-306 (quality benchmark, 3) · X0R-407 (tempo/key, 3) · X0R-406 finish (drums, 5) ·
+X0R-409 (tuning detection, 3) · X0R-203 (upload UX, 3) · X0R-304 (stem preview, 3) ·
 X0R-503 (MIDI export, 2)
 
-X0R-407 lands before the rest of the tab work because everything downstream quantises
-against the detected tempo — doing it late means re-testing all of it.
+**X0R-306 moved to the front of the sprint.** It was scheduled sixth. Sprint 1 ended with
+every backend running and *no idea whether any of it is accurate* — the smoke tests prove
+the adapters work, not that the transcription is right. Until there is a number, every
+tuning decision downstream is guesswork. Do it first; it also unblocks the deferred
+acceptance criteria on X0R-405 and X0R-406.
 
-**Demo:** drums and guitar from a real song, in the right tuning, on a correct grid.
+Getting a licensed multitrack set is the long pole. MUSDB18-HQ is the obvious choice for
+separation; for transcription, recording a few DI bass and guitar parts is faster than
+licensing anything and gives exact ground truth.
+
+X0R-407 stays early: everything downstream quantises against the detected tempo, and
+sprint 1 showed the tempo can be out by a factor of two.
+
+**Demo:** drums and guitar from a real song, in the right tuning, on a correct grid — with
+an accuracy figure next to it.
 
 ---
 
@@ -103,8 +169,9 @@ X0R-704 (accounts, 5 — pull forward if history is wanted sooner)
 
 | Risk | Sprint | Mitigation |
 |---|---|---|
-| Torch/TensorFlow install pain on Windows | 1 | Do the Docker path first; treat native Windows as the fallback |
-| Transcription accuracy below what a guitarist will tolerate | 2–3 | X0R-408 (manual correction) is the safety net; build it, do not defer it |
-| Separation is too slow on CPU to feel interactive | 1 | Measure in sprint 1; if it exceeds ~2× real time, prioritise X0R-307 (GPU) |
+| ~~Torch/TensorFlow install pain on Windows~~ | ~~1~~ | **Hit, and resolved.** Two-venv setup plus the ONNX path; see docs/RUNBOOK.md |
+| Transcription accuracy below what a guitarist will tolerate | 2–3 | **Still entirely unknown.** X0R-306 now leads sprint 2; X0R-408 (manual correction) is the safety net |
+| Separation is too slow on CPU to feel interactive | 2 | Still unmeasured on a real song. `tools/verify_pipeline.py` prints a realtime multiple; if it exceeds ~2×, prioritise X0R-307 (GPU) |
+| Tempo detection off by an octave, corrupting every grid | 2 | Seen in sprint 1. X0R-407 promoted to a prerequisite for drum output |
 | Legal review returns changes that alter the product | 4 | Start it in sprint 4, keep notices centralised in `app/legal.py` |
 | Browser preview and server render disagree | 6 | Pick one as authoritative in the sprint-6 design spike |

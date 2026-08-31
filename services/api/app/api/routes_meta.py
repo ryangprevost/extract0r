@@ -27,6 +27,7 @@ def capabilities(settings: Settings = Depends(get_config)) -> dict:
     from app.services.separation.demucs import DemucsSeparator
     from app.services.transcription.basic_pitch import BasicPitchTranscriber
     from app.services.transcription.drums import OnsetDrumTranscriber
+    from app.services.transcription.pyin import PyinTranscriber
 
     return {
         "configured": {
@@ -38,6 +39,7 @@ def capabilities(settings: Settings = Depends(get_config)) -> dict:
         "installed": {
             "demucs": DemucsSeparator().available(),
             "basic_pitch": BasicPitchTranscriber().available(),
+            "pyin": PyinTranscriber().available(),
             "onset_drums": OnsetDrumTranscriber().available(),
             "matchering": MatcheringEngine().available(),
             "ffmpeg": LoudnessMatchEngine().available(),

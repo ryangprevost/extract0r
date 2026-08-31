@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Nightly, so the ML adapters cannot silently rot between sprints.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    defaults:
+      run:
+        working-directory: services/api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: services/api/requirements*.txt
+
+      # The ML extras are deliberately NOT installed here (ADR-0002). The stub backends
+      # cover the whole suite, which keeps CI at seconds instead of a multi-GB download.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip install numpy soundfile soxr
+
+      - name: Lint
+        run: ruff check app tests
+
+      - name: Test
+        run: pytest --cov=app --cov-report=term-missing --cov-report=xml
+
+      # The domain layer is the part that must not rot: it is pure, it is the product's
+      # actual logic, and there is no excuse for leaving it uncovered.
+      - name: Enforce domain coverage
+        run: coverage report --include="app/domain/*" --fail-under=85
+
+      - name: Upload coverage
+        if: matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: services/api/coverage.xml
+          if-no-files-found: error
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install
+        run: npm ci || npm install
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  ml-smoke:
+    name: ML backends (nightly)
+    # Multi-gigabyte installs and model downloads: too slow for every push, but the
+    # adapters still need something that actually exercises them.
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[ml]')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install ML extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-ml.txt
+
+      - name: Run the backend smoke tests
+        run: pytest -m ml -q

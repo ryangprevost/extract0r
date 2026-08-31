@@ -17,14 +17,16 @@ Long-running operations return `202` with a job id; poll `/jobs/{id}` until `sta
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/tracks` | Multipart. Fields: `file`, `owns_or_licensed`, `personal_use_only`. Returns `201` with `track_id` and SHA-256 |
+| `POST` | `/tracks` | Multipart. Fields: `file`, `owns_or_licensed`, `personal_use_only`. Returns `201` with `track_id`, SHA-256, and probed duration/sample rate/channels |
 | `POST` | `/tracks/{id}/separate` | `202` + job. Writes `storage/{id}/stems/` |
 | `GET` | `/tracks/{id}/stems` | The separation result. `409` if separation has not finished |
 | `DELETE` | `/tracks/{id}` | `204`. Immediate, unconditional — deletes the folder and the record |
 | `GET` | `/tracks/tunings` | Tunings the solver can target, for the UI dropdown |
 
 **Upload errors:** `400` empty · `403` missing rights attestation · `413` too large ·
-`415` unsupported format.
+`415` unsupported format, or a file that has an audio extension but is not decodable ·
+`422` outside the configured duration limits. A rejected upload is deleted before the
+response is returned.
 
 ## Transcription
 
@@ -34,8 +36,10 @@ Long-running operations return `202` with a job id; poll `/jobs/{id}` until `sta
 | `GET` | `/tracks/{id}/tabs/{stem}` | `text/plain` ASCII tab, as a download |
 | `GET` | `/tracks/{id}/x0r` | The full session document |
 
-The job result carries one artifact per stem: notation type, note count, download URL, and
-a 2000-character preview for the UI.
+The job result carries one artifact per stem: notation type, note count, download URL, a
+2000-character preview, and `dropped_count` / `folded_count` — notes the instrument could
+not play (usually separation bleed) and notes shifted by whole octaves to fit. Non-zero is
+normal, not an error.
 
 ## Mix and master (phase 2)
 

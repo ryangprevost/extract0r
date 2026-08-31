@@ -3,3 +3,7 @@ uvicorn[standard]>=0.32
 pydantic>=2.9
 pydantic-settings>=2.6
 python-multipart>=0.0.12
+# Ingest probing and canonical decoding. Small wheels, no system dependencies.
+numpy>=1.26
+soundfile>=0.12
+soxr>=0.5

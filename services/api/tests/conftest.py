@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import struct
 import wave
 from pathlib import Path
@@ -9,15 +10,33 @@ import pytest
 from app.api import deps
 from app.config import Settings, get_settings
 
+# Long enough to clear Settings.min_duration_s, short enough that tests stay fast.
+DEFAULT_TEST_SECONDS = 8.0
 
-def write_silent_wav(path: Path, seconds: float = 1.0, sample_rate: int = 44100) -> Path:
-    """A tiny real WAV file, so upload/format checks exercise the same code path."""
+
+def write_tone_wav(
+    path: Path,
+    seconds: float = DEFAULT_TEST_SECONDS,
+    sample_rate: int = 44100,
+    channels: int = 2,
+    frequency: float = 220.0,
+) -> Path:
+    """A real WAV with actual signal in it.
+
+    Silence would pass the probe but is useless the moment a test touches a real
+    analysis backend, so the fixture generates a tone instead.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    frames = bytearray()
+    for index in range(int(sample_rate * seconds)):
+        value = int(16000 * math.sin(2 * math.pi * frequency * index / sample_rate))
+        frames += struct.pack("<h", value) * channels
+
     with wave.open(str(path), "wb") as handle:
-        handle.setnchannels(1)
+        handle.setnchannels(channels)
         handle.setsampwidth(2)
         handle.setframerate(sample_rate)
-        handle.writeframes(struct.pack("<h", 0) * int(sample_rate * seconds))
+        handle.writeframes(bytes(frames))
     return path
 
 
@@ -30,6 +49,8 @@ def settings(tmp_path: Path) -> Settings:
         transcription_backend="stub",
         drum_backend="stub",
         environment="test",
+        # The sweep is exercised directly in tests; no timer needed in the app fixture.
+        retention_sweep_minutes=0,
     )
 
 
@@ -62,4 +83,16 @@ def client(settings: Settings, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def sample_wav(tmp_path: Path) -> Path:
-    return write_silent_wav(tmp_path / "sample.wav")
+    return write_tone_wav(tmp_path / "sample.wav")
+
+
+@pytest.fixture
+def short_wav(tmp_path: Path) -> Path:
+    """Below Settings.min_duration_s, for the ingest rejection path."""
+    return write_tone_wav(tmp_path / "short.wav", seconds=1.0)
+
+
+@pytest.fixture
+def mono_22k_wav(tmp_path: Path) -> Path:
+    """Deliberately off-spec, so normalisation has something to actually fix."""
+    return write_tone_wav(tmp_path / "mono22k.wav", sample_rate=22050, channels=1)

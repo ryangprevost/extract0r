@@ -7,10 +7,11 @@ API, the job queue, and the front end without a 2 GB model download.
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 from app.domain.notes import StemKind
-from app.services.separation.base import SeparatedStem, SeparationResult
+from app.services.separation.base import SeparationResult, describe_stem
 
 DEFAULT_STEMS = (StemKind.DRUMS, StemKind.BASS, StemKind.VOCALS, StemKind.OTHER)
 
@@ -24,13 +25,18 @@ class StubSeparator:
     def available(self) -> bool:
         return True
 
-    def separate(self, source: Path, out_dir: Path) -> SeparationResult:
+    def separate(
+        self,
+        source: Path,
+        out_dir: Path,
+        on_progress: Callable[[float], None] | None = None,
+    ) -> SeparationResult:
         out_dir.mkdir(parents=True, exist_ok=True)
         produced = []
-        for kind in self.stems:
+        for index, kind in enumerate(self.stems, start=1):
             target = out_dir / f"{kind.value}{source.suffix or '.wav'}"
             shutil.copyfile(source, target)
-            produced.append(
-                SeparatedStem(kind=kind, path=target, sample_rate=44100, duration_s=0.0)
-            )
+            produced.append(describe_stem(kind, target))
+            if on_progress:
+                on_progress(index / len(self.stems))
         return SeparationResult(tuple(produced), backend=self.name, model="passthrough")

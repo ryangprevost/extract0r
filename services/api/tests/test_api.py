@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import pytest
+
 ATTESTED = {"owns_or_licensed": "true", "personal_use_only": "true"}
 
 
@@ -42,6 +44,62 @@ def test_upload_requires_the_rights_attestation(client, sample_wav):
     response = upload(client, sample_wav, owns_or_licensed="false")
     assert response.status_code == 403
     assert "rights" in response.json()["detail"].lower()
+
+
+def test_upload_rejects_a_track_that_is_too_short(client, short_wav):
+    response = upload(client, short_wav)
+    assert response.status_code == 422
+    assert "accepts" in response.json()["detail"]
+
+
+def test_upload_rejects_a_file_that_only_looks_like_audio(client, tmp_path):
+    # Right extension, wrong contents - the probe is what catches this.
+    impostor = tmp_path / "song.wav"
+    impostor.write_bytes(b"definitely not a RIFF header, but the name says wav")
+    with impostor.open("rb") as handle:
+        response = client.post(
+            "/api/v1/tracks",
+            files={"file": ("song.wav", handle, "audio/wav")},
+            data=ATTESTED,
+        )
+    assert response.status_code == 415
+
+
+def test_rejected_upload_leaves_nothing_on_disk(client, short_wav):
+    upload(client, short_wav)
+    # A rejected track must not linger past the request that created it.
+    assert not any(client.storage.root.iterdir())
+
+
+def test_upload_returns_probed_audio_properties(client, sample_wav):
+    body = upload(client, sample_wav).json()
+    assert body["duration_s"] == pytest.approx(8.0, abs=0.05)
+    assert body["sample_rate"] == 44100
+    assert body["channels"] == 2
+
+
+def test_separation_job_reports_increasing_progress(client, sample_wav):
+    track_id = upload(client, sample_wav).json()["track_id"]
+    job_id = client.post(f"/api/v1/tracks/{track_id}/separate").json()["job_id"]
+
+    seen = []
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        body = client.get(f"/api/v1/jobs/{job_id}").json()
+        seen.append(body["progress"])
+        if body["state"] in ("succeeded", "failed"):
+            break
+        time.sleep(0.02)
+
+    assert seen == sorted(seen), "progress went backwards"
+    assert seen[-1] == 1.0
+
+
+def test_stems_listing_includes_duration(client, sample_wav):
+    track_id = upload(client, sample_wav).json()["track_id"]
+    wait_for(client, client.post(f"/api/v1/tracks/{track_id}/separate").json()["job_id"])
+    stems = client.get(f"/api/v1/tracks/{track_id}/stems").json()["stems"]
+    assert all(s["duration_s"] == pytest.approx(8.0, abs=0.05) for s in stems)
 
 
 def test_upload_rejects_unsupported_formats(client, tmp_path):

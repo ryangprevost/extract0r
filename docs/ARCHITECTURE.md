@@ -58,6 +58,37 @@ choosing badly produces a tab nobody can play.
 Weights live in `SolverConfig`, so "prefer open position" versus "stay up the neck" is a
 UI knob, not a rewrite.
 
+### Notes the instrument cannot play
+
+Separation leaks. A guitar stem from Demucs carries bass bleed, and a polyphonic
+transcriber will report notes well below the low E. The first end-to-end run on real
+model output died on exactly this: one G1 aborted the whole transcription.
+
+`SolverConfig.unplayable` now decides what happens, and the default is **drop**:
+
+| Policy | Behaviour | Use |
+|---|---|---|
+| `RAISE` | Abort with `UnplayableError` | Tests and hand-entered input, where a bad pitch is a bug |
+| `DROP` | Omit it, count it | **Default.** Honest — the tab shows only what is playable |
+| `FOLD` | Shift by whole octaves, preserving pitch class | When you would rather keep the line than lose it |
+
+`solve_with_report()` returns the counts, they reach the API as `dropped_count` and
+`folded_count` on each artifact, and the pipeline logs them. A non-zero count is normal,
+not an error — but the user gets told, rather than silently receiving a thinner tab than
+the note count implies.
+
+## Ingest
+
+Upload probes the file (a header read) and rejects anything that is not really audio or
+falls outside the duration limits. Decoding to canonical 44.1 kHz stereo happens as the
+first step of the separation job instead, so uploads stay fast and the decode gets a
+progress bar.
+
+Probing prefers `soundfile` over ffprobe. libsndfile 1.2 is bundled in the wheel and
+reads WAV, FLAC, OGG, AIFF **and MP3**, so the common path needs nothing installed on the
+system; ffmpeg is the fallback for m4a/aac only. That keeps ffmpeg off the Phase 1
+critical path entirely — it is needed only for Phase 2 mixdown and loudness matching.
+
 ## Jobs
 
 Separation is minutes of CPU; it cannot happen in a request. Today: a `ThreadPoolExecutor`

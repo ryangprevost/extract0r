@@ -18,17 +18,28 @@ upload ──► separate ──► pick stems ──► transcribe ──► ex
 
 ## Status
 
-The application is complete and tested end to end on **stub backends**. The ML backends
-(Demucs, basic-pitch, librosa, matchering) are written against real APIs but have never
-been run — this machine has no torch, no ffmpeg, and no Node. What is missing is the
-machine learning, not the app.
+Phase 1 runs for real. Demucs separates, basic-pitch and pYIN transcribe, librosa reads
+the drums — all verified on this machine, not just written.
 
 | | |
 |---|---|
-| Backend tests | **38 passing** (`services/api`) |
-| Domain layer | Real — no third-party dependencies, fully tested |
-| ML backends | Adapters written, unrun (see `PARTIAL` cards in the backlog) |
-| Web app | Written, never built — Node is not installed here |
+| Backend tests | **66 passing**, 6 skipped without the ML extras |
+| ML smoke tests | **12 passing** against real Demucs / basic-pitch / librosa |
+| Domain layer | Pure Python, no third-party dependencies |
+| Separation | Demucs 4.1.0 + torch 2.13 CPU — 4-stem verified, 6-stem not yet run |
+| Transcription | pYIN for bass/vocals, basic-pitch (ONNX) for guitar/piano, onsets for drums |
+| Web app | Written, **never built** — Node is not installed here |
+| CI | Written, **never executed** — no git remote yet |
+| Accuracy | **Unmeasured.** Needs a licensed eval set (X0R-306) |
+
+Two install traps cost most of a sprint and are now documented in
+[docs/RUNBOOK.md](docs/RUNBOOK.md) and automated in `scripts/install-ml.ps1`:
+
+- **Windows `MAX_PATH`** breaks `pip install torch` inside this project tree and leaves a
+  half-installed torch behind, surfacing as `No module named 'torchgen'`. The ML venv
+  therefore lives on a short path, separate from the app venv.
+- **basic-pitch pins `tensorflow<2.15.1`**, which does not exist for Python 3.12. It
+  ships ONNX weights too, so it is installed `--no-deps` and runs on onnxruntime.
 
 ---
 
@@ -55,8 +66,9 @@ through the lattice.
 
 ## Running it
 
-**Prerequisites:** Python 3.11+. Node 20+ for the web app, ffmpeg for mixdown and loudness
-matching — neither is installed on this machine yet.
+**Prerequisites:** Python 3.11+. Node 20+ for the web app. ffmpeg only for Phase 2
+mixdown and loudness matching — ingest does not need it, because the bundled libsndfile
+reads MP3 directly.
 
 ```bash
 powershell -File scripts/dev-api.ps1
@@ -79,27 +91,35 @@ powershell -File scripts/test-api.ps1
 
 ### Turning on the real backends
 
-The stubs let everything run with no models. To get real output:
+The stubs let everything run with no models. For real output:
 
 ```bash
 powershell -File scripts/install-ml.ps1
 ```
 
-Then set in `.env`:
+That builds a separate venv on a short path (Windows `MAX_PATH` — see the runbook),
+installs torch/Demucs/librosa/basic-pitch, and **verifies each backend imports** before
+declaring success. Then set in `.env`:
 
 ```
 SEPARATION_BACKEND=demucs
-TRANSCRIPTION_BACKEND=basic_pitch
+TRANSCRIPTION_BACKEND=auto
 DRUM_BACKEND=onset
-MASTERING_BACKEND=matchering
 ```
 
-Expect several GB of downloads. `GET /api/v1/capabilities` reports what is configured
-versus what is actually importable, and the app falls back to stubs with a warning rather
-than failing mid-job.
+`auto` picks per stem: pYIN for monophonic bass and vocals, basic-pitch for polyphonic
+guitar and piano. Run the API against that venv:
 
-`docker compose up` builds both services with the ML extras and ffmpeg included, which is
-the less painful path on Windows.
+```bash
+powershell -File scripts/dev-api.ps1 -Venv "$env:USERPROFILE\.x0r-venv"
+```
+
+`GET /api/v1/capabilities` reports what is *configured* against what is actually
+importable — they are different things, and the app silently falls back to stubs when
+they disagree, so check it before concluding anything real happened.
+
+`docker compose up` builds both services with the ML extras and ffmpeg included, and
+avoids the Windows path problem entirely.
 
 ---
 
@@ -109,11 +129,16 @@ the less painful path on Windows.
 apps/web              Next.js 15 · React 19 · TypeScript · Tailwind v4
 services/api          FastAPI · Python 3.12
   app/domain/         notes, fretboard solver, tab renderers, .x0r  (no deps)
-  app/services/       separation · transcription · mastering · mixdown · storage
+  app/services/
+    audio/            probing and canonical decode at ingest
+    separation/       demucs · stub
+    transcription/    pyin (mono) · basic_pitch (poly) · drums (onsets) · stub
+    mastering/        matchering · loudness (ffmpeg)
+    mixdown/          mix spec and ffmpeg filter graph
   app/jobs/           thread-pool job store with progress
   app/api/            routes and wire schemas
-  tests/              38 tests, no ML stack required
-docs/                 architecture, backlog, roadmap, ADRs, legal
+  tests/              66 tests + 12 ML smoke tests that skip without the extras
+docs/                 architecture, runbook, backlog, roadmap, ADRs, legal
 scripts/              PowerShell dev loop
 storage/              uploads and artifacts — gitignored, auto-purged
 ```
@@ -125,6 +150,7 @@ storage/              uploads and artifacts — gitignored, auto-purged
 | | |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the pieces fit and why the domain layer is dependency-free |
+| [RUNBOOK.md](docs/RUNBOOK.md) | Getting the real backends installed, and the two traps that will bite you |
 | [BACKLOG.md](docs/BACKLOG.md) | 10 epics, ~60 sprint-ready cards with acceptance criteria |
 | [ROADMAP.md](docs/ROADMAP.md) | Sprint sequencing, dependencies, standing risks |
 | [LEGAL.md](docs/LEGAL.md) | Copyright posture and the pre-launch checklist |

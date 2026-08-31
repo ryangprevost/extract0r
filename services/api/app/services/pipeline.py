@@ -5,18 +5,22 @@ Routes stay thin by delegating here; this module is where the actual product liv
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import logging
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.config import Settings
 from app.domain.notes import Notation, StemKind
 from app.domain.tab import ascii_tab, drum_tab
-from app.domain.tab.fretboard import TUNINGS, SolverConfig, Tuning, solve
+from app.domain.tab.fretboard import TUNINGS, SolverConfig, Tuning, solve_with_report
 from app.domain.tab.x0r import Provenance, X0rStem, build, dumps
+from app.services.audio.probe import AudioInfo, normalize, probe
 from app.services.factory import make_separator, make_transcriber
 from app.services.separation.base import SeparationResult
 from app.services.storage import TrackStorage
+
+log = logging.getLogger(__name__)
 
 # Which tuning we solve against when the user does not pick one.
 DEFAULT_TUNING_FOR_STEM = {
@@ -35,6 +39,11 @@ class TranscriptionArtifact:
     tab_text: str
     note_count: int
     tab_path: Path
+    # Notes the instrument physically could not play, and notes moved by whole octaves
+    # to make them playable. Surfaced so the UI can say why the tab is thinner than
+    # the note count suggests.
+    dropped_count: int = 0
+    folded_count: int = 0
 
 
 @dataclass(slots=True)
@@ -44,11 +53,31 @@ class TranscriptionBundle:
     x0r_path: Path
 
 
-def separate(track_id: str, storage: TrackStorage, settings: Settings) -> SeparationResult:
+def normalize_source(track_id: str, storage: TrackStorage) -> AudioInfo:
+    """Decode the upload once into canonical 44.1 kHz stereo WAV.
+
+    Every stage after this point can assume one format, which is why separation,
+    transcription, and mixdown never have to think about codecs.
+    """
     source = storage.source_path(track_id)
     if source is None:
         raise FileNotFoundError(f"no source audio for track {track_id}")
-    return make_separator(settings).separate(source, storage.stems_dir(track_id))
+    target = storage.normalized_path(track_id)
+    if target.exists():
+        return probe(target)
+    return normalize(source, target)
+
+
+def separate(
+    track_id: str,
+    storage: TrackStorage,
+    settings: Settings,
+    on_progress: Callable[[float], None] | None = None,
+) -> SeparationResult:
+    normalize_source(track_id, storage)
+    return make_separator(settings).separate(
+        storage.normalized_path(track_id), storage.stems_dir(track_id), on_progress
+    )
 
 
 def resolve_tuning(stem: StemKind, tuning_key: str | None) -> Tuning | None:
@@ -94,13 +123,25 @@ def transcribe(
         tuning = resolve_tuning(stem, tuning_keys.get(stem))
         title = f"{stem.value.title()} - transcribed by Extract0r"
 
+        dropped = folded = 0
         if notation is Notation.DRUM_TAB:
             shapes = ()
             text = drum_tab.render(
                 result.sorted_notes(), tempo_bpm=result.tempo_bpm, title=title
             )
         else:
-            shapes = solve(result.sorted_notes(), tuning, solver)
+            report = solve_with_report(result.sorted_notes(), tuning, solver)
+            shapes, dropped, folded = (
+                report.shapes,
+                len(report.dropped),
+                len(report.folded),
+            )
+            if dropped or folded:
+                # Separation bleed makes this routine, not exceptional.
+                log.info(
+                    "%s: %d note(s) out of range for %s (%d dropped, %d octave-folded)",
+                    stem.value, dropped + folded, tuning.name, dropped, folded,
+                )
             text = ascii_tab.render(
                 shapes, tuning, tempo_bpm=result.tempo_bpm, title=title
             )
@@ -115,6 +156,8 @@ def transcribe(
                 tab_text=text,
                 note_count=len(result.notes),
                 tab_path=tab_path,
+                dropped_count=dropped,
+                folded_count=folded,
             )
         )
         x0r_stems.append(

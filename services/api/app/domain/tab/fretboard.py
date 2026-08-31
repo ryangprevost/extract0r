@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import StrEnum
 
 from app.domain.notes import NoteEvent, cluster_by_onset
 
@@ -86,6 +87,24 @@ class UnplayableError(ValueError):
     """Raised when a pitch cannot be produced by the requested instrument at all."""
 
 
+class UnplayablePolicy(StrEnum):
+    """What to do with a note the instrument physically cannot play.
+
+    This is not a theoretical concern. Separation leaks: a guitar stem from Demucs
+    routinely contains bass bleed, and a polyphonic transcriber will happily report a
+    note two octaves below the low E. Under RAISE a single such note aborts the whole
+    transcription, which is exactly what happened the first time this pipeline was run
+    end to end on real model output.
+    """
+
+    #: Abort. Correct for tests and for hand-entered input; wrong for model output.
+    RAISE = "raise"
+    #: Leave it out and count it. Honest: the tab shows only what is playable.
+    DROP = "drop"
+    #: Shift by whole octaves until it fits, preserving the pitch class.
+    FOLD = "fold"
+
+
 @dataclass(frozen=True, slots=True)
 class SolverConfig:
     """Weights for the cost model. Tuning these is a legitimate UX knob."""
@@ -97,6 +116,7 @@ class SolverConfig:
     max_hand_span: int = 5
     max_candidates_per_shape: int = 48
     capo: int = 0
+    unplayable: UnplayablePolicy = UnplayablePolicy.DROP
 
 
 def candidate_positions(
@@ -161,21 +181,93 @@ def _transition_cost(prev: Shape, nxt: Shape, cfg: SolverConfig) -> float:
     return cfg.travel_weight * abs(a - b)
 
 
+@dataclass(slots=True)
+class SolveReport:
+    """The solved tab plus what had to be thrown away to get it."""
+
+    shapes: list[Shape] = field(default_factory=list)
+    dropped: list[NoteEvent] = field(default_factory=list)
+    folded: list[NoteEvent] = field(default_factory=list)
+
+    @property
+    def adjusted_count(self) -> int:
+        return len(self.dropped) + len(self.folded)
+
+
+def _fold_into_range(note: NoteEvent, tuning: Tuning, capo: int) -> NoteEvent | None:
+    """Shift by whole octaves until the pitch fits the neck, or give up."""
+    lowest = min(tuning.open_pitches) + capo
+    highest = max(tuning.open_pitches) + tuning.fret_count
+    pitch = note.pitch
+    while pitch < lowest:
+        pitch += 12
+    while pitch > highest:
+        pitch -= 12
+    if not lowest <= pitch <= highest:
+        return None
+    return NoteEvent(
+        start_s=note.start_s,
+        end_s=note.end_s,
+        pitch=pitch,
+        velocity=note.velocity,
+        confidence=note.confidence,
+    )
+
+
+def _filter_playable(
+    notes: Sequence[NoteEvent], tuning: Tuning, cfg: SolverConfig
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Split notes into (playable, dropped, folded) according to the configured policy."""
+    playable: list[NoteEvent] = []
+    dropped: list[NoteEvent] = []
+    folded: list[NoteEvent] = []
+
+    for note in notes:
+        if candidate_positions(note, tuning, cfg.capo):
+            playable.append(note)
+            continue
+        if cfg.unplayable is UnplayablePolicy.RAISE:
+            raise UnplayableError(
+                f"{note.name} (MIDI {note.pitch}) is out of range for {tuning.name}"
+            )
+        if cfg.unplayable is UnplayablePolicy.FOLD:
+            shifted = _fold_into_range(note, tuning, cfg.capo)
+            if shifted is not None and candidate_positions(shifted, tuning, cfg.capo):
+                playable.append(shifted)
+                folded.append(note)
+                continue
+        dropped.append(note)
+
+    return playable, dropped, folded
+
+
 def solve(
     notes: Sequence[NoteEvent],
     tuning: Tuning = STANDARD_GUITAR,
     cfg: SolverConfig | None = None,
     chord_window_s: float = 0.045,
 ) -> list[Shape]:
-    """Assign every note a string and fret, minimising total hand movement.
+    """Assign every note a string and fret, minimising total hand movement."""
+    return solve_with_report(notes, tuning, cfg, chord_window_s).shapes
+
+
+def solve_with_report(
+    notes: Sequence[NoteEvent],
+    tuning: Tuning = STANDARD_GUITAR,
+    cfg: SolverConfig | None = None,
+    chord_window_s: float = 0.045,
+) -> SolveReport:
+    """Solve, and report what the instrument could not play.
 
     Viterbi over onset clusters: state space is the candidate voicings of a cluster,
     transitions are how far the fretting hand has to move between them.
     """
     cfg = cfg or SolverConfig()
-    clusters = cluster_by_onset(notes, chord_window_s)
+    playable, dropped, folded = _filter_playable(notes, tuning, cfg)
+    report = SolveReport(dropped=dropped, folded=folded)
+    clusters = cluster_by_onset(playable, chord_window_s)
     if not clusters:
-        return []
+        return report
 
     frontier: list[tuple[float, Shape, int]] = []  # (cost, shape, backpointer)
     lattice: list[list[tuple[float, Shape, int]]] = []
@@ -207,4 +299,5 @@ def solve(
         if best_index < 0:
             break
     path.reverse()
-    return path
+    report.shapes = path
+    return report

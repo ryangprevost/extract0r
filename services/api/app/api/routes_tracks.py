@@ -16,10 +16,14 @@ from app.api.schemas import (
 from app.config import Settings
 from app.jobs.store import JobHandle, JobState, JobStore
 from app.services import pipeline
+from app.services.audio.probe import UnreadableAudioError, probe
 from app.services.registry import TrackRecord, TrackRegistry
 from app.services.storage import TrackStorage, UnsupportedAudioError
 
 router = APIRouter(prefix="/api/v1/tracks", tags=["tracks"])
+
+# Fraction of the separation job spent decoding before the model starts.
+DECODE_SHARE = 0.05
 
 
 @router.post("", response_model=TrackResponse, status_code=status.HTTP_201_CREATED)
@@ -53,6 +57,22 @@ async def upload_track(
     except UnsupportedAudioError as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
 
+    # Probe before accepting: a header read is cheap, and it is the only way to know
+    # the file is really audio rather than something with an audio extension.
+    try:
+        info = probe(stored.path)
+    except UnreadableAudioError as exc:
+        storage.delete(stored.track_id)
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
+
+    if not settings.min_duration_s <= info.duration_s <= settings.max_duration_s:
+        storage.delete(stored.track_id)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"Track is {info.duration_s:.1f}s. Extract0r accepts "
+            f"{settings.min_duration_s:.0f}s to {settings.max_duration_s / 60:.0f} minutes.",
+        )
+
     registry.add(
         TrackRecord(
             stored=stored,
@@ -60,6 +80,7 @@ async def upload_track(
                 "owns_or_licensed": owns_or_licensed,
                 "personal_use_only": personal_use_only,
             },
+            audio=info,
         )
     )
     return TrackResponse(
@@ -67,6 +88,10 @@ async def upload_track(
         original_filename=stored.original_filename,
         size_bytes=stored.size_bytes,
         sha256=stored.sha256,
+        duration_s=round(info.duration_s, 2),
+        sample_rate=info.sample_rate,
+        channels=info.channels,
+        format=info.format,
     )
 
 
@@ -88,13 +113,22 @@ def start_separation(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
 
     def work(handle: JobHandle) -> dict:
-        handle.update(JobState.RUNNING, 0.1, "loading audio")
-        result = pipeline.separate(track_id, storage, settings)
+        handle.update(JobState.RUNNING, 0.02, "decoding audio")
+        audio = pipeline.normalize_source(track_id, storage)
+
+        # Decoding is a small, roughly fixed slice of the job; the model is the rest.
+        def report(fraction: float) -> None:
+            handle.update(None, DECODE_SHARE + fraction * (1.0 - DECODE_SHARE),
+                          f"separating ({fraction:.0%})")
+
+        handle.update(JobState.RUNNING, DECODE_SHARE, "loading model")
+        result = pipeline.separate(track_id, storage, settings, on_progress=report)
         registry.set_separation(track_id, result)
-        handle.update(JobState.RUNNING, 0.95, "writing stems")
+        handle.update(JobState.RUNNING, 0.99, "writing stems")
         return {
             "backend": result.backend,
             "model": result.model,
+            "duration_s": round(audio.duration_s, 2),
             "stems": [s.kind.value for s in result.stems],
         }
 
@@ -123,6 +157,8 @@ def list_stems(
                 stem=s.kind,
                 filename=s.path.name,
                 bytes=s.path.stat().st_size if s.path.exists() else 0,
+                duration_s=round(s.duration_s, 2),
+                sample_rate=s.sample_rate,
             )
             for s in record.separation.stems
         ],

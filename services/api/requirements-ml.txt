@@ -1,10 +1,27 @@
-# Heavy ML/audio backends. Install on top of requirements.txt when you want real output.
-# CPU-only torch: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# Heavy ML/audio backends. Install on top of requirements.txt for real output.
+#
+# Use scripts/install-ml.ps1 rather than pip-installing this file directly: two of the
+# packages need special handling, documented below and in docs/RUNBOOK.md.
+#
+# 1. torch is NOT listed here. Install it from the CPU index first:
+#      pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+#    On Windows it must go in a venv on a SHORT path (e.g. C:\Users\you\.x0r-venv).
+#    Torch's bundled licence tree is ~160 chars deep; inside a normal project path that
+#    exceeds MAX_PATH (260) and pip leaves a half-installed torch behind. The symptom is
+#    "ModuleNotFoundError: No module named 'torchgen'" on import.
+#
+# 2. basic-pitch is NOT listed here. It declares a hard `tensorflow<2.15.1` pin and
+#    TensorFlow ships nothing below 2.16 for Python 3.12, so it cannot resolve. Install
+#    it without its dependency metadata and run the bundled ONNX model instead:
+#      pip install --no-deps basic-pitch==0.4.0
+#    Its real runtime needs are listed below and resolve cleanly.
+
 demucs>=4.0
-torch>=2.4
-torchaudio>=2.4
-basic-pitch>=0.4
 librosa>=0.10
-numpy>=1.26
 matchering>=2.0
-soundfile>=0.12
+
+# basic-pitch's actual runtime dependencies (it is installed with --no-deps).
+onnxruntime>=1.19
+pretty_midi>=0.2.9
+mir_eval>=0.7
+resampy<0.4.3

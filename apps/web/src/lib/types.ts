@@ -42,6 +42,10 @@ export interface TabArtifact {
   note_count: number;
   download_url: string;
   preview: string;
+  /** Notes the instrument could not play — usually bleed from another stem. */
+  dropped_count: number;
+  /** Notes shifted by whole octaves to bring them into range. */
+  folded_count: number;
 }
 
 export interface TranscribeResult {

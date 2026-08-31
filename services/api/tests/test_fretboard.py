@@ -7,9 +7,12 @@ from app.domain.tab.fretboard import (
     STANDARD_BASS,
     STANDARD_GUITAR,
     SolverConfig,
+    Tuning,
     UnplayableError,
+    UnplayablePolicy,
     candidate_positions,
     solve,
+    solve_with_report,
 )
 
 
@@ -29,9 +32,49 @@ def test_middle_pitch_has_several_candidates():
     assert all(0 <= p.fret <= STANDARD_GUITAR.fret_count for p in positions)
 
 
-def test_pitch_below_the_instrument_is_unplayable():
+def test_out_of_range_pitch_raises_under_the_strict_policy():
+    cfg = SolverConfig(unplayable=UnplayablePolicy.RAISE)
     with pytest.raises(UnplayableError):
-        solve([note(20)], STANDARD_GUITAR)
+        solve([note(20)], STANDARD_GUITAR, cfg)
+
+
+def test_out_of_range_pitch_is_dropped_by_default():
+    """Separation bleed is routine, so one stray note must not abort a transcription."""
+    report = solve_with_report([note(31, 0.0), note(52, 0.5)], STANDARD_GUITAR)
+
+    assert len(report.shapes) == 1, "the playable note should still be solved"
+    assert [n.pitch for n in report.dropped] == [31]
+    assert report.folded == []
+
+
+def test_fold_policy_shifts_by_octaves_and_keeps_the_pitch_class():
+    cfg = SolverConfig(unplayable=UnplayablePolicy.FOLD)
+    report = solve_with_report([note(31)], STANDARD_GUITAR, cfg)
+
+    assert report.dropped == []
+    assert [n.pitch for n in report.folded] == [31]
+    placed = report.shapes[0].positions[0]
+    sounded = STANDARD_GUITAR.open_pitches[placed.string] + placed.fret
+    assert sounded % 12 == 31 % 12, "folding must preserve the pitch class"
+    assert sounded > 31
+
+
+def test_a_pitch_no_octave_shift_can_rescue_is_still_dropped():
+    # Nothing above the top fret can be reached by shifting a very high pitch down
+    # without landing below the low E, for an instrument this narrow.
+    narrow = Tuning("One string, one fret", (40,), fret_count=0)
+    cfg = SolverConfig(unplayable=UnplayablePolicy.FOLD)
+    report = solve_with_report([note(45)], narrow, cfg)
+
+    assert report.shapes == []
+    assert [n.pitch for n in report.dropped] == [45]
+
+
+def test_dropping_every_note_yields_an_empty_but_valid_result():
+    report = solve_with_report([note(20), note(21)], STANDARD_GUITAR)
+    assert report.shapes == []
+    assert len(report.dropped) == 2
+    assert report.adjusted_count == 2
 
 
 def test_solver_prefers_staying_in_position():

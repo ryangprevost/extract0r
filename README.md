@@ -28,7 +28,8 @@ the drums — all verified on this machine, not just written.
 | Domain layer | Pure Python, no third-party dependencies |
 | Separation | Demucs 4.1.0 + torch 2.13 CPU — 4-stem verified, 6-stem not yet run |
 | Transcription | pYIN for bass/vocals, basic-pitch (ONNX) for guitar/piano, onsets for drums |
-| Web app | Written, **never built** — Node is not installed here |
+| Studio front end | ASP.NET Core + vanilla JS — **runs**, full loop verified through its proxy |
+| Next.js front end | Written, **never built** — Node is not installed here |
 | CI | Written, **never executed** — no git remote yet |
 | Accuracy | **Unmeasured.** Needs a licensed eval set (X0R-306) |
 
@@ -81,7 +82,24 @@ interactive docs at `/docs`. Then, in another terminal:
 powershell -File scripts/dev-web.ps1
 ```
 
-Next.js on `http://localhost:3000`, proxying `/api` to the API.
+Next.js on `http://localhost:3000`, proxying `/api` to the API. **Needs Node 20+.**
+
+### No Node? Use the Studio front end
+
+`extract0r.sln` opens in Visual Studio and runs with F5 — or from a terminal:
+
+```bash
+dotnet run --project apps/studio/Extract0r.Studio.csproj --urls http://localhost:5080
+```
+
+`apps/studio` is an ASP.NET Core 9 host that serves a single hand-written page and
+reverse-proxies `/api/*` to the Python service. Same-origin, so there is no CORS to
+configure, and no build step — it is plain HTML, CSS, and JavaScript in `wwwroot`.
+
+It covers the whole Phase 1 loop: upload with the rights gate, live separation progress,
+stem selection with tuning choice, rendered tab, and `.txt` / `.x0r` downloads. The
+header shows which backends the server actually has installed, so a stub fallback is
+visible rather than silent.
 
 Tests:
 
@@ -126,6 +144,8 @@ avoids the Windows path problem entirely.
 ## Layout
 
 ```
+extract0r.sln         opens the Studio project in Visual Studio
+apps/studio           ASP.NET Core 9 host — serves the UI, proxies /api (no Node needed)
 apps/web              Next.js 15 · React 19 · TypeScript · Tailwind v4
 services/api          FastAPI · Python 3.12
   app/domain/         notes, fretboard solver, tab renderers, .x0r  (no deps)

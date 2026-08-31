@@ -15,6 +15,12 @@ node_modules/
 out/
 *.tsbuildinfo
 
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
 # Env
 .env
 .env.local

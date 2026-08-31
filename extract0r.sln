@@ -1,0 +1,42 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "apps", "apps", "{1787FE1D-075E-9E68-7218-25F1BD1BBEAB}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "studio", "studio", "{3D6BEE4F-53E9-3AFC-5E36-5C71CFB91AE7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Extract0r.Studio", "apps\studio\Extract0r.Studio.csproj", "{445D6412-5982-48C4-9552-507E88524176}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{445D6412-5982-48C4-9552-507E88524176}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Debug|x64.Build.0 = Debug|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Debug|x86.Build.0 = Debug|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Release|Any CPU.Build.0 = Release|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Release|x64.ActiveCfg = Release|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Release|x64.Build.0 = Release|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Release|x86.ActiveCfg = Release|Any CPU
+		{445D6412-5982-48C4-9552-507E88524176}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{3D6BEE4F-53E9-3AFC-5E36-5C71CFB91AE7} = {1787FE1D-075E-9E68-7218-25F1BD1BBEAB}
+		{445D6412-5982-48C4-9552-507E88524176} = {3D6BEE4F-53E9-3AFC-5E36-5C71CFB91AE7}
+	EndGlobalSection
+EndGlobal

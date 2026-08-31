@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Extract0r Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🎸</text></svg>" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">extract<span>0</span>r</div>
+    <div class="backends" id="backends" title="Which engines this server actually has installed"></div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ─────────────────────────────── step 1: upload ─────────────────────────── -->
+  <section class="step" id="step-upload">
+    <h1>Split a song into stems and read it back as tab.</h1>
+    <p class="lede">
+      Upload a track, pick the parts you want, and Extract0r writes out playable
+      tablature for each one. Everything you upload is deleted automatically.
+    </p>
+
+    <div class="notice" role="note">
+      <strong>Only upload audio you have the right to use.</strong>
+      Recordings and the songs underneath them are usually copyrighted. Separating,
+      transcribing, and remixing all create derivative works. Extract0r grants you no
+      licence to anything, and will not process audio obtained by breaking DRM or a
+      streaming service's terms.
+      <a href="#" data-modal="terms">Terms</a> ·
+      <a href="#" data-modal="dmca">Copyright &amp; DMCA</a>
+    </div>
+
+    <label class="dropzone" id="dropzone">
+      <input type="file" id="file" accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aiff,.aif" hidden />
+      <div class="dropzone-idle" id="dropzone-label">
+        <span class="big">Drop an audio file here</span>
+        <span class="small" id="limits">or click to choose — mp3, wav, flac, m4a, ogg, aiff</span>
+      </div>
+    </label>
+
+    <fieldset class="attest">
+      <legend class="sr-only">Rights attestation</legend>
+      <label>
+        <input type="checkbox" id="owns" />
+        <span>I own this recording, hold a licence for it, or my use is otherwise
+          permitted by law.</span>
+      </label>
+      <label>
+        <input type="checkbox" id="personal" />
+        <span>I will use the output for personal study, practice, or another lawful
+          purpose, and will not distribute it without permission.</span>
+      </label>
+    </fieldset>
+
+    <button class="primary" id="upload-btn" disabled>Upload and split</button>
+    <p class="error" id="upload-error" hidden></p>
+  </section>
+
+  <!-- ─────────────────────────────── step 2: work ───────────────────────────── -->
+  <section class="step" id="step-progress" hidden>
+    <h2 id="progress-title">Working…</h2>
+    <p class="muted" id="progress-message">starting</p>
+    <div class="bar"><div class="bar-fill" id="progress-fill"></div></div>
+    <p class="muted small" id="progress-hint"></p>
+  </section>
+
+  <!-- ─────────────────────────────── step 3: stems ──────────────────────────── -->
+  <section class="step" id="step-stems" hidden>
+    <div class="row-between">
+      <h2>Stems</h2>
+      <span class="muted small" id="sep-backend"></span>
+    </div>
+    <p class="muted">Pick the parts you want written out as tab.</p>
+
+    <div class="stems" id="stems"></div>
+
+    <div class="actions">
+      <button class="primary" id="transcribe-btn" disabled>Transcribe</button>
+      <button class="link danger" id="delete-btn">Delete this track and its stems now</button>
+    </div>
+    <p class="error" id="stems-error" hidden></p>
+  </section>
+
+  <!-- ─────────────────────────────── step 4: tabs ───────────────────────────── -->
+  <section class="step" id="step-tabs" hidden>
+    <div class="row-between">
+      <h2>Tablature</h2>
+      <a class="link" id="x0r-link" download>Download the .x0r session file</a>
+    </div>
+    <div id="tabs"></div>
+    <button class="link" id="restart-btn">Start over with another track</button>
+  </section>
+
+</main>
+
+<footer class="wrap foot">
+  <p>
+    Extract0r processes audio you provide. It is a tool, not a catalogue: nothing is
+    shared between users and uploads are purged on a schedule.
+    <a href="#" data-modal="terms">Terms of use</a> ·
+    <a href="#" data-modal="dmca">Copyright &amp; DMCA</a>
+  </p>
+</footer>
+
+<!-- ─────────────────────────────── modals ───────────────────────────────────── -->
+<dialog id="modal">
+  <article id="modal-body"></article>
+  <button class="primary" id="modal-close">Close</button>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

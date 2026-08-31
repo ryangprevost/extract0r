@@ -22,6 +22,8 @@ Long-running operations return `202` with a job id; poll `/jobs/{id}` until `sta
 | `GET` | `/tracks/{id}/stems` | The separation result. `409` if separation has not finished |
 | `DELETE` | `/tracks/{id}` | `204`. Immediate, unconditional — deletes the folder and the record |
 | `GET` | `/tracks/tunings` | Tunings the solver can target, for the UI dropdown |
+| `GET` | `/tracks/{id}/stems/{stem}/audio` | Stream one stem. Honours `Range`, so players can seek without re-downloading |
+| `GET` | `/tracks/{id}/stems/{stem}/peaks` | Normalised amplitude envelope for drawing a waveform. `?buckets=50..4000`, cached on disk |
 
 **Upload errors:** `400` empty · `403` missing rights attestation · `413` too large ·
 `415` unsupported format, or a file that has an audio extension but is not decodable ·
@@ -40,6 +42,10 @@ The job result carries one artifact per stem: notation type, note count, downloa
 2000-character preview, and `dropped_count` / `folded_count` — notes the instrument could
 not play (usually separation bleed) and notes shifted by whole octaves to fit. Non-zero is
 normal, not an error.
+
+Stem audio and peaks exist for one workflow: when a transcription looks wrong, the first
+question is whether the *stem* was already wrong. Listening to it, and seeing its envelope,
+is the only way to tell a separation problem from a transcription one.
 
 ## Mix and master (phase 2)
 

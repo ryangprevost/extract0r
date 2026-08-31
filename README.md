@@ -116,6 +116,12 @@ stem selection with tuning choice, rendered tab, and `.txt` / `.x0r` downloads. 
 header shows which backends the server actually has installed, so a stub fallback is
 visible rather than silent.
 
+**The stems are stacked as a mixer**, one colour-coded lane per instrument with its
+waveform, sharing a single playhead so the six lanes read as one song. Each lane has solo
+and mute, and clicking any waveform seeks everything together. That matters more than it
+looks: when a tab comes out wrong, listening to the stem is the only way to tell a
+*separation* problem from a *transcription* one.
+
 Tests:
 
 ```bash

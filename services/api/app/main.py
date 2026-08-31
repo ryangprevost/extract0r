@@ -13,7 +13,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import routes_jobs, routes_meta, routes_mix, routes_tracks, routes_transcription
+from app.api import (
+    routes_audio,
+    routes_jobs,
+    routes_meta,
+    routes_mix,
+    routes_tracks,
+    routes_transcription,
+)
 from app.api.deps import get_storage
 from app.config import get_settings
 from app.legal import COPYRIGHT_NOTICE
@@ -86,6 +93,7 @@ app.add_middleware(
 app.include_router(routes_meta.router)
 app.include_router(routes_tracks.router)
 app.include_router(routes_transcription.router)
+app.include_router(routes_audio.router)
 app.include_router(routes_mix.router)
 app.include_router(routes_jobs.router)
 

@@ -22,8 +22,8 @@
   <section class="step" id="step-upload">
     <h1>Split a song into stems and read it back as tab.</h1>
     <p class="lede">
-      Upload a track, pick the parts you want, and Extract0r writes out playable
-      tablature for each one. Everything you upload is deleted automatically.
+      Upload a track, listen to each separated part to check it came out clean, then pick
+      the ones you want written out as tablature.
     </p>
 
     <div class="notice" role="note">
@@ -70,19 +70,41 @@
     <p class="muted small" id="progress-hint"></p>
   </section>
 
-  <!-- ─────────────────────────────── step 3: stems ──────────────────────────── -->
+  <!-- ─────────────────────────────── step 3: mixer ──────────────────────────── -->
   <section class="step" id="step-stems" hidden>
     <div class="row-between">
-      <h2>Stems</h2>
-      <span class="muted small" id="sep-backend"></span>
+      <div>
+        <h2>Stems</h2>
+        <p class="muted small" id="sep-backend"></p>
+      </div>
+      <button class="link danger" id="delete-btn">Delete this track now</button>
     </div>
-    <p class="muted">Pick the parts you want written out as tab.</p>
 
-    <div class="stems" id="stems"></div>
+    <p class="muted hint-line">
+      Play a stem before transcribing it. If the audio is wrong, the tab cannot be right —
+      that is the fastest way to tell a separation problem from a transcription one.
+    </p>
+
+    <!-- transport -->
+    <div class="transport">
+      <button class="transport-play" id="play-btn" aria-label="Play or pause">
+        <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
+        <svg viewBox="0 0 24 24" class="i-pause" hidden><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+      </button>
+      <span class="time" id="time">0:00</span>
+      <span class="time muted" id="duration">/ 0:00</span>
+      <span class="solo-note muted small" id="solo-note"></span>
+      <button class="link" id="clear-solo" hidden>clear solo</button>
+    </div>
+
+    <!-- stacked lanes, one per stem, sharing a single playhead -->
+    <div class="lanes" id="lanes">
+      <div class="playhead" id="playhead" hidden></div>
+    </div>
 
     <div class="actions">
       <button class="primary" id="transcribe-btn" disabled>Transcribe</button>
-      <button class="link danger" id="delete-btn">Delete this track and its stems now</button>
+      <span class="muted small" id="pick-summary"></span>
     </div>
     <p class="error" id="stems-error" hidden></p>
   </section>
@@ -108,7 +130,6 @@
   </p>
 </footer>
 
-<!-- ─────────────────────────────── modals ───────────────────────────────────── -->
 <dialog id="modal">
   <article id="modal-body"></article>
   <button class="primary" id="modal-close">Close</button>

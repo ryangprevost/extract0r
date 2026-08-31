@@ -34,7 +34,22 @@ builder.Services.AddHttpClient("api", client =>
 var app = builder.Build();
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+
+// Always revalidate wwwroot assets.
+//
+// Without an explicit Cache-Control, ASP.NET sends only an ETag and browsers fall back to
+// heuristic caching - they may reuse a stale copy without asking. That bites hard here,
+// because index.html and app.js are edited together: a cached app.js against a fresh
+// index.html means the script looks up elements that no longer exist and dies with
+// "Cannot set properties of null". `no-cache` still allows a 304, so this costs one
+// conditional request per file, not a re-download.
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        ctx.Context.Response.Headers.CacheControl = "no-cache, must-revalidate";
+    },
+});
 
 app.Map("/api/{**path}", ProxyToApi);
 

@@ -189,14 +189,30 @@ pytest -m ml -q
 With the app venv (no ML installed) every one of them skips — that is the expected
 result, not a failure. Run them against the ML venv to actually exercise the adapters.
 
-## Expected timings (CPU, 4 cores)
+## Measured timings
 
-| Step | 8 s clip | 3 min song |
-|---|---|---|
-| Probe | instant | instant |
-| Normalise | instant | ~1 s |
-| Demucs `htdemucs` | ~20 s | ~4 min |
-| Demucs `htdemucs_6s` | ~35 s | ~7 min |
-| basic-pitch per stem | ~2 s | ~20 s |
+Measured end to end on one 4:17 (257 s) track, 8-core CPU, `-j 1`, no GPU:
 
-If separation exceeds roughly 2× real time, that is the trigger for X0R-307 (GPU path).
+| Model | Jobs | Overlap | Wall clock | x realtime |
+|---|---|---|---|---|
+| `htdemucs_6s` | 1 | 0.25 | **186 s** | 0.72 |
+| `htdemucs_6s` | 4 | 0.25 | 174 s | 0.68 - **crashes, see above** |
+| `htdemucs_6s` | 1 | 0.10 | 200 s | 0.78 |
+| `htdemucs` (4-stem) | 1 | 0.25 | 272 s | 1.05 |
+
+Three things worth knowing, all counter to what you would guess:
+
+- **Parallel workers buy almost nothing.** `-j 4` was 7% faster, not the multiple its
+  name suggests, and it crashes on Windows. Torch already threads the model maths
+  internally, so a single job is not a single core. Not a trade worth making.
+- **Lowering `--overlap` made it slower**, not faster.
+- **The 4-stem model is slower than the 6-stem one** on this machine, so there is no
+  speed argument for giving up the guitar and piano stems.
+
+So a four-minute song takes about three minutes, and separation runs **under 1x
+realtime**. That is comfortably inside the threshold that would have justified X0R-307
+(GPU support), which can stay deprioritised.
+
+Do not trust a timing taken on a short clip: on a 12-second file, loading the model
+dominates and the ratio looks four times worse than it really is. That mistake is how
+this table came to be wrong the first time.

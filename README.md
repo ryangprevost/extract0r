@@ -26,7 +26,7 @@ the drums — all verified on this machine, not just written.
 | Backend tests | **66 passing**, 6 skipped without the ML extras |
 | ML smoke tests | **12 passing** against real Demucs / basic-pitch / librosa |
 | Domain layer | Pure Python, no third-party dependencies |
-| Separation | Demucs 4.1.0 + torch 2.13 CPU — 4-stem verified, 6-stem not yet run |
+| Separation | Demucs 4.1.0 + torch 2.13 CPU — 6-stem, 0.72× realtime measured on a real track |
 | Transcription | pYIN for bass/vocals, basic-pitch (ONNX) for guitar/piano, onsets for drums |
 | Studio front end | ASP.NET Core + vanilla JS — **runs**, full loop verified through its proxy |
 | Next.js front end | Written, **never built** — Node is not installed here |

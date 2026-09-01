@@ -156,14 +156,17 @@ Runs for real, verified on Python 3.12 / torch 2.13.0+cpu / demucs 4.1.0.
 - `htdemucs` produces drums, bass, vocals, other at 44.1 kHz with correct durations. ✅
 - Failure surfaces as a `failed` job carrying the tail of Demucs' own output. ✅
 - Model weights cached in a mounted volume, not re-downloaded per container start. ✅ compose config, unverified
-- A three-minute song separates in under five minutes on 4 CPU cores. ⏳ **unmeasured on real music**
+- A three-minute song separates in under five minutes on 4 CPU cores. ✅ **measured**
 
-`htdemucs_6s` produces all six stems — drums, bass, vocals, other, guitar, piano —
-verified end to end via `tools/verify_pipeline.py`. 12 s of audio took 23 s on 4 CPU
-cores: **1.9× realtime**, which is right at the threshold that would trigger X0R-307
-(GPU). Extrapolating, a three-minute song lands near six minutes, so the five-minute
-target is probably already missed — but that extrapolation is from synthetic audio and
-needs confirming on real music.
+`htdemucs_6s` produces all six stems — drums, bass, vocals, other, guitar, piano.
+Measured on a real 4:17 track: **186 s, 0.72× realtime** on 8 CPU cores. A four-minute
+song takes about three minutes.
+
+**An earlier note here said 1.9× realtime and predicted the target would be missed. That
+was wrong**, and wrong in an instructive way: it was measured on a 12-second synthetic
+clip, where loading the model dominates the wall clock. Short-clip timings do not
+extrapolate. Neither does the parallel speedup — `-j 4` measured 7% faster on a full
+track, not the multiple the flag implies, and it crashes on Windows besides.
 
 **The install was the hard part, not the code.** Windows MAX_PATH breaks
 `pip install torch` inside this project tree and leaves a half-installed torch behind,

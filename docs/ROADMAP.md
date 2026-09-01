@@ -176,7 +176,7 @@ X0R-704 (accounts, 5 — pull forward if history is wanted sooner)
 |---|---|---|
 | ~~Torch/TensorFlow install pain on Windows~~ | ~~1~~ | **Hit, and resolved.** Two-venv setup plus the ONNX path; see docs/RUNBOOK.md |
 | Transcription accuracy below what a guitarist will tolerate | 2–3 | **Still entirely unknown.** X0R-306 now leads sprint 2; X0R-408 (manual correction) is the safety net |
-| Separation is too slow on CPU to feel interactive | 2 | Still unmeasured on a real song. `tools/verify_pipeline.py` prints a realtime multiple; if it exceeds ~2×, prioritise X0R-307 (GPU) |
+| ~~Separation is too slow on CPU to feel interactive~~ | ~~2~~ | **Retired.** Measured on a real 4:17 track: 186 s, 0.72× realtime on 8 CPU cores. Well inside the threshold that would have justified X0R-307 (GPU), so that card can wait |
 | Tempo detection off by an octave, corrupting every grid | 2 | Seen in sprint 1. X0R-407 promoted to a prerequisite for drum output |
 | Legal review returns changes that alter the product | 4 | Start it in sprint 4, keep notices centralised in `app/legal.py` |
 | Browser preview and server render disagree | 6 | Pick one as authoritative in the sprint-6 design spike |

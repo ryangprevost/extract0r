@@ -38,8 +38,9 @@
 
     <label class="dropzone" id="dropzone">
       <input type="file" id="file" accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aiff,.aif" hidden />
-      <div class="dropzone-idle" id="dropzone-label">
-        <span class="big">Drop an audio file here</span>
+      <div class="dropzone-idle">
+        <span class="big" id="dropzone-name">Drop an audio file here</span>
+        <span class="small" id="dropzone-hint">click to choose a different file</span>
         <span class="small" id="limits">or click to choose — mp3, wav, flac, m4a, ogg, aiff</span>
       </div>
     </label>

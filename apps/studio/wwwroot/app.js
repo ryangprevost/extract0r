@@ -99,9 +99,23 @@ let apiRetry = null;
  * recovers on its own and clears the banner when the API returns.
  */
 async function loadCapabilities({ quiet = false } = {}) {
+  let caps;
   try {
-    const caps = await api("/capabilities");
+    // Only the fetch belongs in this try. Rendering failures are not network failures,
+    // and conflating them once made a DOM bug masquerade as an unreachable server.
+    caps = await api("/capabilities");
+  } catch {
+    $("backends").innerHTML = '<span class="chip off">API unreachable ✕</span>';
+    if (!quiet) {
+      fail("upload-error",
+        "Cannot reach the Extract0r API yet — it may still be starting up. " +
+        "Retrying automatically; no need to reload.");
+    }
+    if (!apiRetry) apiRetry = setInterval(() => loadCapabilities({ quiet: true }), 3000);
+    return false;
+  }
 
+  try {
     $("limits").textContent =
       `or click to choose — up to ${caps.limits.max_upload_mb} MB · mp3, wav, flac, m4a, ogg, aiff`;
 
@@ -127,18 +141,11 @@ async function loadCapabilities({ quiet = false } = {}) {
         "This server has no Demucs installed, so separation will return copies of your " +
         "file rather than real stems. See docs/RUNBOOK.md.");
     }
-    return true;
-  } catch {
-    $("backends").innerHTML = '<span class="chip off">API unreachable ✕</span>';
-    if (!quiet) {
-      fail("upload-error",
-        "Cannot reach the Extract0r API yet — it may still be starting up. " +
-        "Retrying automatically; no need to reload.");
-    }
-    // Keep trying rather than stranding the page on a stale error.
-    if (!apiRetry) apiRetry = setInterval(() => loadCapabilities({ quiet: true }), 3000);
-    return false;
+  } catch (error) {
+    // The API is fine; we failed to draw its answer. Say so, and do not block the upload.
+    console.error("failed to render capabilities", error);
   }
+  return true;
 }
 
 async function loadLegal() {
@@ -160,10 +167,15 @@ function refreshUploadButton() {
 function pickFile(file) {
   if (!file) return;
   state.file = file;
+  // Set text on existing nodes rather than rewriting the container's innerHTML. The
+  // previous version replaced the whole label, which destroyed #limits - and then any
+  // later code touching #limits threw on null. That is not a hypothetical: it made the
+  // upload pre-check report "the API is not responding" for a perfectly healthy API,
+  // every time, because the throw landed in the catch meant for network errors.
   $("dropzone").classList.add("has-file");
-  $("dropzone-label").innerHTML =
-    `<span class="big">${file.name}</span>
-     <span class="small">${(file.size / 1024 / 1024).toFixed(1)} MB — click to choose a different file</span>`;
+  $("dropzone-name").textContent = file.name;
+  $("dropzone-hint").textContent =
+    `${(file.size / 1024 / 1024).toFixed(1)} MB — click to choose a different file`;
   $("upload-error").hidden = true;
   refreshUploadButton();
 }

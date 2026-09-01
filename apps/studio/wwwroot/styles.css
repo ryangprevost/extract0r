@@ -95,6 +95,11 @@ h3 { font-size: 15px; margin: 0; }
 .dropzone .big { display: block; font-size: 16px; margin-bottom: 4px; }
 .dropzone .small { display: block; color: var(--muted); font-size: 13px; }
 .dropzone.has-file .big { font-family: var(--mono); color: var(--accent); }
+/* Only one of these is ever relevant, and swapping them by class means neither element
+   is ever removed from the DOM - see the note on loadCapabilities in app.js. */
+#dropzone-hint { display: none; }
+.dropzone.has-file #dropzone-hint { display: block; }
+.dropzone.has-file #limits { display: none; }
 
 .attest { border: 0; margin: 22px 0 0; padding: 0; display: grid; gap: 12px; }
 .attest label { display: grid; grid-template-columns: auto 1fr; gap: 11px; font-size: 14px; align-items: start; }

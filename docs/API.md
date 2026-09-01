@@ -58,7 +58,9 @@ is the only way to tell a separation problem from a transcription one.
 | Method | Path | Notes |
 |---|---|---|
 | `POST` | `/tracks/{id}/reference` | Multipart. Store a reference to match against; same rights gate as an upload. Returns its measured loudness |
-| `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/mute/solo, optional `reference_track_id`, `match_strength`, `bitrate_kbps`. `202` + job |
+| `POST` | `/tracks/{id}/reference/separate` | Split the reference into stems so matching can work per instrument. `202` + job |
+| `GET` | `/tracks/{id}/reference/stems` | Whether the reference has been separated, and into what |
+| `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/width/mute/solo, optional `reference_track_id`, `per_stem_match`, `vocal_presence`, `vocal_duck_db`, `match_strength`, `bitrate_kbps`. `202` + job |
 | `GET` | `/tracks/{id}/master/download` | The rendered MP3 |
 
 Stems are mixed **first** and matched **second**. Tonal balance is a property of a whole

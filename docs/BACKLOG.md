@@ -697,11 +697,51 @@ but normalised as though there were a synthesis window too, making every master 
 
 ---
 
-### X0R-905 · Effects: compression and reverb · 3 · `TODO`
+### X0R-905 · Effects: compression and reverb · 3 · `PARTIAL`
 **Acceptance criteria**
-- Compressor with threshold, ratio, attack, release, makeup, plus gain-reduction metering.
-- Reverb as a send with a wet/dry control.
-- Presets per stem type.
+- Vocal ducking: competing stems pulled down inside the vocal band while the vocal sings. ✅
+- A limiter on the master bus with envelope-following gain reduction. ✅
+- Compressor with threshold, ratio, attack, release, makeup, plus metering. ❌
+- Reverb as a send with a wet/dry control. ❌
+- Doubling/widening as an effect (short delay plus detune), distinct from M/S width. ❌
+
+**Ducking landed early, ahead of the general effects work**, because a user reported
+vocals sitting too quiet and level alone does not fix that. A vocal can be at the right
+level and still be hard to follow, since guitars and keys occupy the same 1-4 kHz band.
+Raising the vocal until it wins just makes everything loud; moving the competing parts
+aside while it sings is what actually works.
+
+Band-limited rather than broadband, because ducking a guitar's whole spectrum makes the
+arrangement quieter without making the vocal any clearer, and is far more audible as an
+effect. Bass and drums are never ducked - they sit above and below a vocal.
+
+---
+
+### X0R-907 · Vocal placement floor · 2 · `DONE`
+**As a** user **I want** the vocal to sit where a listener expects **so that** matching a
+reference cannot leave it buried.
+
+**Acceptance criteria**
+- A target placement in LU relative to the mix, selectable back / natural / forward. ✅
+- Applied as a floor after reference matching, so it only ever lifts. ✅
+- Capped, with the cap explained when it binds. ✅
+- The result reports where the vocal was, where it was aimed, and how far it moved. ✅
+
+**A measurement first, and it disproved the obvious theory.** The suspicion was that
+integrated loudness under-measures vocals because they are intermittent while guitars run
+continuously. On a real track, integrated and active-only loudness were identical
+(-15.6 LUFS both): R128 gating already excludes silent blocks.
+
+What the measurement *did* show is that the vocal sat at -6.8 LU below the mix where a
+modern master places one nearer -4, and that nothing in the chain had an opinion about
+that. Reference matching sets each instrument from the reference, which says nothing
+about what a vocal *should* do - so a reference lacking a vocal, or imperfect separation,
+leaves the vocal wherever the arithmetic drops it.
+
+Verified end to end by measuring vocal-band energy of the exported MP3 at each setting:
+0.3241 with placement off, 0.3355 at natural (+2.5 dB lift), 0.3506 at forward (+4.5 dB).
+"Back" correctly did nothing, because this track's vocal already sat at exactly that
+target.
 
 ---
 

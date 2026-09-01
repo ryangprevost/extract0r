@@ -11,6 +11,7 @@ the API still boots on a machine without torch.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -70,14 +71,22 @@ class DemucsSeparator:
         self,
         model: str = "htdemucs_6s",
         device: str = "cpu",
-        jobs: int = 1,
+        jobs: int = 0,
         shifts: int = 0,
+        overlap: float = 0.25,
     ) -> None:
         self.model = model
         self.device = device
-        self.jobs = jobs
+        # 0 means "decide from the machine". Demucs splits the track into chunks and
+        # processes them independently, so this is close to linear speedup - leaving it
+        # at 1 on an 8-core box was throwing away most of the machine. Capped at 4:
+        # each worker holds its own copy of the model, so memory, not cores, is the limit.
+        self.jobs = jobs if jobs > 0 else max(1, min(4, (os.cpu_count() or 2) // 2))
         # Shifts multiply runtime for a small quality gain; default off.
         self.shifts = shifts
+        # How much neighbouring chunks overlap. Lower is faster and risks audible seams
+        # at chunk boundaries; 0.25 is the Demucs default.
+        self.overlap = overlap
 
     def available(self) -> bool:
         try:
@@ -106,6 +115,7 @@ class DemucsSeparator:
             "-d", self.device,
             "-j", str(self.jobs),
             "--shifts", str(self.shifts),
+            "--overlap", str(self.overlap),
             "-o", str(out_dir),
             str(source),
         ]

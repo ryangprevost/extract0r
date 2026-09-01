@@ -223,6 +223,8 @@ def test_pyin_finds_the_exact_pitch_of_a_bass_note(tmp_path: Path):
     assert result.notes, "pyin found nothing in a clean sustained tone"
     longest = max(result.notes, key=lambda n: n.duration_s)
     assert longest.pitch == TONE_MIDI
+    # A held note must stay one note: the onset-based re-strike split has a refractory
+    # period precisely so a sustain does not shatter into fragments.
     assert longest.duration_s > 1.0
 
 
@@ -230,16 +232,16 @@ def test_pyin_finds_the_exact_pitch_of_a_bass_note(tmp_path: Path):
 def test_pyin_separates_two_successive_pitches(tmp_path: Path):
     import numpy as np
 
-    # A3 (57) then E4 (64), one second each.
+    # A2 (45) then E3 (52), one second each - both inside a bass's actual range.
     source = write_signal(
         tmp_path / "line.wav",
-        np.concatenate([sine(1.0, 220.0), sine(1.0, 329.63)]),
+        np.concatenate([sine(1.0, 110.0), sine(1.0, 164.81)]),
     )
     result = PyinTranscriber().transcribe(source, StemKind.BASS)
 
     pitches = [n.pitch for n in result.notes if n.duration_s > 0.2]
-    assert 57 in pitches and 64 in pitches, f"got {pitches}"
-    assert pitches.index(57) < pitches.index(64), "notes came out in the wrong order"
+    assert 45 in pitches and 52 in pitches, f"got {pitches}"
+    assert pitches.index(45) < pitches.index(52), "notes came out in the wrong order"
 
 
 @pytest.mark.skipif(not PyinTranscriber().available(), reason="librosa not installed")

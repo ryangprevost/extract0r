@@ -134,7 +134,10 @@ def test_peaks_describe_the_waveform(client, sample_wav):
     assert all(0.0 <= p <= 1.0 for p in body["peaks"]), "peaks must be normalised"
     # The fixture is a steady tone, so the envelope should be loud essentially throughout.
     assert not body["silent"]
-    assert max(body["peaks"]) == pytest.approx(1.0)
+    # Peaks are now RMS on a dB scale, so a tone well below full scale does not reach 1.0.
+    # That is the point: a quiet stem should look quiet.
+    assert 0.6 < max(body["peaks"]) <= 1.0
+    assert body["peak_dbfs"] is not None and body["peak_dbfs"] < 0
 
 
 def test_peaks_are_cached_between_requests(client, sample_wav):

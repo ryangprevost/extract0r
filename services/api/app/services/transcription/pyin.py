@@ -15,7 +15,8 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.domain.notes import NoteEvent, StemKind, Transcription
+from app.domain.notes import StemKind, Transcription
+from app.domain.segmentation import nearest_frames, segment_notes
 
 log = logging.getLogger(__name__)
 
@@ -28,15 +29,18 @@ class PitchRange:
     fmax_hz: float
 
 
-# Bass guitar low B is ~31 Hz; guitar's top fret is ~1200 Hz. Padded a little either way.
+# Deliberately tight. A 4-string bass bottoms out at E1 (41 Hz) and a 5-string at B0
+# (31 Hz); the top of a bass neck is around G3 (196 Hz). Allowing pYIN to search up to
+# 450 Hz just gave it room to lock onto the second harmonic and report everything an
+# octave high, which is the classic way bass transcription goes wrong.
 RANGES: dict[StemKind, PitchRange] = {
-    StemKind.BASS: PitchRange(28.0, 450.0),
-    StemKind.GUITAR: PitchRange(70.0, 1400.0),
+    StemKind.BASS: PitchRange(30.0, 260.0),
+    StemKind.GUITAR: PitchRange(75.0, 1200.0),
     StemKind.VOCALS: PitchRange(65.0, 1100.0),
-    StemKind.OTHER: PitchRange(55.0, 1400.0),
+    StemKind.OTHER: PitchRange(55.0, 1200.0),
     StemKind.PIANO: PitchRange(28.0, 4200.0),
 }
-DEFAULT_RANGE = PitchRange(55.0, 1400.0)
+DEFAULT_RANGE = PitchRange(55.0, 1200.0)
 
 
 def frame_length_for(fmin_hz: float, sample_rate: int) -> int:
@@ -62,14 +66,25 @@ class PyinTranscriber:
 
     def __init__(
         self,
-        hop_length: int = 512,
-        min_note_s: float = 0.06,
-        min_confidence: float = 0.5,
+        hop_length: int = 256,
+        min_note_s: float = 0.05,
+        min_confidence: float = 0.08,
+        onset_delta: float = 0.2,
     ) -> None:
+        # 256 rather than 512: at 44.1 kHz that is 5.8 ms per frame, which is the
+        # difference between resolving two eighth notes at 160 BPM and smearing them.
         self.hop_length = hop_length
-        # Shorter than this and it is a pitch-tracker wobble, not a note.
         self.min_note_s = min_note_s
+        # pYIN already decides voicing with its own HMM; `voiced_prob` is a weak secondary
+        # signal, not a probability you can threshold at 0.5. Measured on a real bass stem
+        # its median is 0.012 and its 90th percentile 0.43 - a 0.4 cut discarded 88% of
+        # frames whose pitches were correct, which is why the first pass at this song
+        # produced 11 notes in three minutes. Keep this low and let `voiced` do the work.
         self.min_confidence = min_confidence
+        # Measured, not guessed. On a sustained 220 Hz tone librosa's onset detector
+        # returns 28 onsets at delta=0.07 and 2 at delta=0.2 - and every spurious onset
+        # becomes a spurious note split. 0.2 is the point where a held note stays whole.
+        self.onset_delta = onset_delta
 
     def supports(self, stem: StemKind) -> bool:
         # Deliberately not PIANO or OTHER: those are usually polyphonic.
@@ -100,61 +115,57 @@ class PyinTranscriber:
         )
         times = librosa.times_like(f0, sr=sr, hop_length=self.hop_length)
 
-        # Quantise each frame to the nearest semitone, then merge runs of equal pitch.
         with np.errstate(invalid="ignore"):
-            midi = np.round(librosa.hz_to_midi(f0))
-        notes = self._segment(midi, voiced, voiced_prob, times)
+            midi = librosa.hz_to_midi(f0)
 
-        tempo = self._estimate_tempo(y, sr)
-        return Transcription(stem=stem, notes=notes, tempo_bpm=tempo, backend=self.name)
+        pitches: list[float | None] = [
+            None if (not voiced[i] or np.isnan(midi[i])) else float(midi[i])
+            for i in range(len(midi))
+        ]
+        confidences = [
+            0.0 if np.isnan(voiced_prob[i]) else float(voiced_prob[i])
+            for i in range(len(voiced_prob))
+        ]
 
-    def _segment(self, midi, voiced, voiced_prob, times) -> list[NoteEvent]:
-        """Turn a per-frame pitch track into discrete note events."""
-        import numpy as np
+        # A re-struck note is a new note even at the same pitch, so the pitch track alone
+        # cannot say where notes begin. Onsets supply that.
+        # `delta` and `wait` matter as much as the detection itself: see onset_delta.
+        # `wait` is an additional refractory period, in frames.
+        wait_frames = max(1, int(0.08 * sr / self.hop_length))
+        onset_times = librosa.onset.onset_detect(
+            y=y,
+            sr=sr,
+            hop_length=self.hop_length,
+            backtrack=True,
+            units="time",
+            delta=self.onset_delta,
+            wait=wait_frames,
+        )
+        onset_frames = nearest_frames(list(onset_times), list(times))
 
-        notes: list[NoteEvent] = []
-        start_index: int | None = None
+        notes = segment_notes(
+            pitches=pitches,
+            times=[float(t) for t in times],
+            confidences=confidences,
+            onset_indices=onset_frames,
+            min_duration_s=self.min_note_s,
+            min_confidence=self.min_confidence,
+        )
+        log.info(
+            "pyin %s: %d notes from %d onsets over %.1fs",
+            stem.value, len(notes), len(onset_frames), float(times[-1]) if len(times) else 0.0,
+        )
 
-        def close(end_index: int) -> None:
-            if start_index is None:
-                return
-            pitch = int(midi[start_index])
-            start_s = float(times[start_index])
-            end_s = float(times[min(end_index, len(times) - 1)])
-            confidence = float(np.nanmean(voiced_prob[start_index:end_index]) or 0.0)
-            if end_s - start_s >= self.min_note_s and confidence >= self.min_confidence:
-                notes.append(
-                    NoteEvent(
-                        start_s=start_s,
-                        end_s=end_s,
-                        pitch=max(0, min(127, pitch)),
-                        velocity=max(1, min(127, int(confidence * 127))),
-                        confidence=confidence,
-                    )
-                )
-
-        for index in range(len(midi)):
-            active = bool(voiced[index]) and not np.isnan(midi[index])
-            changed = (
-                start_index is not None
-                and active
-                and midi[index] != midi[start_index]
-            )
-            if not active or changed:
-                close(index)
-                start_index = index if active else None
-            elif start_index is None:
-                start_index = index
-        close(len(midi) - 1)
-
-        return notes
+        return Transcription(
+            stem=stem, notes=notes, tempo_bpm=self._estimate_tempo(y, sr), backend=self.name
+        )
 
     def _estimate_tempo(self, y, sr: int) -> float:
         import librosa
         import numpy as np
 
         try:
-            onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=self.hop_length)
+            onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=512)
             tempo, _ = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
             value = float(np.atleast_1d(tempo)[0])
             return value if value > 0 else 120.0

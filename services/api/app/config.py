@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     separation_backend: str = "stub"        # stub | demucs
     demucs_model: str = "htdemucs_6s"
     demucs_device: str = "cpu"
+    # 0 = choose from the CPU count. Demucs chunks the track, so this is near-linear.
+    demucs_jobs: int = 0
+    # Lower is faster; below ~0.1 chunk seams can become audible.
+    demucs_overlap: float = 0.25
     # auto = pyin for monophonic stems, basic_pitch for polyphonic ones.
     transcription_backend: str = "stub"     # stub | auto | pyin | basic_pitch
     drum_backend: str = "stub"              # stub | onset

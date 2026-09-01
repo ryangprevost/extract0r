@@ -26,7 +26,10 @@ def make_separator(settings: Settings):
         from app.services.separation.demucs import DemucsSeparator
 
         separator = DemucsSeparator(
-            model=settings.demucs_model, device=settings.demucs_device
+            model=settings.demucs_model,
+            device=settings.demucs_device,
+            jobs=settings.demucs_jobs,
+            overlap=settings.demucs_overlap,
         )
         if separator.available():
             return separator

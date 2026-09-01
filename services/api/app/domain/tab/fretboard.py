@@ -35,6 +35,7 @@ DROP_D_GUITAR = Tuning("Guitar - Drop D", (38, 45, 50, 55, 59, 64))
 HALF_STEP_DOWN = Tuning("Guitar - Eb Standard", (39, 44, 49, 54, 58, 63))
 SEVEN_STRING = Tuning("Guitar - 7 String B", (35, 40, 45, 50, 55, 59, 64), fret_count=24)
 STANDARD_BASS = Tuning("Bass - Standard E", (28, 33, 38, 43), fret_count=24)
+DROP_D_BASS = Tuning("Bass - Drop D", (26, 33, 38, 43), fret_count=24)
 FIVE_STRING_BASS = Tuning("Bass - 5 String B", (23, 28, 33, 38, 43), fret_count=24)
 
 TUNINGS: dict[str, Tuning] = {
@@ -43,6 +44,7 @@ TUNINGS: dict[str, Tuning] = {
     "guitar_eb": HALF_STEP_DOWN,
     "guitar_7": SEVEN_STRING,
     "bass_standard": STANDARD_BASS,
+    "bass_drop_d": DROP_D_BASS,
     "bass_5": FIVE_STRING_BASS,
 }
 

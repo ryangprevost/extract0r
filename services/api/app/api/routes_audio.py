@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -28,7 +29,13 @@ MAX_PEAK_BUCKETS = 4000
 
 # Bump whenever the envelope maths changes, so cached files from an older scaling are
 # ignored rather than silently served.
-PEAKS_CACHE_VERSION = 2
+PEAKS_CACHE_VERSION = 3
+
+# Anything quieter than this reads as silence. Separation always leaves low-level
+# artefacts behind in the parts a stem is not playing, and on a linear scale those get
+# drawn as visible "peaks in the silence". A dB floor is what makes a rest look like a
+# rest.
+SILENCE_FLOOR_DB = -55.0
 
 
 def _stem_path(track_id: str, stem: str, registry: TrackRegistry):
@@ -170,26 +177,30 @@ def stem_peaks(
     with sf.SoundFile(str(path)) as handle:
         total_frames = len(handle)
         sample_rate = handle.samplerate
-        # Mono-sum as we stream so a long stem never lands in memory all at once.
-        envelope = np.zeros(buckets, dtype="float32")
+        # RMS per bucket, not peak. Peak is dominated by isolated samples, so a stem that
+        # is essentially silent but carries a few separation artefacts draws as a row of
+        # spikes. RMS reflects how loud a slice actually is.
+        rms = np.zeros(buckets, dtype="float32")
+        peak_linear = 0.0
         frames_per_bucket = max(1, total_frames // buckets)
 
         blocks = handle.blocks(blocksize=frames_per_bucket, dtype="float32", always_2d=True)
         for index, block in enumerate(blocks):
             if index >= buckets:
                 break
-            envelope[index] = float(np.abs(block).max()) if block.size else 0.0
+            if block.size:
+                mono = block.mean(axis=1)
+                rms[index] = float(np.sqrt(np.mean(mono**2)))
+                peak_linear = max(peak_linear, float(np.abs(block).max()))
 
-    # Scale against the 98th percentile rather than the maximum. One loud transient -
-    # a snare crack, a count-in click - would otherwise set the ceiling and squash the
-    # rest of the song into an unreadable flat line. Anything above it clips to 1.0,
-    # which is what a DAW shows too.
-    peak = float(envelope.max())
-    reference = float(np.percentile(envelope, 98)) if peak > 0 else 0.0
-    if reference <= 0:
-        reference = peak
-    if reference > 0:
-        envelope = np.clip(envelope / reference, 0.0, 1.0)
+    # Map to decibels and floor. Loudness is logarithmic, so a linear envelope makes
+    # quiet passages invisible and near-silence look busy; dB is what a DAW draws.
+    with np.errstate(divide="ignore"):
+        db = 20.0 * np.log10(np.maximum(rms, 1e-9))
+    envelope = np.clip((db - SILENCE_FLOOR_DB) / (0.0 - SILENCE_FLOOR_DB), 0.0, 1.0)
+
+    peak = peak_linear
+    loudest_db = float(db.max()) if rms.size else SILENCE_FLOOR_DB
 
     payload = {
         "stem": stem,
@@ -198,7 +209,11 @@ def stem_peaks(
         "sample_rate": sample_rate,
         # Rounded: two decimals is well under one pixel of error at any sane height.
         "peaks": [round(float(v), 3) for v in envelope],
-        "silent": peak == 0.0,
+        # "Silent" now means "never rises above the floor", which covers a stem holding
+        # nothing but separation artefacts as well as one holding literal zeros.
+        "silent": bool(loudest_db <= SILENCE_FLOOR_DB),
+        "peak_dbfs": round(20.0 * math.log10(peak), 1) if peak > 0 else None,
+        "floor_dbfs": SILENCE_FLOOR_DB,
     }
 
     try:

@@ -88,9 +88,20 @@ const clock = (seconds) => {
 
 // ───────────────────────────────── capabilities ─────────────────────────────
 
-async function loadCapabilities() {
+let apiRetry = null;
+
+/**
+ * Ask the API what it can do, and keep asking until it answers.
+ *
+ * This used to run exactly once at page load, so any moment the API was unavailable -
+ * a restart, a slow first boot while torch loads - left the page showing "could not
+ * reach the API" forever, with no way back except a manual reload. The check now
+ * recovers on its own and clears the banner when the API returns.
+ */
+async function loadCapabilities({ quiet = false } = {}) {
   try {
     const caps = await api("/capabilities");
+
     $("limits").textContent =
       `or click to choose — up to ${caps.limits.max_upload_mb} MB · mp3, wav, flac, m4a, ogg, aiff`;
 
@@ -105,15 +116,28 @@ async function loadCapabilities() {
       })
       .join("");
 
+    if (apiRetry) {
+      clearInterval(apiRetry);
+      apiRetry = null;
+    }
+    $("upload-error").hidden = true;
+
     if (!caps.installed.demucs) {
       fail("upload-error",
         "This server has no Demucs installed, so separation will return copies of your " +
         "file rather than real stems. See docs/RUNBOOK.md.");
     }
+    return true;
   } catch {
     $("backends").innerHTML = '<span class="chip off">API unreachable ✕</span>';
-    fail("upload-error",
-      "Could not reach the Extract0r API. Start it with scripts/start.ps1, then reload.");
+    if (!quiet) {
+      fail("upload-error",
+        "Cannot reach the Extract0r API yet — it may still be starting up. " +
+        "Retrying automatically; no need to reload.");
+    }
+    // Keep trying rather than stranding the page on a stale error.
+    if (!apiRetry) apiRetry = setInterval(() => loadCapabilities({ quiet: true }), 3000);
+    return false;
   }
 }
 
@@ -146,6 +170,15 @@ function pickFile(file) {
 
 async function upload() {
   $("upload-error").hidden = true;
+
+  if (!(await loadCapabilities({ quiet: true }))) {
+    fail("upload-error",
+      "The Extract0r API is not responding, so the upload would fail. It may be " +
+      "restarting — this page retries every few seconds and will clear this message " +
+      "on its own. If it persists, run scripts/start.ps1.");
+    return;
+  }
+
   const form = new FormData();
   form.append("file", state.file);
   form.append("owns_or_licensed", String($("owns").checked));
@@ -189,6 +222,9 @@ async function buildMixer(separation, track) {
   state.duration = Math.max(state.duration, ...ordered.map((s) => s.duration_s || 0));
   $("duration").textContent = `/ ${clock(state.duration)}`;
 
+  if (!Object.keys(state.tunings).length) {
+    state.tunings = await api("/tracks/tunings").catch(() => ({}));
+  }
   const tuningOptions = Object.entries(state.tunings)
     .map(([key, t]) => `<option value="${key}">${t.name}</option>`)
     .join("");

@@ -28,7 +28,8 @@ the drums — all verified on this machine, not just written.
 | Domain layer | Pure Python, no third-party dependencies |
 | Separation | Demucs 4.1.0 + torch 2.13 CPU — 6-stem, 0.72× realtime measured on a real track |
 | Transcription | pYIN for bass/vocals, basic-pitch (ONNX) for guitar/piano, onsets for drums |
-| Studio front end | ASP.NET Core + vanilla JS — **runs**, full loop verified through its proxy |
+| Studio front end | ASP.NET Core + vanilla JS — **runs**; hamburger nav over Mastering, Tablature, Capabilities and Legal |
+| Mastering | Spectral reference matching + LUFS + MP3 export, **no ffmpeg needed** |
 | Next.js front end | Written, **never built** — Node is not installed here |
 | CI | Written, **never executed** — no git remote yet |
 | Accuracy | **Unmeasured.** Needs a licensed eval set (X0R-306) |
@@ -205,6 +206,10 @@ storage/              uploads and artifacts — gitignored, auto-purged
 **Phase 1 — transcription.** Upload, separate, select stems, transcribe to tab, export as
 `.txt` and `.x0r`. Epics 01–07.
 
-**Phase 2 — mastering and mixing.** Reference-track mastering, a per-stem mixer with EQ and
-effects, mixdown to a single MP3. Epics 08–10. The mix specification and the ffmpeg filter
-graph builder are already written and unit-tested.
+**Phase 2 — mastering and mixing.** Reference-track mastering and export, working today:
+upload a song, split it, upload a commercial reference, and the mix is matched to that
+reference's tonal balance and loudness and exported as an MP3.
+
+Runs entirely on numpy, scipy, `lameenc` and `pyloudnorm` — **no ffmpeg**, so Phase 2
+works anywhere Phase 1 does. Still to come: a per-stem EQ and effects editor (X0R-904/905)
+and a real-time Web Audio preview (X0R-903).

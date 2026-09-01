@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import (
     routes_audio,
     routes_jobs,
+    routes_master,
     routes_meta,
     routes_mix,
     routes_tracks,
@@ -94,6 +95,7 @@ app.include_router(routes_meta.router)
 app.include_router(routes_tracks.router)
 app.include_router(routes_transcription.router)
 app.include_router(routes_audio.router)
+app.include_router(routes_master.router)
 app.include_router(routes_mix.router)
 app.include_router(routes_jobs.router)
 

@@ -66,6 +66,32 @@ class TrackStorage:
             size_bytes=len(data),
         )
 
+    def save_reference(self, track_id: str, filename: str, data: bytes) -> Path:
+        """Store a mastering reference inside the track's folder.
+
+        Inside the track folder on purpose: the retention sweep deletes a directory, so
+        a reference cannot outlive the track it was uploaded for.
+        """
+        suffix = Path(filename).suffix.lower()
+        if suffix not in ALLOWED_SUFFIXES:
+            raise UnsupportedAudioError(
+                f"{suffix or 'file'} is not supported; accepted: "
+                + ", ".join(sorted(ALLOWED_SUFFIXES))
+            )
+        directory = self.track_dir(track_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        for existing in directory.glob("reference.*"):
+            existing.unlink(missing_ok=True)
+        path = directory / f"reference{suffix}"
+        path.write_bytes(data)
+        return path
+
+    def reference_path(self, track_id: str) -> Path | None:
+        directory = self.track_dir(track_id)
+        if not directory.is_dir():
+            return None
+        return next((p for p in directory.glob("reference.*")), None)
+
     def normalized_path(self, track_id: str) -> Path:
         """Canonical 44.1 kHz stereo WAV, written once at the start of separation."""
         return self.track_dir(track_id) / "source.normalized.wav"

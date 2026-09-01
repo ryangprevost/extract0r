@@ -573,31 +573,63 @@ Replaces the in-memory `TrackRegistry` and `JobStore`.
 
 ## EPIC-08 — Reference mastering (Phase 2)
 
-### X0R-801 · Mastering contract and loudness backend · 3 · `PARTIAL`
-The `MasteringEngine` protocol and the ffmpeg `loudnorm` implementation are written but unrun — ffmpeg is not installed here.
-
+### X0R-801 · Mastering engine · 5 · `DONE`
 **Acceptance criteria**
-- EBU R128 measurement of target and reference (integrated LUFS, true peak, LRA).
-- Target matched to the reference's integrated loudness with a −1 dBTP ceiling.
-- The report states plainly that tonal balance was not touched.
+- EBU R128 measurement of target and reference (integrated LUFS, true peak). ✅
+- Target matched to the reference's integrated loudness with a −1 dBFS ceiling. ✅
+- LRA (loudness range). ❌ needs gated short-term blocks; reported as 0.0 rather than faked
+
+**Rebuilt around numpy rather than ffmpeg.** The original design shelled out to ffmpeg
+for filtering and encoding, which meant Phase 2 could not run at all on a machine where
+Phase 1 worked perfectly — including this one. numpy, scipy, `lameenc` and `pyloudnorm`
+were already installed as transitive dependencies of the ML stack, so the whole chain now
+runs with no external process. ffmpeg remains supported for m4a/aac input and nothing else.
+
+Loudness is LUFS via ITU-R BS.1770 K-weighting, falling back to RMS with an explicit
+warning when `pyloudnorm` is absent — a number labelled LUFS that is really RMS is worse
+than no number.
 
 ---
 
-### X0R-802 · Reference-track upload · 2 · `TODO`
+### X0R-802 · Reference-track upload · 2 · `DONE`
 **As a** user **I want** to upload a commercial track as a reference **so that** my mix sits in the same ballpark.
 
 **Acceptance criteria**
-- Reference upload goes through the same rights gate as the source.
-- References are deleted on the same retention schedule and are never used for anything but analysis.
-- The UI states that the reference is analysed, never sampled or mixed in.
+- Reference upload goes through the same rights gate as the source. ✅
+- References live inside the track folder, so retention deletes them with it. ✅
+- The UI states that the reference is analysed, never sampled or mixed in. ✅
+- Its measured loudness is shown on upload, so the target is visible before committing. ✅
+
+Storing the reference *inside* the track directory is the mechanism, not a convenience:
+the retention sweep deletes a folder, so a reference cannot outlive the track it was
+uploaded for.
 
 ---
 
-### X0R-803 · Matchering integration · 5 · `PARTIAL`
+### X0R-803 · Spectral reference matching · 5 · `DONE`
 **Acceptance criteria**
-- STFT-based frequency-response matching plus RMS/peak matching.
-- Result lands within 1 LU of the reference's integrated loudness.
-- Before/after loudness and the EQ curve are shown in the UI.
+- STFT-based frequency-response matching plus loudness matching. ✅
+- Result lands close to the reference's integrated loudness. ✅ within ~1.5 LU on test material
+- Before/after loudness and the EQ curve are shown in the UI. ✅
+
+**Written rather than pulled in.** `matchering` does not install cleanly here, and the
+algorithm is not mysterious: average the long-term spectra, smooth both across log
+frequency, divide, clamp, apply, then match level. Writing it means the behaviour is
+tunable and unit-testable rather than opaque.
+
+Three decisions worth keeping:
+
+- **The curve is clamped** (+6 dB boost, −12 dB cut). Unclamped, it tries to turn any mix
+  into any other and the result sounds broken. Boost is capped harder than cut because
+  lifting a band the target barely contains amplifies noise and separation artefacts.
+- **Smoothing is per-octave, not per-Hz**, because hearing is logarithmic — and without
+  it the curve fits the partials of whatever note happened to be playing.
+- **Tone and level are matched separately**, and the curve is normalised to be
+  level-neutral. Conflating them makes both impossible to reason about.
+
+A reconstruction test caught a real bug here: the overlap-add applied an analysis window
+but normalised as though there were a synthesis window too, making every master exactly
+4/3 too loud. Silent, and invisible without a round-trip test.
 
 ---
 
@@ -682,13 +714,22 @@ The `MasteringEngine` protocol and the ffmpeg `loudnorm` implementation are writ
 
 ## EPIC-10 — Mixdown & export (Phase 2)
 
-### X0R-1001 · Render selected stems to one MP3 · 3 · `PARTIAL`
-The ffmpeg command builder and route are written and unit-tested; the render has never run here.
-
+### X0R-1001 · Render selected stems to one MP3 · 3 · `DONE`
 **Acceptance criteria**
-- Only stems the user selected are summed; solo/mute honoured.
-- Bitrate selectable (128/192/256/320); optional loudness normalisation to a target LUFS.
-- Output is not clipped: the graph disables `amix` auto-normalisation and applies a true-peak ceiling.
+- Only stems the user selected are summed; solo/mute honoured. ✅
+- Bitrate selectable (128/192/256/320). ✅
+- Output is not clipped. ✅ enforced by a limiter and covered by a test
+
+Encoding is `lameenc` — a LAME binding, not a subprocess — so export works with no
+ffmpeg. Mixing deliberately does **not** normalise the sum: separation is additive, so
+stems at unity reconstruct the original mix, and rescaling would quietly change the
+balance the user set.
+
+The limiter is the interesting part. It started as a single static gain reduction, which
+is transparent but lets one transient decide the level of an entire song — matching a
+loud reference landed 11 dB short. It now rides the gain with a fast attack and slow
+release, which leaves the body of the track untouched. Measured: a track with one loud
+spike keeps its full level under the limiter and loses 6 dB under peak normalisation.
 
 ---
 

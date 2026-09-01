@@ -15,6 +15,14 @@ from app.legal import COPYRIGHT_NOTICE, TERMS_VERSION, UPLOAD_GATE_TEXT
 router = APIRouter(prefix="/api/v1", tags=["meta"])
 
 
+def _lameenc_available() -> bool:
+    try:
+        import lameenc  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 @router.get("/health")
 def health(settings: Settings = Depends(get_config)) -> dict:
     return {"status": "ok", "version": settings.app_version, "env": settings.environment}
@@ -23,7 +31,9 @@ def health(settings: Settings = Depends(get_config)) -> dict:
 @router.get("/capabilities")
 def capabilities(settings: Settings = Depends(get_config)) -> dict:
     from app.services.mastering.loudness import LoudnessMatchEngine
+    from app.services.mastering.loudness_meter import loudness_backend
     from app.services.mastering.matchering_engine import MatcheringEngine
+    from app.services.mastering.spectral import SpectralMatchEngine
     from app.services.separation.demucs import DemucsSeparator
     from app.services.transcription.basic_pitch import BasicPitchTranscriber
     from app.services.transcription.drums import OnsetDrumTranscriber
@@ -42,6 +52,9 @@ def capabilities(settings: Settings = Depends(get_config)) -> dict:
             "pyin": PyinTranscriber().available(),
             "onset_drums": OnsetDrumTranscriber().available(),
             "matchering": MatcheringEngine().available(),
+            "spectral_master": SpectralMatchEngine().available(),
+            "mp3_export": _lameenc_available(),
+            "lufs_metering": loudness_backend() == "bs1770",
             "ffmpeg": LoudnessMatchEngine().available(),
         },
         "limits": {

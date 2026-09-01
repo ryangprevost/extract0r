@@ -5,25 +5,51 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Extract0r Studio</title>
   <link rel="stylesheet" href="styles.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🎸</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🎛️</text></svg>" />
 </head>
 <body>
 
 <header class="topbar">
   <div class="wrap topbar-inner">
+    <button class="hamburger" id="nav-toggle" aria-label="Menu" aria-expanded="false" aria-controls="nav">
+      <span></span><span></span><span></span>
+    </button>
     <div class="brand">extract<span>0</span>r</div>
+    <span class="page-name" id="page-name">Mastering</span>
     <div class="backends" id="backends" title="Which engines this server actually has installed"></div>
   </div>
 </header>
 
+<nav class="drawer" id="nav" hidden>
+  <div class="drawer-inner">
+    <button class="nav-item" data-page="master">
+      <span class="nav-icon">🎛️</span>
+      <span><strong>Mastering suite</strong><em>Split, match a reference, export MP3</em></span>
+    </button>
+    <button class="nav-item" data-page="tab">
+      <span class="nav-icon">🎸</span>
+      <span><strong>Tablature</strong><em>Transcribe stems to tab</em></span>
+    </button>
+    <button class="nav-item" data-page="about">
+      <span class="nav-icon">ⓘ</span>
+      <span><strong>Capabilities</strong><em>What this server can actually do</em></span>
+    </button>
+    <button class="nav-item" data-page="legal">
+      <span class="nav-icon">§</span>
+      <span><strong>Legal</strong><em>Terms, copyright, DMCA</em></span>
+    </button>
+  </div>
+</nav>
+<div class="scrim" id="scrim" hidden></div>
+
 <main class="wrap">
 
-  <!-- ─────────────────────────────── step 1: upload ─────────────────────────── -->
+  <!-- ═══════════════════════════ shared: upload ═══════════════════════════ -->
   <section class="step" id="step-upload">
-    <h1>Split a song into stems and read it back as tab.</h1>
-    <p class="lede">
-      Upload a track, listen to each separated part to check it came out clean, then pick
-      the ones you want written out as tablature.
+    <h1 id="upload-title">Master a track against a reference.</h1>
+    <p class="lede" id="upload-lede">
+      Upload a song, split it into stems, then match its tone and loudness to a commercial
+      reference and export a new MP3.
     </p>
 
     <div class="notice" role="note">
@@ -63,7 +89,7 @@
     <p class="error" id="upload-error" hidden></p>
   </section>
 
-  <!-- ─────────────────────────────── step 2: work ───────────────────────────── -->
+  <!-- ═══════════════════════════ shared: progress ═══════════════════════════ -->
   <section class="step" id="step-progress" hidden>
     <h2 id="progress-title">Working…</h2>
     <p class="muted" id="progress-message">starting</p>
@@ -71,7 +97,7 @@
     <p class="muted small" id="progress-hint"></p>
   </section>
 
-  <!-- ─────────────────────────────── step 3: mixer ──────────────────────────── -->
+  <!-- ═══════════════════════════ shared: the mixer ═══════════════════════════ -->
   <section class="step" id="step-stems" hidden>
     <div class="row-between">
       <div>
@@ -81,12 +107,10 @@
       <button class="link danger" id="delete-btn">Delete this track now</button>
     </div>
 
-    <p class="muted hint-line">
-      Play a stem before transcribing it. If the audio is wrong, the tab cannot be right —
-      that is the fastest way to tell a separation problem from a transcription one.
+    <p class="muted hint-line" id="stems-hint">
+      Play a stem before using it. If the audio is wrong, nothing downstream can be right.
     </p>
 
-    <!-- transport -->
     <div class="transport">
       <button class="transport-play" id="play-btn" aria-label="Play or pause">
         <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
@@ -98,11 +122,68 @@
       <button class="link" id="clear-solo" hidden>clear solo</button>
     </div>
 
-    <!-- stacked lanes, one per stem, sharing a single playhead -->
     <div class="lanes" id="lanes">
       <div class="playhead" id="playhead" hidden></div>
     </div>
+  </section>
 
+  <!-- ═══════════════════════════ page: mastering ═══════════════════════════ -->
+  <section class="step" id="step-master" hidden>
+    <h2>Reference &amp; master</h2>
+    <p class="muted hint-line">
+      The reference is <strong>analysed, never sampled</strong>. Extract0r measures its
+      tonal balance and loudness and moves your mix in that direction — no audio from it
+      reaches your export.
+    </p>
+
+    <label class="dropzone compact" id="ref-dropzone">
+      <input type="file" id="ref-file" accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aiff,.aif" hidden />
+      <div>
+        <span class="big" id="ref-name">Drop a reference track here</span>
+        <span class="small" id="ref-hint">a commercial master you want to sound like — optional</span>
+      </div>
+    </label>
+    <p class="error" id="ref-error" hidden></p>
+
+    <div class="controls">
+      <label class="control">
+        <span>Match strength</span>
+        <input type="range" id="strength" min="0" max="100" value="100" />
+        <output id="strength-out">100%</output>
+      </label>
+      <label class="control">
+        <span>Bitrate</span>
+        <select id="bitrate">
+          <option value="320">320 kbps</option>
+          <option value="256">256 kbps</option>
+          <option value="192">192 kbps</option>
+          <option value="128">128 kbps</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="master-btn">Master and export MP3</button>
+      <span class="muted small" id="master-summary"></span>
+    </div>
+    <p class="error" id="master-error" hidden></p>
+
+    <div id="master-result" hidden>
+      <div class="result-card">
+        <div class="row-between">
+          <h3>Master ready</h3>
+          <a class="link" id="master-download" download>Download MP3</a>
+        </div>
+        <audio id="master-audio" controls preload="metadata"></audio>
+        <div class="meters" id="master-meters"></div>
+        <div id="master-curve"></div>
+        <p class="muted small" id="master-warnings"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ page: tab ═══════════════════════════ -->
+  <section class="step" id="step-timing" hidden>
     <div class="timing" id="timing">
       <span class="timing-label">Grid</span>
       <label>
@@ -132,15 +213,34 @@
     <p class="error" id="stems-error" hidden></p>
   </section>
 
-  <!-- ─────────────────────────────── step 4: tabs ───────────────────────────── -->
   <section class="step" id="step-tabs" hidden>
     <div class="row-between">
       <h2>Tablature</h2>
       <a class="link" id="x0r-link" download>Download the .x0r session file</a>
     </div>
     <div id="tabs"></div>
-    <button class="link" id="restart-btn">Start over with another track</button>
   </section>
+
+  <!-- ═══════════════════════════ page: capabilities ═══════════════════════════ -->
+  <section class="step" id="step-about" hidden>
+    <h2>What this server can actually do</h2>
+    <p class="muted hint-line">
+      Extract0r degrades rather than failing: when an engine is missing it falls back to a
+      stub and carries on. Convenient, and also a trap — so this reports what is installed
+      right now, not what the configuration asked for.
+    </p>
+    <div id="about-caps"></div>
+  </section>
+
+  <!-- ═══════════════════════════ page: legal ═══════════════════════════ -->
+  <section class="step" id="step-legal" hidden>
+    <h2>Legal</h2>
+    <div id="legal-body"></div>
+  </section>
+
+  <div class="restart-row" id="restart-row" hidden>
+    <button class="link" id="restart-btn">Start over with another track</button>
+  </div>
 
 </main>
 

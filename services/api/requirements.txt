@@ -7,3 +7,10 @@ python-multipart>=0.0.12
 numpy>=1.26
 soundfile>=0.12
 soxr>=0.5
+# Phase 2 mastering and export, none of which needs ffmpeg:
+#   scipy      - spectral maths
+#   lameenc    - MP3 encoding, a LAME binding rather than a subprocess
+#   pyloudnorm - EBU R128 / ITU-R BS.1770 loudness, so LUFS means LUFS
+scipy>=1.11
+lameenc>=1.7
+pyloudnorm>=0.1

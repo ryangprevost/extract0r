@@ -38,6 +38,9 @@ const state = {
   chosenTuning: {},
   playing: false,
   timing: null,
+  page: "master",
+  referenceFile: null,
+  referenceLoaded: false,
 };
 
 // ───────────────────────────────── plumbing ─────────────────────────────────
@@ -67,10 +70,75 @@ async function runJob(jobId, title, hint = "") {
   }
 }
 
+const ALL_SECTIONS = [
+  "step-upload", "step-progress", "step-stems", "step-master",
+  "step-timing", "step-tabs", "step-about", "step-legal",
+];
+
+// Which sections each page shows once a track is loaded. The mixer is shared by both
+// working pages on purpose - checking a stem by ear matters as much before mastering as
+// before transcribing.
+const PAGES = {
+  master: {
+    name: "Mastering",
+    title: "Master a track against a reference.",
+    lede: "Upload a song, split it into stems, then match its tone and loudness to a " +
+          "commercial reference and export a new MP3.",
+    loaded: ["step-stems", "step-master"],
+  },
+  tab: {
+    name: "Tablature",
+    title: "Split a song into stems and read it back as tab.",
+    lede: "Upload a track, listen to each separated part to check it came out clean, " +
+          "then pick the ones you want written out as tablature.",
+    loaded: ["step-stems", "step-timing", "step-tabs"],
+  },
+  about: { name: "Capabilities", standalone: "step-about" },
+  legal: { name: "Legal", standalone: "step-legal" },
+};
+
 function showOnly(...ids) {
-  for (const id of ["step-upload", "step-progress", "step-stems", "step-tabs"]) {
-    $(id).hidden = !ids.includes(id);
+  for (const id of ALL_SECTIONS) $(id).hidden = !ids.includes(id);
+  $("restart-row").hidden = !state.trackId || ids.includes("step-progress");
+}
+
+function goToPage(name) {
+  const page = PAGES[name] ?? PAGES.master;
+  state.page = name;
+  $("page-name").textContent = page.name;
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    if (item.dataset.page === name) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  });
+  closeNav();
+
+  if (page.standalone) {
+    showOnly(page.standalone);
+    if (name === "about") renderCapabilities();
+    if (name === "legal") renderLegal();
+    return;
   }
+
+  $("upload-title").textContent = page.title;
+  $("upload-lede").textContent = page.lede;
+
+  // Tabs only appear once something has been transcribed.
+  const sections = state.trackId
+    ? page.loaded.filter((id) => id !== "step-tabs" || $("tabs").children.length)
+    : ["step-upload"];
+  showOnly(...sections);
+}
+
+function openNav() {
+  $("nav").hidden = false;
+  $("scrim").hidden = false;
+  $("nav-toggle").setAttribute("aria-expanded", "true");
+}
+
+function closeNav() {
+  $("nav").hidden = true;
+  $("scrim").hidden = true;
+  $("nav-toggle").setAttribute("aria-expanded", "false");
 }
 
 function fail(elementId, error) {
@@ -296,8 +364,9 @@ async function buildMixer(separation, track) {
   }
 
   wireLanes();
-  showOnly("step-stems");
-  loadTiming();
+  goToPage(state.page);
+  if (state.page === "tab") loadTiming();
+  updateMasterSummary();
 
   // Waveforms are a separate, cacheable request per stem - draw them as they arrive so
   // the mixer is usable immediately rather than after the slowest one.
@@ -472,6 +541,7 @@ function applyGains() {
     void stem;
   }
   $("clear-solo").hidden = !soloed;
+  if (state.trackId) updateMasterSummary();
   $("solo-note").textContent = soloed
     ? `soloing ${[...state.lanes].filter(([, l]) => l.solo).map(([s]) => LABELS[s]).join(", ")}`
     : "";
@@ -560,7 +630,7 @@ async function transcribe() {
     const finished = await runJob(job.job_id, "Writing the tab…");
     renderTabs(finished.result);
   } catch (error) {
-    showOnly("step-stems");
+    goToPage("tab");
     fail("stems-error", error);
   }
 }
@@ -607,7 +677,7 @@ function renderTabs(result) {
 
   // Keep the mixer on screen: comparing the tab against the stem you can hear is the
   // whole point, and hiding one to show the other defeats it.
-  showOnly("step-stems", "step-tabs");
+  showOnly("step-stems", "step-timing", "step-tabs");
   $("step-tabs").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -615,6 +685,194 @@ function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+
+// ───────────────────────────────── mastering ────────────────────────────────
+
+function pickReference(file) {
+  if (!file) return;
+  state.referenceFile = file;
+  state.referenceLoaded = false;
+  $("ref-dropzone").classList.add("has-file");
+  $("ref-name").textContent = file.name;
+  $("ref-hint").textContent = `${(file.size / 1024 / 1024).toFixed(1)} MB — uploading…`;
+  $("ref-error").hidden = true;
+  uploadReference();
+}
+
+async function uploadReference() {
+  const form = new FormData();
+  form.append("file", state.referenceFile);
+  form.append("owns_or_licensed", "true");
+
+  try {
+    const info = await api(`/tracks/${state.trackId}/reference`, {
+      method: "POST",
+      body: form,
+    });
+    state.referenceLoaded = true;
+    const loudness =
+      info.integrated_lufs != null ? ` · ${info.integrated_lufs.toFixed(1)} LUFS` : "";
+    $("ref-hint").textContent =
+      `${info.duration_s.toFixed(0)}s${loudness} — will be matched`;
+    updateMasterSummary();
+  } catch (error) {
+    state.referenceLoaded = false;
+    $("ref-dropzone").classList.remove("has-file");
+    $("ref-name").textContent = "Drop a reference track here";
+    $("ref-hint").textContent = "a commercial master you want to sound like — optional";
+    fail("ref-error", error);
+  }
+}
+
+function updateMasterSummary() {
+  const stems = [...state.lanes.keys()];
+  const audible = stems.filter((s) => !state.lanes.get(s).audio.muted);
+  const what =
+    audible.length === stems.length
+      ? "all stems"
+      : audible.map((s) => LABELS[s]).join(", ") || "nothing";
+  $("master-summary").textContent = state.referenceLoaded
+    ? `${what}, matched to your reference`
+    : `${what}, no reference — export only`;
+}
+
+async function runMaster() {
+  $("master-error").hidden = true;
+  $("master-result").hidden = true;
+
+  // Mute and solo on the lanes ARE the mix. No second set of controls to keep in sync:
+  // what you hear in the mixer is what gets exported.
+  const stems = [...state.lanes].map(([stem, lane]) => ({
+    stem,
+    gain_db: 0,
+    pan: 0,
+    muted: lane.muted,
+    solo: lane.solo,
+  }));
+
+  try {
+    const job = await api(`/tracks/${state.trackId}/master`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stems,
+        reference_track_id: state.referenceLoaded ? state.trackId : null,
+        match_strength: parseInt($("strength").value, 10) / 100,
+        bitrate_kbps: parseInt($("bitrate").value, 10),
+      }),
+    });
+    const finished = await runJob(
+      job.job_id,
+      "Mastering…",
+      "Mixing the stems, matching the reference, then encoding. No ffmpeg involved.",
+    );
+    renderMaster(finished.result);
+  } catch (error) {
+    goToPage("master");
+    fail("master-error", error);
+  }
+}
+
+function renderMaster(result) {
+  goToPage("master");
+  $("master-result").hidden = false;
+
+  // Cache-bust: the URL is stable across renders but the file behind it is not.
+  const url = `${API}/tracks/${state.trackId}/master/download?t=${Date.now()}`;
+  $("master-download").href = url;
+  $("master-download").download = "extract0r-master.mp3";
+  $("master-audio").src = url;
+
+  const size = (result.bytes / 1024 / 1024).toFixed(1);
+  const info = result.mastering;
+
+  $("master-meters").innerHTML = info
+    ? meter("Your mix", info.source) +
+      meter("Reference", info.reference) +
+      meter("Master", info.result, info.source) +
+      `<div class="meter">gain applied<b>${info.gain_applied_db > 0 ? "+" : ""}${info.gain_applied_db} dB</b></div>` +
+      `<div class="meter">file<b>${size} MB</b></div>`
+    : `<div class="meter">exported<b>${size} MB</b></div>` +
+      `<div class="meter">stems<b>${result.stems.length}</b></div>`;
+
+  $("master-curve").innerHTML = info?.eq_curve_db?.length
+    ? renderCurve(info.eq_curve_db)
+    : "";
+
+  const warnings = info?.warnings ?? [];
+  $("master-warnings").textContent = warnings.join(" ");
+  $("master-warnings").hidden = warnings.length === 0;
+}
+
+function meter(label, stats, against = null) {
+  if (!stats) return "";
+  const delta = against
+    ? `<span class="delta">${stats.integrated_lufs > against.integrated_lufs ? "+" : ""}` +
+      `${(stats.integrated_lufs - against.integrated_lufs).toFixed(1)} LU</span>`
+    : "";
+  return `<div class="meter">${label}<b>${stats.integrated_lufs.toFixed(1)} LUFS</b>
+          <span class="delta">peak ${stats.true_peak_dbfs.toFixed(1)} dB</span> ${delta}</div>`;
+}
+
+/** The applied EQ as bars above and below a centre line - readable without a chart library. */
+function renderCurve(bands) {
+  const largest = Math.max(3, ...bands.map(([, db]) => Math.abs(db)));
+  const rows = bands.map(([hz, db]) => {
+    const height = Math.round((Math.abs(db) / largest) * 38);
+    const label = hz >= 1000 ? `${hz / 1000}k` : hz;
+    const bar =
+      db >= 0
+        ? `<div class="curve-bar" style="height:${height}px"></div><div class="curve-mid"></div><div style="height:38px"></div>`
+        : `<div style="height:38px"></div><div class="curve-mid"></div><div class="curve-bar cut" style="height:${height}px"></div>`;
+    return `<div class="curve-band" title="${db > 0 ? "+" : ""}${db} dB at ${hz} Hz">
+              ${bar}<span class="curve-label">${label}</span></div>`;
+  });
+  return `<div class="curve">${rows.join("")}</div>
+          <p class="muted small">Correction applied, per band. Green is boost, amber is cut.</p>`;
+}
+
+// ───────────────────────────────── capabilities page ────────────────────────
+
+const CAPABILITY_NOTES = {
+  demucs: ["Stem separation", "Without it, splitting returns copies of your file."],
+  basic_pitch: ["Polyphonic transcription", "Guitar and piano tab."],
+  pyin: ["Monophonic transcription", "Bass and vocal lines."],
+  onset_drums: ["Drum transcription", "Onset detection and drum tab."],
+  spectral_master: ["Reference mastering", "Tonal and loudness matching."],
+  mp3_export: ["MP3 export", "LAME encoding, no external process."],
+  lufs_metering: ["LUFS metering", "EBU R128. Falls back to RMS without it."],
+  ffmpeg: ["ffmpeg", "Optional - only needed for m4a/aac input."],
+};
+
+async function renderCapabilities() {
+  const node = $("about-caps");
+  node.innerHTML = '<p class="muted">checking…</p>';
+  try {
+    const caps = await api("/capabilities");
+    const rows = Object.entries(CAPABILITY_NOTES).map(([key, [what, why]]) => {
+      const on = caps.installed[key];
+      return `<div class="cap ${on ? "on" : ""}">
+                <span class="dot"></span>
+                <span class="what"><strong>${what}</strong><br /><span class="why">${why}</span></span>
+                <span class="muted small">${on ? "installed" : "not installed"}</span>
+              </div>`;
+    });
+    node.innerHTML =
+      `<div class="cap-grid">${rows.join("")}</div>
+       <p class="muted small" style="margin-top:16px">
+         Configured backends: ${Object.entries(caps.configured).map(([k, v]) => `${k}=${v}`).join(" · ")}<br />
+         Limits: ${caps.limits.max_upload_mb} MB upload, deleted after
+         ${caps.limits.retention_hours} hours.
+       </p>`;
+  } catch {
+    node.innerHTML = '<p class="error">Could not reach the API.</p>';
+  }
+}
+
+function renderLegal() {
+  $("legal-body").innerHTML =
+    `${MODALS.terms}<hr style="border-color:var(--edge);margin:32px 0" />${MODALS.dmca}`;
 }
 
 // ───────────────────────────────── legal modals ─────────────────────────────
@@ -704,6 +962,36 @@ $("delete-btn").addEventListener("click", async () => {
 });
 $("restart-btn").addEventListener("click", () => location.reload());
 
+$("nav-toggle").addEventListener("click", () =>
+  ($("nav").hidden ? openNav() : closeNav()));
+$("scrim").addEventListener("click", closeNav);
+document.querySelectorAll(".nav-item").forEach((item) =>
+  item.addEventListener("click", () => goToPage(item.dataset.page)));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("nav").hidden) closeNav();
+});
+
+$("ref-dropzone").addEventListener("click", () => $("ref-file").click());
+$("ref-file").addEventListener("change", (e) => pickReference(e.target.files[0]));
+for (const type of ["dragenter", "dragover"]) {
+  $("ref-dropzone").addEventListener(type, (e) => {
+    e.preventDefault();
+    $("ref-dropzone").classList.add("hot");
+  });
+}
+for (const type of ["dragleave", "drop"]) {
+  $("ref-dropzone").addEventListener(type, (e) => {
+    e.preventDefault();
+    $("ref-dropzone").classList.remove("hot");
+  });
+}
+$("ref-dropzone").addEventListener("drop", (e) => pickReference(e.dataTransfer.files[0]));
+
+$("strength").addEventListener("input", () => {
+  $("strength-out").textContent = `${$("strength").value}%`;
+});
+$("master-btn").addEventListener("click", runMaster);
+
 $("modal-close").addEventListener("click", () => $("modal").close());
 document.addEventListener("click", (e) => {
   const trigger = e.target.closest("[data-modal]");
@@ -724,6 +1012,7 @@ document.addEventListener("keydown", (e) => {
 
 (async function boot() {
   await loadLegal();
+  goToPage("master");
   await loadCapabilities();
   try {
     state.tunings = await api("/tracks/tunings");

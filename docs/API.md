@@ -53,14 +53,24 @@ Stem audio and peaks exist for one workflow: when a transcription looks wrong, t
 question is whether the *stem* was already wrong. Listening to it, and seeing its envelope,
 is the only way to tell a separation problem from a transcription one.
 
-## Mix and master (phase 2)
+## Mastering (phase 2)
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/tracks/{id}/mix` | Per-stem gain, pan, mute, solo, EQ, compressor, reverb. `202` + job |
-| `POST` | `/tracks/{id}/master` | Body: `reference_track_id`. Requires an existing mixdown |
-| `GET` | `/tracks/{id}/mixdown` | The rendered MP3 |
-| `GET` | `/tracks/{id}/mastered` | The mastered WAV |
+| `POST` | `/tracks/{id}/reference` | Multipart. Store a reference to match against; same rights gate as an upload. Returns its measured loudness |
+| `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/mute/solo, optional `reference_track_id`, `match_strength`, `bitrate_kbps`. `202` + job |
+| `GET` | `/tracks/{id}/master/download` | The rendered MP3 |
+
+Stems are mixed **first** and matched **second**. Tonal balance is a property of a whole
+mix — matching each stem separately against a full-mix reference would push every stem
+towards a curve that includes all the other instruments.
+
+The job result reports what was actually done: source, reference and result loudness in
+LUFS, the gain applied, the EQ correction per band, and any warnings. Omit
+`reference_track_id` to export the mix without matching anything.
+
+None of this needs ffmpeg. Processing is numpy/scipy, encoding is `lameenc`, metering is
+`pyloudnorm`.
 
 Solo overrides mute; a mix with nothing audible is a validation error, not silence.
 

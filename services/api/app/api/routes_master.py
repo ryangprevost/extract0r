@@ -1,0 +1,227 @@
+"""Phase 2: reference mastering and export.
+
+Runs on numpy and lameenc rather than ffmpeg, so it works wherever Phase 1 does.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+
+from app.api.deps import get_config, get_jobs, get_registry, get_storage
+from app.api.routes_jobs import to_response
+from app.api.schemas import JobResponse
+from app.config import Settings
+from app.domain.notes import StemKind
+from app.jobs.store import JobHandle, JobState, JobStore
+from app.services.mastering import pipeline as master_pipeline
+from app.services.mastering.pipeline import MasterRequest, StemSetting
+from app.services.registry import TrackRegistry
+from app.services.storage import TrackStorage, UnsupportedAudioError
+
+log = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/v1/tracks", tags=["mastering"])
+
+
+class StemMixSetting(BaseModel):
+    stem: StemKind
+    gain_db: float = Field(default=0.0, ge=-60, le=12)
+    pan: float = Field(default=0.0, ge=-1, le=1)
+    muted: bool = False
+    solo: bool = False
+
+
+class MasterJobRequest(BaseModel):
+    stems: list[StemMixSetting] = Field(min_length=1)
+    #: Track id of an already-uploaded reference. Omit to export without matching.
+    reference_track_id: str | None = None
+    #: 0 leaves the tone alone, 1 applies the full clamped correction curve.
+    match_strength: float = Field(default=1.0, ge=0.0, le=1.0)
+    bitrate_kbps: int = Field(default=320)
+    export_wav: bool = False
+
+
+class ReferenceResponse(BaseModel):
+    reference_id: str
+    filename: str
+    duration_s: float
+    integrated_lufs: float | None = None
+
+
+@router.post(
+    "/{track_id}/reference",
+    response_model=ReferenceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_reference(
+    track_id: str,
+    file: Annotated[UploadFile, File(description="A commercial track to match against")],
+    owns_or_licensed: Annotated[bool, Form()] = False,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> ReferenceResponse:
+    """Store a reference track for tonal and loudness matching.
+
+    The reference is **analysed, never sampled**: nothing from this file ends up in the
+    output, only measurements of it. That distinction matters legally, and the rights
+    gate applies here too — uploading a commercial master is still an upload.
+    """
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    if settings.require_rights_attestation and not owns_or_licensed:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Confirm you have the right to use this reference recording. It is analysed "
+            "only - no audio from it is copied into your master - but it is still an "
+            "upload.",
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reference file was empty.")
+    if len(data) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"Reference exceeds the {settings.max_upload_mb} MB limit.",
+        )
+
+    try:
+        stored = storage.save_reference(track_id, file.filename or "reference.wav", data)
+    except UnsupportedAudioError as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
+
+    from app.services.audio.probe import UnreadableAudioError, probe
+
+    try:
+        info = probe(stored)
+    except UnreadableAudioError as exc:
+        stored.unlink(missing_ok=True)
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
+
+    loudness = None
+    try:
+        from app.services.mastering.loudness_meter import integrated_loudness
+        from app.services.mixdown.encode import read_audio
+
+        buffer = read_audio(stored)
+        value, _ = integrated_loudness(buffer.samples, buffer.sample_rate)
+        loudness = round(float(value), 2)
+    except Exception:
+        log.debug("could not measure reference loudness", exc_info=True)
+
+    return ReferenceResponse(
+        reference_id=track_id,
+        filename=stored.name,
+        duration_s=round(info.duration_s, 2),
+        integrated_lufs=loudness,
+    )
+
+
+@router.post(
+    "/{track_id}/master", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED
+)
+def start_master(
+    track_id: str,
+    body: MasterJobRequest,
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """Mix the chosen stems, optionally match a reference, and encode an MP3."""
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if record.separation is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Separate this track first.")
+
+    if body.bitrate_kbps not in (128, 192, 256, 320):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "bitrate must be 128, 192, 256 or 320."
+        )
+
+    available = {s.kind: s.path for s in record.separation.stems}
+    missing = [s.stem.value for s in body.stems if s.stem not in available]
+    if missing:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"This track has no stem(s): {', '.join(missing)}",
+        )
+
+    reference = None
+    if body.reference_track_id:
+        reference = storage.reference_path(body.reference_track_id)
+        if reference is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                "No reference has been uploaded for that track.",
+            )
+
+    request = MasterRequest(
+        stems=available,
+        settings=[
+            StemSetting(
+                stem=s.stem, gain_db=s.gain_db, pan=s.pan, muted=s.muted, solo=s.solo
+            )
+            for s in body.stems
+        ],
+        reference=reference,
+        bitrate_kbps=body.bitrate_kbps,
+        match_strength=body.match_strength,
+        export_wav=body.export_wav,
+    )
+    work_dir = storage.exports_dir(track_id)
+
+    def work(handle: JobHandle) -> dict:
+        def progress(fraction: float, message: str) -> None:
+            handle.update(JobState.RUNNING, fraction, message)
+
+        result = master_pipeline.run(request, work_dir, on_progress=progress)
+        payload = {
+            "download_url": f"/api/v1/tracks/{track_id}/master/download",
+            "bytes": result.mp3_path.stat().st_size,
+            "duration_s": round(result.duration_s, 2),
+            "stems": [s.value for s in result.included],
+            "matched": result.report is not None,
+        }
+        if result.report:
+            payload["mastering"] = {
+                "backend": result.report.backend,
+                "gain_applied_db": result.report.gain_applied_db,
+                "eq_curve_db": result.report.eq_curve_db,
+                "warnings": result.report.warnings,
+                "source": _stats(result.report.source),
+                "reference": _stats(result.report.reference),
+                "result": _stats(result.report.result),
+            }
+        return payload
+
+    return to_response(jobs.submit("master", track_id, work))
+
+
+def _stats(stats) -> dict | None:
+    if stats is None:
+        return None
+    return {
+        "integrated_lufs": stats.integrated_lufs,
+        "true_peak_dbfs": stats.true_peak_dbtp,
+    }
+
+
+@router.get("/{track_id}/master/download")
+def download_master(
+    track_id: str, storage: TrackStorage = Depends(get_storage)
+) -> FileResponse:
+    path = storage.exports_dir(track_id) / "master.mp3"
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No master rendered for this track.")
+    return FileResponse(path, media_type="audio/mpeg", filename="extract0r-master.mp3")

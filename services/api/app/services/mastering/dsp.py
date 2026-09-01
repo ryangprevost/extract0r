@@ -270,15 +270,24 @@ def set_width(samples: np.ndarray, factor: float) -> np.ndarray:
 
 
 def match_width(
-    samples: np.ndarray, target_width: float, max_factor: float = 4.0
+    samples: np.ndarray,
+    target_width: float,
+    low: float = 0.6,
+    high: float = 2.0,
 ) -> tuple[np.ndarray, float]:
-    """Widen or narrow a signal towards a target width. Returns (audio, factor used)."""
+    """Widen or narrow a signal towards a target width. Returns (audio, factor used).
+
+    The bounds are deliberately tight. Width measured on a separated stem is noisy -
+    separation artefacts sit in the side channel - so the extremes of the measurement are
+    rarely trustworthy, and collapsing a part to a quarter of its width is an obvious,
+    unmusical change rather than a subtle match.
+    """
     current = stereo_width(samples)
     if current <= 1e-6:
         # A mono source has no side content to scale, so widening it would be inventing
         # stereo out of nothing. Left alone deliberately.
         return np.asarray(samples, dtype=np.float64), 1.0
-    factor = float(np.clip(target_width / current, 1.0 / max_factor, max_factor))
+    factor = float(np.clip(target_width / current, low, high))
     return set_width(samples, factor), factor
 
 

@@ -51,6 +51,18 @@ MAX_STEM_GAIN_DB = 9.0
 # the reference measures.
 NEVER_WIDEN = (StemKind.BASS,)
 
+# A reference stem this far below its own mix is not an instrument, it is what separation
+# leaves behind when the instrument is not there. A reference with no piano yields a piano
+# stem at -60 LU or worse, and matching to it would ask for a -60 dB cut - silencing an
+# instrument the user does have because the reference happens not to. Below this
+# threshold the stem is treated as absent and left alone.
+ABSENT_BELOW_LU = -30.0
+
+# How far stereo width may be moved. Narrower than the level clamp on purpose: collapsing
+# a part to a quarter of its width is a drastic, obvious change, and separation artefacts
+# make the measurement noisy enough that the extremes are rarely trustworthy.
+WIDTH_LIMITS = (0.6, 2.0)
+
 
 @dataclass(slots=True)
 class StemProfile:
@@ -130,6 +142,15 @@ def match_stem(
     adjustment = StemAdjustment(stem=source.stem)
     out = np.asarray(samples, dtype=np.float64)
 
+    # A reference that does not contain this instrument cannot say anything useful about
+    # it. Matching anyway would quietly delete a part the user actually played.
+    if reference.relative_lufs < ABSENT_BELOW_LU:
+        adjustment.notes.append(
+            "the reference has essentially no "
+            f"{source.stem.value}, so this stem was left alone"
+        )
+        return out, adjustment
+
     if match_tone:
         curve = matching_curve(source.spectrum, reference.spectrum, sample_rate, settings)
         out = apply_curve(out, curve, settings.n_fft, settings.hop)
@@ -149,7 +170,9 @@ def match_stem(
             )
 
     if match_stereo and source.stem not in NEVER_WIDEN:
-        out, factor = match_width(out, reference.width)
+        out, factor = match_width(
+            out, reference.width, low=WIDTH_LIMITS[0], high=WIDTH_LIMITS[1]
+        )
         adjustment.width_factor = round(factor, 3)
         if abs(factor - 1.0) < 0.02:
             adjustment.width_factor = 1.0

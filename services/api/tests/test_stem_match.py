@@ -180,3 +180,58 @@ def test_every_matching_stage_can_be_turned_off(tmp_path: Path):
     assert adjustment.gain_db == 0.0
     assert adjustment.eq_bands == []
     assert np.allclose(out, audio)
+
+
+def test_a_reference_without_the_instrument_leaves_the_stem_alone(tmp_path: Path):
+    """A reference with no piano must not silence your piano.
+
+    Separation always returns a stem for every instrument the model knows, even when the
+    track has none - it just comes back tens of LU below the mix. Matching against that
+    asks for a -60 dB cut, which would quietly delete a part the user actually played.
+    Measured on a real run: guitar wanted -68 dB against a reference that had no guitar.
+    """
+    source = build(tmp_path, "src.wav", tone(300, amp=0.4))
+    target = build(tmp_path, "ref.wav", tone(300, amp=0.4))
+    source.relative_lufs = -6.0
+    target.relative_lufs = -55.0  # what separation returns for an absent instrument
+
+    audio = np.stack([tone(300, amp=0.4)] * 2, axis=1)
+    out, adjustment = match_stem(audio, SR, source, target)
+
+    assert adjustment.gain_db == 0.0
+    assert adjustment.eq_bands == []
+    assert np.allclose(out, audio), "an absent reference instrument must change nothing"
+    assert any("essentially no" in note for note in adjustment.notes)
+
+
+def test_a_quiet_but_present_instrument_is_still_matched(tmp_path: Path):
+    """The absent-instrument guard must not swallow genuinely quiet parts."""
+    source = build(tmp_path, "src.wav", tone(300, amp=0.4))
+    target = build(tmp_path, "ref.wav", tone(300, amp=0.4))
+    source.relative_lufs = -6.0
+    target.relative_lufs = -18.0  # quiet in the mix, but unmistakably there
+
+    audio = np.stack([tone(300, amp=0.4)] * 2, axis=1)
+    _out, adjustment = match_stem(audio, SR, source, target, match_tone=False)
+
+    assert adjustment.gain_db == pytest.approx(-9.0)  # capped, but applied
+
+
+def test_width_changes_are_bounded(tmp_path: Path):
+    """Collapsing a part to a quarter of its width is not a subtle match.
+
+    Width measured on a separated stem is noisy - artefacts land in the side channel - so
+    the extremes of the measurement are not trustworthy enough to act on fully.
+    """
+    from app.services.mastering.dsp import match_width
+    from app.services.mastering.stem_match import WIDTH_LIMITS
+
+    rng = np.random.default_rng(7)
+    wide = np.stack([rng.standard_normal(SR), rng.standard_normal(SR)], axis=1)
+
+    _narrowed, factor = match_width(wide, 0.001, *WIDTH_LIMITS)
+    assert factor >= WIDTH_LIMITS[0]
+
+    nearly_mono = np.stack([tone(440), tone(440) * 1.001], axis=1)
+    _widened, factor = match_width(nearly_mono, 5.0, *WIDTH_LIMITS)
+    assert factor <= WIDTH_LIMITS[1]

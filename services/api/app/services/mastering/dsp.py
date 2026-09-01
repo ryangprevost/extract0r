@@ -147,10 +147,33 @@ def matching_curve(
     # Centring first makes the correction relative - "how does this band compare with the
     # rest of the mix" - which is what a matching EQ is actually for, and the clamp then
     # means what it says.
-    db -= float(np.median(db))
+    db -= _centre_db(db, sample_rate)
     db = np.clip(db, -settings.max_cut_db, settings.max_boost_db)
     db *= float(np.clip(settings.strength, 0.0, 1.0))
     return 10.0 ** (db / 20.0)
+
+
+def _centre_db(db: np.ndarray, sample_rate: int) -> float:
+    """The level the curve should be measured against, weighted by octave not by bin.
+
+    A plain median over rFFT bins is a median over *linear* frequency, and rFFT bins are
+    linearly spaced — so more than half of them live above 11 kHz. Centring on that makes
+    the top octave decide where "no change" sits, and a mix with ordinary amounts of air
+    comes out reading as a cut at every single band below it. Observed on a real track
+    against a pink-noise reference: nine bands reported, every one negative.
+
+    Sampling at log-spaced frequencies gives each octave equal say, which is both how
+    people hear and how the smoothing above already works.
+    """
+    freqs = np.fft.rfftfreq((db.size - 1) * 2, d=1.0 / sample_rate)
+    nyquist = sample_rate / 2.0
+    low, high = 30.0, min(16000.0, nyquist * 0.9)
+    if high <= low:
+        return float(np.median(db))
+
+    points = np.geomspace(low, high, num=48)
+    indices = np.clip(np.searchsorted(freqs, points), 0, db.size - 1)
+    return float(np.median(db[indices]))
 
 
 def apply_curve(

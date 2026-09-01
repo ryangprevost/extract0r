@@ -139,11 +139,17 @@ def test_matching_a_track_against_itself_changes_nothing():
 
 
 def test_the_curve_carries_no_net_level_change():
-    """Tone and level are matched separately; the EQ must not move the level too."""
+    """Tone and level are matched separately; the EQ must not move the level too.
+
+    "No net change" is measured per octave, not per FFT bin - see
+    test_the_curve_is_centred_by_octave_not_by_bin for why the distinction matters.
+    """
+    from app.services.mastering.dsp import _centre_db
+
     a = average_spectrum(noise(seed=5))
     b = average_spectrum(noise(seed=6) * 8)
     db = 20 * np.log10(matching_curve(a, b, SR))
-    assert abs(float(np.median(db))) < 0.01
+    assert abs(_centre_db(db, SR)) < 0.01
 
 
 def test_silence_does_not_divide_by_zero():
@@ -274,3 +280,43 @@ def test_measuring_silence_does_not_explode():
     value, backend = integrated_loudness(np.zeros(SR), SR)
     assert not np.isfinite(value) or value < -60
     assert backend in ("bs1770", "rms", "empty")
+
+
+def test_the_curve_is_centred_by_octave_not_by_bin():
+    """A curve that only ever cuts is not centred, it is just turned down.
+
+    rFFT bins are linearly spaced, so over half of them sit above 11 kHz. Taking the
+    centre as a plain median over bins lets the top octave decide where "no change" is,
+    and a mix with ordinary air then reads as a cut at every band below it. Measured on a
+    real track against a pink-noise reference: nine bands reported, every one negative.
+    """
+    n_fft = 4096
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / SR)
+    f = np.maximum(freqs, 20.0)
+
+    # A rock mix - heavy lows, rolled-off top - against pink noise.
+    mix = (f / 100.0) ** -1.4
+    mix[freqs > 11000] *= 0.25
+    reference = (f / 100.0) ** -1.0
+
+    db = 20 * np.log10(matching_curve(mix, reference, SR))
+
+    def at(hz):
+        return db[int(np.searchsorted(freqs, hz))]
+
+    # The correction must run downwards at the bottom and upwards at the top.
+    assert at(60) < -2, f"a bass-heavy mix should be cut, got {at(60):+.1f} dB"
+    assert at(8000) > 2, f"a dull mix should be lifted, got {at(8000):+.1f} dB"
+    assert at(60) < at(1000) < at(8000), "the curve should rise monotonically here"
+
+    # And it should cross zero somewhere in the middle rather than sitting entirely below.
+    assert db.min() < 0 < db.max()
+
+
+def test_centring_survives_an_unusual_sample_rate():
+    """The log-spaced sample points must stay inside Nyquist."""
+    for rate in (8000, 22050, 44100, 48000, 96000):
+        bins = 2049
+        spectrum = np.linspace(1.0, 0.1, bins)
+        curve = matching_curve(spectrum, spectrum[::-1], rate)
+        assert np.all(np.isfinite(curve)), f"{rate} Hz produced a non-finite curve"

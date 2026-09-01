@@ -145,6 +145,19 @@ expected and harmless — it is reporting the runtimes it did *not* find.
 pYIN needs only librosa, so bass transcription works on any machine that can run the drum
 backend — no ONNX, no torch.
 
+## Demucs crashes partway through with exit 3221225477
+
+That is `0xC0000005`, an access violation — Demucs crashed rather than failed. It happens
+with `-j` greater than 1 on Windows: Demucs runs its workers as separate processes, and
+torch plus Windows multiprocessing is a known-bad combination. Reproduced at 52% of a
+four-minute track.
+
+`DEMUCS_JOBS` therefore defaults to **1 on Windows**, and the separator names the exit
+code in its error rather than reporting a bare number. Torch still threads the model
+maths internally, so one job is not one core.
+
+On Linux or macOS, or in the Docker image, `-j` is safe and worth setting.
+
 ## Model weights
 
 Demucs downloads its checkpoint on first use (~80 MB for `htdemucs`, ~300 MB for

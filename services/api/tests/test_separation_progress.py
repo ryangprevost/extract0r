@@ -125,3 +125,40 @@ def test_pyin_frame_length_holds_two_periods_of_the_lowest_pitch():
     assert frame_length_for(RANGES[StemKind.BASS].fmin_hz, sample_rate) > 2048
     # A guitar's range fits comfortably in the default.
     assert frame_length_for(RANGES[StemKind.GUITAR].fmin_hz, sample_rate) == 2048
+
+
+def test_windows_crash_codes_are_named_not_just_numbered():
+    """A bare "exit 3221225477" tells nobody anything.
+
+    Demucs' multi-worker mode crashes with an access violation on Windows, which is how
+    the -j default came to be 1 there. The message has to point at that.
+    """
+    from app.services.separation.demucs import describe_exit_code
+
+    described = describe_exit_code(3221225477)
+    assert "0xC0000005" in described
+    assert "access violation" in described.lower()
+
+    assert "out of memory" in describe_exit_code(0xC0000017).lower()
+    # An ordinary non-zero exit stays plain.
+    assert describe_exit_code(1) == "exit 1"
+
+
+def test_demucs_defaults_to_a_single_job_on_windows():
+    """Parallel workers segfault on Windows; correctness beats the speedup."""
+    import sys
+
+    from app.services.separation.demucs import DemucsSeparator
+
+    jobs = DemucsSeparator().jobs
+    if sys.platform == "win32":
+        assert jobs == 1
+    else:
+        assert jobs >= 1
+
+
+def test_an_explicit_job_count_is_respected():
+    """The default is cautious, but an operator who knows their platform can override."""
+    from app.services.separation.demucs import DemucsSeparator
+
+    assert DemucsSeparator(jobs=3).jobs == 3

@@ -46,6 +46,24 @@ _PERCENT = re.compile(r"(\d{1,3})%\|")
 # How many stderr lines to keep so a failure can be reported with context.
 _STDERR_TAIL = 20
 
+# Windows reports crashes as large unsigned exit codes. A bare "exit 3221225477" tells
+# nobody anything; naming it points straight at the cause.
+_WINDOWS_EXIT_CODES = {
+    0xC0000005: "access violation - demucs crashed rather than failed",
+    0xC0000017: "out of memory",
+    0xC00000FD: "stack overflow",
+    0xC000013A: "interrupted (Ctrl+C)",
+}
+
+
+def describe_exit_code(code: int) -> str:
+    """Turn a raw process exit code into something a human can act on."""
+    unsigned = code & 0xFFFFFFFF
+    known = _WINDOWS_EXIT_CODES.get(unsigned)
+    if known:
+        return f"exit {code} / 0x{unsigned:08X}: {known}"
+    return f"exit {code}"
+
 
 def parse_progress(line: str) -> float | None:
     """Pull a 0..1 fraction out of one line of Demucs output, or None if there is none.
@@ -77,16 +95,26 @@ class DemucsSeparator:
     ) -> None:
         self.model = model
         self.device = device
-        # 0 means "decide from the machine". Demucs splits the track into chunks and
-        # processes them independently, so this is close to linear speedup - leaving it
-        # at 1 on an 8-core box was throwing away most of the machine. Capped at 4:
-        # each worker holds its own copy of the model, so memory, not cores, is the limit.
-        self.jobs = jobs if jobs > 0 else max(1, min(4, (os.cpu_count() or 2) // 2))
+        # 0 means "decide from the machine".
+        #
+        # On Windows this is deliberately 1. Demucs' -j runs workers as separate
+        # processes, and that path crashes with an access violation (0xC0000005) partway
+        # through a full-length track - reproduced at 52% of a four-minute song. Torch on
+        # Windows multiprocessing is a known-bad combination. Torch still threads the
+        # model maths internally, so a single job is not a single core.
+        self.jobs = jobs if jobs > 0 else self._default_jobs()
         # Shifts multiply runtime for a small quality gain; default off.
         self.shifts = shifts
         # How much neighbouring chunks overlap. Lower is faster and risks audible seams
         # at chunk boundaries; 0.25 is the Demucs default.
         self.overlap = overlap
+
+    @staticmethod
+    def _default_jobs() -> int:
+        if sys.platform == "win32":
+            return 1
+        # Each worker holds its own copy of the model, so memory is the limit, not cores.
+        return max(1, min(4, (os.cpu_count() or 2) // 2))
 
     def available(self) -> bool:
         try:

@@ -15,9 +15,13 @@ Imports are deferred to call time so the API still boots without any of it insta
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+from app.domain.harmonics import remove_harmonics
 from app.domain.notes import NoteEvent, StemKind, Transcription
+
+log = logging.getLogger(__name__)
 
 
 class BasicPitchTranscriber:
@@ -25,15 +29,26 @@ class BasicPitchTranscriber:
 
     def __init__(
         self,
-        onset_threshold: float = 0.5,
-        frame_threshold: float = 0.3,
-        min_note_len_ms: float = 58.0,
-        min_confidence: float = 0.35,
+        onset_threshold: float = 0.7,
+        frame_threshold: float = 0.5,
+        min_note_len_ms: float = 120.0,
+        min_confidence: float = 0.0,
+        drop_harmonics: bool = True,
     ) -> None:
+        # Measured on a real distorted-guitar stem by sweeping both thresholds.
+        # `frame_threshold` is the lever that matters: at 0.3 the model returns
+        # 1000-2500 notes for a three-minute song, at 0.5 it returns 460-830 - and the
+        # in-key rate rises with it, from ~93% to ~96.5%. The extra notes were noise.
         self.onset_threshold = onset_threshold
         self.frame_threshold = frame_threshold
+        # 120 ms rather than 58: below this the output is fragments of notes rather than
+        # notes, and a tab full of 60 ms slivers is unreadable.
         self.min_note_len_ms = min_note_len_ms
+        # basic-pitch's own thresholds already do this work. Sweeping confidence at 0.0
+        # against 0.3 changed the result by under 1%, so a second filter here only risks
+        # discarding good notes.
         self.min_confidence = min_confidence
+        self.drop_harmonics = drop_harmonics
 
     def supports(self, stem: StemKind) -> bool:
         # Polyphonic model: worth its cost where several notes sound at once.
@@ -75,5 +90,14 @@ class BasicPitchTranscriber:
                     confidence=float(amplitude),
                 )
             )
+        if self.drop_harmonics:
+            # A distorted guitar is mostly overtones; the model hears them as notes.
+            notes, overtones = remove_harmonics(notes)
+            if overtones:
+                log.info(
+                    "%s: dropped %d overtone(s) of %d detected notes",
+                    stem.value, len(overtones), len(overtones) + len(notes),
+                )
+
         runtime = Path(str(ICASSP_2022_MODEL_PATH)).suffix.lstrip(".") or "savedmodel"
         return Transcription(stem=stem, notes=notes, backend=f"{self.name}:{runtime}")

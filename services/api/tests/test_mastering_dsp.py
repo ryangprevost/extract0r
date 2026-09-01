@@ -88,17 +88,41 @@ def test_the_curve_boosts_where_the_reference_has_more():
     assert high > low, "the high end should be lifted relative to the low"
 
 
-def test_the_curve_is_clamped_in_both_directions():
+def test_the_curve_never_exceeds_its_clamps():
+    """The stated limits have to be the actual limits.
+
+    An earlier version clamped and *then* subtracted the median, so against a much
+    brighter reference the low end came out at -(max_cut + max_boost) while every boosted
+    band flattened to exactly 0 dB. Measured on a real track: -18 dB at 60 Hz against a
+    stated -12 dB floor. Centring before clamping is what makes the numbers honest.
+    """
+    settings = MatchSettings(max_boost_db=6.0, max_cut_db=12.0)
+
+    # A reference far brighter than the target - the case that broke it.
+    freqs = np.fft.rfftfreq(4096, d=1.0 / SR)
+    target = np.where(freqs < 500, 1.0, 0.01)
+    reference = np.where(freqs < 500, 0.01, 1.0)
+
+    db = 20 * np.log10(matching_curve(target, reference, SR, settings))
+    assert db.max() <= 6.0 + 0.01, f"boosted {db.max():.1f} dB past a 6 dB ceiling"
+    assert db.min() >= -12.0 - 0.01, f"cut {db.min():.1f} dB past a 12 dB floor"
+
+    # And the correction still points the right way.
+    assert db[freqs > 2000].mean() > db[freqs < 300].mean()
+
+
+def test_clamps_hold_for_a_uniformly_louder_reference():
     quiet = np.full(2049, 1e-4)
     loud = np.full(2049, 1.0)
     settings = MatchSettings(max_boost_db=6.0, max_cut_db=12.0)
 
-    boost_db = 20 * np.log10(matching_curve(quiet, loud, SR, settings))
-    cut_db = 20 * np.log10(matching_curve(loud, quiet, SR, settings))
-
-    # The median subtraction can shift the window, so allow a little headroom.
-    assert boost_db.max() <= 6.0 + 12.0 + 0.01
-    assert cut_db.min() >= -12.0 - 6.0 - 0.01
+    for curve in (
+        matching_curve(quiet, loud, SR, settings),
+        matching_curve(loud, quiet, SR, settings),
+    ):
+        db = 20 * np.log10(curve)
+        assert db.max() <= 6.0 + 0.01
+        assert db.min() >= -12.0 - 0.01
 
 
 def test_zero_strength_is_a_no_op():

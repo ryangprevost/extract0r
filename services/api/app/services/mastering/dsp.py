@@ -134,9 +134,22 @@ def matching_curve(
     ratio = np.maximum(reference, floor) / np.maximum(target, floor)
 
     db = 20.0 * np.log10(ratio)
+
+    # Centre FIRST, then clamp. The order is not cosmetic.
+    #
+    # Clamping first and centring after means the clamp no longer bounds anything: with a
+    # much brighter reference, every band above ~500 Hz pins to the boost ceiling, the
+    # median becomes that ceiling, and subtracting it flattens all of them to 0 dB while
+    # pushing the low end to -(max_cut + max_boost). Observed on a real track: a curve
+    # that reported -18 dB at 60 Hz against a stated -12 dB limit, and exactly 0.00 dB
+    # everywhere above 500 Hz. That is not a tonal match, it is a low-end delete.
+    #
+    # Centring first makes the correction relative - "how does this band compare with the
+    # rest of the mix" - which is what a matching EQ is actually for, and the clamp then
+    # means what it says.
+    db -= float(np.median(db))
     db = np.clip(db, -settings.max_cut_db, settings.max_boost_db)
     db *= float(np.clip(settings.strength, 0.0, 1.0))
-    db -= float(np.median(db))  # keep the curve level-neutral
     return 10.0 ** (db / 20.0)
 
 

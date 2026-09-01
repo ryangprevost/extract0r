@@ -89,6 +89,21 @@ def make_transcriber(settings: Settings, stem: StemKind):
     return _pitched_transcriber(settings, stem)
 
 
+def make_timing_analyser(settings: Settings):
+    """Tempo/metre/key analysis for the full mix."""
+    if settings.timing_backend == "librosa":
+        from app.services.analysis.timing import TimingAnalyser
+
+        analyser = TimingAnalyser()
+        if analyser.available():
+            return analyser
+        log.warning("librosa unavailable; timing falls back to a fixed 120 BPM")
+
+    from app.services.analysis.timing import StubTimingAnalyser
+
+    return StubTimingAnalyser()
+
+
 def make_mastering_engine(settings: Settings):
     if settings.mastering_backend == "matchering":
         from app.services.mastering.matchering_engine import MatcheringEngine

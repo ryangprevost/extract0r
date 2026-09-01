@@ -145,7 +145,7 @@ def test_peaks_are_cached_between_requests(client, sample_wav):
     second = client.get(url).json()
     assert first == second
 
-    cached = list(client.storage.stems_dir(track_id).glob("*.peaks300.json"))
+    cached = list(client.storage.stems_dir(track_id).glob("*.peaks-v*-300.json"))
     assert cached, "a peaks cache file should have been written"
 
 
@@ -155,6 +155,27 @@ def test_peaks_bucket_count_is_bounded(client, sample_wav):
 
     assert client.get(f"{base}?buckets=10").status_code == 422
     assert client.get(f"{base}?buckets=99999").status_code == 422
+
+
+def test_a_single_loud_transient_does_not_flatten_the_waveform(client, tmp_path):
+    """Scaling off the maximum makes a song with one snare crack look like a flat line."""
+    import numpy as np
+    import soundfile as sf
+
+    sr = 44100
+    audio = np.full((sr * 8, 2), 0.10, dtype="float32")   # steady, quiet body
+    audio[sr * 4 : sr * 4 + 200] = 0.99                   # one very loud spike
+    source = tmp_path / "spike.wav"
+    sf.write(str(source), audio, sr)
+
+    track_id = upload_and_separate(client, source)
+    peaks = client.get(
+        f"/api/v1/tracks/{track_id}/stems/bass/peaks?buckets=200").json()["peaks"]
+
+    # The quiet body must still be clearly visible, not crushed toward zero.
+    body = sorted(peaks)[len(peaks) // 2]
+    assert body > 0.5, f"steady body scaled down to {body}; a transient dominated it"
+    assert max(peaks) <= 1.0, "peaks must stay clamped"
 
 
 def test_silence_is_reported_rather_than_dividing_by_zero(client, tmp_path, monkeypatch):

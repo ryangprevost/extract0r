@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     # auto = pyin for monophonic stems, basic_pitch for polyphonic ones.
     transcription_backend: str = "stub"     # stub | auto | pyin | basic_pitch
     drum_backend: str = "stub"              # stub | onset
+    timing_backend: str = "stub"            # stub | librosa
     mastering_backend: str = "loudness"     # loudness | matchering
 
     # --- jobs --------------------------------------------------------------

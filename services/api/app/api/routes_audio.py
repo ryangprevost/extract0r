@@ -26,6 +26,10 @@ router = APIRouter(prefix="/api/v1/tracks", tags=["audio"])
 DEFAULT_PEAK_BUCKETS = 1200
 MAX_PEAK_BUCKETS = 4000
 
+# Bump whenever the envelope maths changes, so cached files from an older scaling are
+# ignored rather than silently served.
+PEAKS_CACHE_VERSION = 2
+
 
 def _stem_path(track_id: str, stem: str, registry: TrackRegistry):
     try:
@@ -147,7 +151,7 @@ def stem_peaks(
     for six stems of a five-minute song is hundreds of megabytes.
     """
     path = _stem_path(track_id, stem, registry)
-    cache = path.with_suffix(f".peaks{buckets}.json")
+    cache = path.with_suffix(f".peaks-v{PEAKS_CACHE_VERSION}-{buckets}.json")
 
     if cache.exists():
         try:
@@ -176,9 +180,16 @@ def stem_peaks(
                 break
             envelope[index] = float(np.abs(block).max()) if block.size else 0.0
 
+    # Scale against the 98th percentile rather than the maximum. One loud transient -
+    # a snare crack, a count-in click - would otherwise set the ceiling and squash the
+    # rest of the song into an unreadable flat line. Anything above it clips to 1.0,
+    # which is what a DAW shows too.
     peak = float(envelope.max())
-    if peak > 0:
-        envelope = envelope / peak
+    reference = float(np.percentile(envelope, 98)) if peak > 0 else 0.0
+    if reference <= 0:
+        reference = peak
+    if reference > 0:
+        envelope = np.clip(envelope / reference, 0.0, 1.0)
 
     payload = {
         "stem": stem,

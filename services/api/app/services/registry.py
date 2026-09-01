@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from app.domain.timing import TimingEstimate
 from app.services.audio.probe import AudioInfo
 from app.services.separation.base import SeparationResult
 from app.services.storage import StoredTrack
@@ -22,6 +23,7 @@ class TrackRecord:
     attestation: dict[str, Any]
     audio: AudioInfo | None = None
     separation: SeparationResult | None = None
+    timing: TimingEstimate | None = None
     uploaded_at: str = field(
         default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds")
     )
@@ -51,6 +53,11 @@ class TrackRegistry:
         with self._lock:
             if track_id in self._records:
                 self._records[track_id].separation = result
+
+    def set_timing(self, track_id: str, timing: TimingEstimate) -> None:
+        with self._lock:
+            if track_id in self._records:
+                self._records[track_id].timing = timing
 
     def remove(self, track_id: str) -> None:
         with self._lock:

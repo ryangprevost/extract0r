@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from app.config import Settings
@@ -15,8 +15,9 @@ from app.domain.notes import Notation, StemKind
 from app.domain.tab import ascii_tab, drum_tab
 from app.domain.tab.fretboard import TUNINGS, SolverConfig, Tuning, solve_with_report
 from app.domain.tab.x0r import Provenance, X0rStem, build, dumps
+from app.domain.timing import TimingEstimate
 from app.services.audio.probe import AudioInfo, normalize, probe
-from app.services.factory import make_separator, make_transcriber
+from app.services.factory import make_separator, make_timing_analyser, make_transcriber
 from app.services.separation.base import SeparationResult
 from app.services.storage import TrackStorage
 
@@ -51,6 +52,7 @@ class TranscriptionBundle:
     track_id: str
     artifacts: list[TranscriptionArtifact]
     x0r_path: Path
+    timing: TimingEstimate | None = None
 
 
 def normalize_source(track_id: str, storage: TrackStorage) -> AudioInfo:
@@ -80,6 +82,48 @@ def separate(
     )
 
 
+def apply_timing_overrides(
+    timing: TimingEstimate,
+    tempo_bpm: float | None = None,
+    beats_per_bar: int | None = None,
+) -> TimingEstimate:
+    """Let the user correct detection. Their answer wins, and the source records that.
+
+    Detection gets tempo octaves wrong often enough that overriding it is not an escape
+    hatch, it is part of the normal workflow - and the person who wrote the song knows.
+    """
+    if tempo_bpm is None and beats_per_bar is None:
+        return timing
+
+    corrected = replace(
+        timing,
+        tempo_bpm=tempo_bpm if tempo_bpm is not None else timing.tempo_bpm,
+        beats_per_bar=(
+            beats_per_bar if beats_per_bar is not None else timing.beats_per_bar
+        ),
+    )
+    # A user-set tempo is certain by definition, and the offset detected for the old
+    # tempo no longer means anything.
+    if tempo_bpm is not None:
+        corrected.confidence = 1.0
+        corrected.first_beat_s = 0.0
+    corrected.source = f"user override (was {timing.tempo_bpm:.1f} BPM from {timing.source})"
+    return corrected
+
+
+def analyse_timing(
+    track_id: str, storage: TrackStorage, settings: Settings
+) -> TimingEstimate:
+    """Tempo, metre, and key for the whole track, read from the full mix.
+
+    Analysing the mix rather than each stem is the point: separate stems disagree about
+    tempo, and a tab whose bars drift apart between instruments is worse than one that is
+    uniformly a little off.
+    """
+    normalize_source(track_id, storage)
+    return make_timing_analyser(settings).analyse(storage.normalized_path(track_id))
+
+
 def resolve_tuning(stem: StemKind, tuning_key: str | None) -> Tuning | None:
     if not stem.is_pitched:
         return None
@@ -97,9 +141,12 @@ def transcribe(
     separation: SeparationResult,
     tuning_keys: dict[StemKind, str] | None = None,
     solver: SolverConfig | None = None,
+    timing: TimingEstimate | None = None,
 ) -> TranscriptionBundle:
     """Transcribe each selected stem and write one .txt per stem plus one .x0r."""
     tuning_keys = tuning_keys or {}
+    if timing is None:
+        timing = analyse_timing(track_id, storage, settings)
     exports = storage.exports_dir(track_id)
     exports.mkdir(parents=True, exist_ok=True)
 
@@ -123,11 +170,20 @@ def transcribe(
         tuning = resolve_tuning(stem, tuning_keys.get(stem))
         title = f"{stem.value.title()} - transcribed by Extract0r"
 
+        # One grid for the whole track. The per-stem tempo a transcriber reports is
+        # discarded on purpose - see analyse_timing.
+        result.tempo_bpm = timing.tempo_bpm
+        result.time_signature = timing.time_signature
+
         dropped = folded = 0
         if notation is Notation.DRUM_TAB:
             shapes = ()
             text = drum_tab.render(
-                result.sorted_notes(), tempo_bpm=result.tempo_bpm, title=title
+                result.sorted_notes(),
+                tempo_bpm=timing.tempo_bpm,
+                title=title,
+                time_signature=timing.time_signature,
+                first_beat_s=timing.first_beat_s,
             )
         else:
             report = solve_with_report(result.sorted_notes(), tuning, solver)
@@ -143,7 +199,13 @@ def transcribe(
                     stem.value, dropped + folded, tuning.name, dropped, folded,
                 )
             text = ascii_tab.render(
-                shapes, tuning, tempo_bpm=result.tempo_bpm, title=title
+                shapes,
+                tuning,
+                tempo_bpm=timing.tempo_bpm,
+                title=title,
+                time_signature=timing.time_signature,
+                key_name=timing.key.name if timing.key else None,
+                first_beat_s=timing.first_beat_s,
             )
 
         tab_path = exports / f"{stem.value}.txt"
@@ -181,6 +243,8 @@ def transcribe(
         app_version=settings.app_version,
     )
     x0r_path = exports / f"{track_id}.x0r"
-    x0r_path.write_text(dumps(build(provenance, x0r_stems)), encoding="utf-8")
+    x0r_path.write_text(dumps(build(provenance, x0r_stems, timing)), encoding="utf-8")
 
-    return TranscriptionBundle(track_id=track_id, artifacts=artifacts, x0r_path=x0r_path)
+    return TranscriptionBundle(
+        track_id=track_id, artifacts=artifacts, x0r_path=x0r_path, timing=timing
+    )

@@ -6,7 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from app.api.deps import get_config, get_jobs, get_registry, get_storage
-from app.api.schemas import JobResponse, TabArtifact, TranscribeRequest, TranscribeResponse
+from app.api.schemas import (
+    JobResponse,
+    TabArtifact,
+    TimingResponse,
+    TranscribeRequest,
+    TranscribeResponse,
+)
 from app.config import Settings
 from app.domain.tab.fretboard import TUNINGS, SolverConfig
 from app.jobs.store import JobHandle, JobState, JobStore
@@ -55,6 +61,15 @@ def start_transcription(
     def work(handle: JobHandle) -> dict:
         total = len(body.stems)
         handle.update(JobState.RUNNING, 0.05, f"transcribing {total} stem(s)")
+        detected = record.timing or pipeline.analyse_timing(track_id, storage, settings)
+        registry.set_timing(track_id, detected)
+        timing = pipeline.apply_timing_overrides(
+            detected,
+            tempo_bpm=body.tempo_bpm,
+            beats_per_bar=body.beats_per_bar,
+        )
+        handle.update(JobState.RUNNING, 0.2, f"{timing.tempo_bpm:.0f} BPM, laying out tab")
+
         bundle = pipeline.transcribe(
             track_id=track_id,
             stems=body.stems,
@@ -63,6 +78,7 @@ def start_transcription(
             separation=separation,
             tuning_keys=body.tunings,
             solver=solver,
+            timing=timing,
         )
         response = TranscribeResponse(
             track_id=track_id,
@@ -79,6 +95,7 @@ def start_transcription(
                 for a in bundle.artifacts
             ],
             x0r_url=f"/api/v1/tracks/{track_id}/x0r",
+            timing=_timing_response(timing),
         )
         return response.model_dump()
 
@@ -91,6 +108,43 @@ def start_transcription(
         progress=job.progress,
         message=job.message,
     )
+
+
+def _timing_response(timing) -> TimingResponse:
+    return TimingResponse(
+        tempo_bpm=timing.tempo_bpm,
+        beats_per_bar=timing.beats_per_bar,
+        beat_unit=timing.beat_unit,
+        first_beat_s=timing.first_beat_s,
+        confidence=timing.confidence,
+        key=timing.key.name if timing.key else None,
+        key_confidence=timing.key.confidence if timing.key else None,
+        source=timing.source,
+    )
+
+
+@router.get("/{track_id}/timing", response_model=TimingResponse)
+def get_timing(
+    track_id: str,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> TimingResponse:
+    """Detected tempo, metre, and key for the whole track.
+
+    Cached on the track: analysis reads the full mix and is not worth repeating, and every
+    stem must be laid out on the same grid anyway.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    if record.timing is None:
+        registry.set_timing(track_id, pipeline.analyse_timing(track_id, storage, settings))
+        record = registry.require(track_id)
+
+    return _timing_response(record.timing)
 
 
 @router.get("/{track_id}/tabs/{stem}", response_class=PlainTextResponse)

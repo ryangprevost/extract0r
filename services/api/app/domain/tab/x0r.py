@@ -17,6 +17,7 @@ from typing import Any
 
 from app.domain.notes import NoteEvent, StemKind, Transcription
 from app.domain.tab.fretboard import Shape, Tuning
+from app.domain.timing import TimingEstimate
 
 X0R_SCHEMA_VERSION = "1.0"
 
@@ -66,11 +67,28 @@ def _shape_json(shape: Shape) -> dict[str, Any]:
     }
 
 
-def build(provenance: Provenance, stems: Sequence[X0rStem]) -> dict[str, Any]:
+def build(
+    provenance: Provenance,
+    stems: Sequence[X0rStem],
+    timing: TimingEstimate | None = None,
+) -> dict[str, Any]:
     """Assemble the in-memory document. Serialise it with :func:`dumps`."""
     return {
         "format": "x0r",
         "schema_version": X0R_SCHEMA_VERSION,
+        "timing": (
+            {
+                "tempo_bpm": timing.tempo_bpm,
+                "time_signature": list(timing.time_signature),
+                "first_beat_s": timing.first_beat_s,
+                "confidence": timing.confidence,
+                "key": timing.key.name if timing.key else None,
+                "key_confidence": timing.key.confidence if timing.key else None,
+                "source": timing.source,
+            }
+            if timing
+            else None
+        ),
         "provenance": {
             "source_filename": provenance.source_filename,
             "source_sha256": provenance.source_sha256,

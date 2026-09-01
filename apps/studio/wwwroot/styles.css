@@ -137,6 +137,10 @@ a.link { color: var(--accent); }
 }
 .transport-play:hover { filter: brightness(1.08); }
 .transport-play svg { width: 20px; height: 20px; fill: currentColor; }
+/* Inline SVG does not pick up the UA [hidden] rule the way an HTML element does, and
+   grid blockifies its children - so without this the play and pause glyphs draw on top
+   of each other. */
+.transport-play svg[hidden] { display: none; }
 .time { font-family: var(--mono); font-size: 14px; }
 .solo-note { margin-left: auto; }
 
@@ -157,7 +161,7 @@ a.link { color: var(--accent); }
   grid-template-columns: 210px 1fr;
   align-items: stretch;
   border-top: 1px solid var(--edge);
-  min-height: 74px;
+  height: 74px;   /* fixed, not min-height: lanes must not grow with their content */
 }
 .lane:first-of-type { border-top: 0; }
 .lane.dimmed { opacity: 0.32; }
@@ -189,8 +193,18 @@ a.link { color: var(--accent); }
 .lane-pick { display: flex; align-items: center; }
 .lane-pick input { accent-color: var(--lane); width: 15px; height: 15px; }
 
-.lane-wave { position: relative; cursor: pointer; padding: 6px 0; }
-.lane-wave canvas { display: block; width: 100%; height: 100%; }
+/* Fixed height, and the canvas is absolutely positioned inside it.
+   Both matter: a canvas in normal flow contributes its own height to the grid row, so
+   sizing it from the row height is circular - the ResizeObserver then grows the lane on
+   every callback until one lane fills the viewport. Out of flow, it cannot feed back. */
+.lane-wave { position: relative; height: 74px; cursor: pointer; overflow: hidden; }
+.lane-wave canvas {
+  position: absolute;
+  inset: 6px 0;
+  display: block;
+  width: 100%;
+  height: calc(100% - 12px);
+}
 .lane-wave .silent-tag {
   position: absolute; inset: 0; display: grid; place-items: center;
   font-size: 11px; color: var(--muted); font-family: var(--mono); letter-spacing: 0.04em;
@@ -202,6 +216,24 @@ a.link { color: var(--accent); }
   background: var(--text); pointer-events: none; z-index: 3;
   box-shadow: 0 0 8px rgba(231, 236, 242, 0.55);
 }
+
+/* ───────────────────────────── timing controls ───────────────────────────── */
+
+.timing {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-top: 20px; padding: 12px 14px;
+  border: 1px solid var(--edge); border-radius: var(--radius); background: var(--panel);
+}
+.timing-label { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+.timing label { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+.timing input, .timing select {
+  background: var(--ink); color: var(--text); border: 1px solid var(--edge);
+  border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px;
+  font-family: var(--mono);
+}
+.timing input { width: 84px; }
+.timing .unit { font-size: 12px; }
+.timing button.link { font-family: var(--mono); font-size: 12px; }
 
 /* ───────────────────────────── tab output ───────────────────────────── */
 

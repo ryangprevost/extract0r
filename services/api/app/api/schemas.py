@@ -57,6 +57,21 @@ class TranscribeRequest(BaseModel):
     tunings: dict[StemKind, str] = Field(default_factory=dict)
     capo: int = 0
     max_hand_span: int = Field(default=5, ge=2, le=8)
+    # Overrides for what detection got wrong. Beat trackers report half or double the
+    # real tempo often enough that the person who wrote the song should be able to say.
+    tempo_bpm: float | None = Field(default=None, ge=30, le=300)
+    beats_per_bar: int | None = Field(default=None, ge=2, le=12)
+
+
+class TimingResponse(BaseModel):
+    tempo_bpm: float
+    beats_per_bar: int
+    beat_unit: int
+    first_beat_s: float
+    confidence: float
+    key: str | None = None
+    key_confidence: float | None = None
+    source: str
 
 
 class TabArtifact(BaseModel):
@@ -75,6 +90,7 @@ class TranscribeResponse(BaseModel):
     track_id: str
     artifacts: list[TabArtifact]
     x0r_url: str
+    timing: TimingResponse | None = None
 
 
 class JobResponse(BaseModel):

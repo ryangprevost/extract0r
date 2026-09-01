@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.domain.notes import quantize
 from app.domain.tab.fretboard import STANDARD_GUITAR, Shape, Tuning
@@ -37,6 +37,9 @@ def render(
     tempo_bpm: float = 120.0,
     layout: TabLayout | None = None,
     title: str | None = None,
+    time_signature: tuple[int, int] = (4, 4),
+    key_name: str | None = None,
+    first_beat_s: float = 0.0,
 ) -> str:
     """Lay shapes onto a time grid and draw one ASCII staff per line.
 
@@ -44,13 +47,17 @@ def render(
     information instead of just note order.
     """
     layout = layout or TabLayout()
+    # The detected metre decides where bar lines fall; a 3/4 song barred in 4 is unreadable.
+    layout = replace(layout, beats_per_bar=time_signature[0])
     if not shapes:
         return _empty_staff(tuning, layout, title)
 
     # Map every shape onto a grid column, nudging collisions rather than dropping notes.
     placed: dict[int, list[tuple[int, int]]] = {}
     for shape in shapes:
-        column = quantize(shape.start_s, tempo_bpm, layout.division)
+        # Offset by the detected downbeat so bar one starts at the music, not at t=0.
+        column = quantize(shape.start_s - first_beat_s, tempo_bpm, layout.division)
+        column = max(0, column)
         while column in placed:
             column += 1
         placed[column] = [(p.string, p.fret) for p in shape.positions]
@@ -62,10 +69,13 @@ def render(
     lines: list[str] = []
     if title:
         lines += [title, "=" * len(title), ""]
-    lines += [
-        f"tuning: {tuning.name}   tempo: {tempo_bpm:.0f} BPM   grid: 1/{layout.division}",
-        "",
-    ]
+    header = (
+        f"tuning: {tuning.name}   tempo: {tempo_bpm:.0f} BPM   "
+        f"time: {time_signature[0]}/{time_signature[1]}   grid: 1/{layout.division}"
+    )
+    if key_name:
+        header += f"   key: {key_name}"
+    lines += [header, ""]
 
     labels = string_labels(tuning)
     columns_per_line = max(8, layout.columns_per_line)

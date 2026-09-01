@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.domain.notes import NoteEvent, quantize
 
@@ -45,15 +45,19 @@ def render(
     tempo_bpm: float = 120.0,
     layout: DrumLayout | None = None,
     title: str | None = None,
+    time_signature: tuple[int, int] = (4, 4),
+    first_beat_s: float = 0.0,
 ) -> str:
     layout = layout or DrumLayout()
+    layout = replace(layout, beats_per_bar=time_signature[0])
     grid: dict[str, dict[int, str]] = {lane: {} for lane in LANE_ORDER}
 
     for note in notes:
         lane, head, _ = GM_DRUM_MAP.get(note.pitch, ("??", "x", 9))
         if lane == "??":
             continue
-        grid[lane][quantize(note.start_s, tempo_bpm, layout.division)] = head
+        column = max(0, quantize(note.start_s - first_beat_s, tempo_bpm, layout.division))
+        grid[lane][column] = head
 
     used = [
         lane for lane in LANE_ORDER if grid[lane] or not layout.drop_empty_lanes
@@ -65,7 +69,11 @@ def render(
     lines: list[str] = []
     if title:
         lines += [title, "=" * len(title), ""]
-    lines += [f"tempo: {tempo_bpm:.0f} BPM   grid: 1/{layout.division}", ""]
+    lines += [
+        f"tempo: {tempo_bpm:.0f} BPM   time: {time_signature[0]}/{time_signature[1]}   "
+        f"grid: 1/{layout.division}",
+        "",
+    ]
 
     grid_per_beat = layout.division // 4
     for block_start in range(0, total_columns, layout.columns_per_line):

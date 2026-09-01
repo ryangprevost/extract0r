@@ -174,3 +174,44 @@ def test_tunings_reference_lists_guitar_and_bass(client):
     body = client.get("/api/v1/tracks/tunings").json()
     assert "guitar_standard" in body
     assert body["bass_standard"]["strings"] == 4
+
+
+def test_timing_endpoint_reports_a_grid(client, sample_wav):
+    track_id = upload(client, sample_wav).json()["track_id"]
+    wait_for(client, client.post(f"/api/v1/tracks/{track_id}/separate").json()["job_id"])
+
+    body = client.get(f"/api/v1/tracks/{track_id}/timing").json()
+    assert body["tempo_bpm"] > 0
+    assert body["beats_per_bar"] >= 2
+    assert body["source"]
+
+
+def test_transcription_honours_a_tempo_override(client, sample_wav):
+    """The tab header must show the tempo the user asked for, not the detected one."""
+    track_id = upload(client, sample_wav).json()["track_id"]
+    wait_for(client, client.post(f"/api/v1/tracks/{track_id}/separate").json()["job_id"])
+
+    job = client.post(
+        f"/api/v1/tracks/{track_id}/transcribe",
+        json={"stems": ["bass"], "tempo_bpm": 93.0, "beats_per_bar": 3},
+    ).json()
+    finished = wait_for(client, job["job_id"])
+    assert finished["state"] == "succeeded", finished.get("error")
+
+    assert finished["result"]["timing"]["tempo_bpm"] == 93.0
+    assert finished["result"]["timing"]["beats_per_bar"] == 3
+
+    tab = client.get(f"/api/v1/tracks/{track_id}/tabs/bass").text
+    assert "93 BPM" in tab
+    assert "3/4" in tab
+
+
+def test_an_out_of_range_tempo_override_is_rejected(client, sample_wav):
+    track_id = upload(client, sample_wav).json()["track_id"]
+    wait_for(client, client.post(f"/api/v1/tracks/{track_id}/separate").json()["job_id"])
+
+    response = client.post(
+        f"/api/v1/tracks/{track_id}/transcribe",
+        json={"stems": ["bass"], "tempo_bpm": 5000},
+    )
+    assert response.status_code == 422

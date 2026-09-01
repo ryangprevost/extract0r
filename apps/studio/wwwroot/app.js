@@ -37,6 +37,7 @@ const state = {
   tunings: {},
   chosenTuning: {},
   playing: false,
+  timing: null,
 };
 
 // ───────────────────────────────── plumbing ─────────────────────────────────
@@ -248,6 +249,7 @@ async function buildMixer(separation, track) {
 
   wireLanes();
   showOnly("step-stems");
+  loadTiming();
 
   // Waveforms are a separate, cacheable request per stem - draw them as they arrive so
   // the mixer is usable immediately rather than after the slowest one.
@@ -288,16 +290,22 @@ function drawWave(stem) {
   const canvas = lane.canvas;
   // A lane with no width yet - tab backgrounded, panel collapsed, window minimised -
   // cannot be drawn. Bail out; the ResizeObserver redraws the moment it gets a size.
-  if (!lane.wave.clientWidth || !lane.wave.clientHeight) return;
+  if (!lane.canvas.clientWidth || !lane.canvas.clientHeight) return;
 
   const ratio = window.devicePixelRatio || 1;
-  const width = lane.wave.clientWidth;
-  const height = lane.wave.clientHeight;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (!width || !height) return;
 
-  canvas.width = width * ratio;
-  canvas.height = height * ratio;
+  // Only touch the backing store when it actually changed. Assigning width/height clears
+  // the canvas and, if anything downstream measures it, can retrigger the observer.
+  const wantW = Math.round(width * ratio);
+  const wantH = Math.round(height * ratio);
+  if (canvas.width !== wantW) canvas.width = wantW;
+  if (canvas.height !== wantH) canvas.height = wantH;
+
   const ctx = canvas.getContext("2d");
-  ctx.scale(ratio, ratio);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
   const colour = getComputedStyle(lane.element).getPropertyValue("--lane").trim();
@@ -354,6 +362,48 @@ function wireLanes() {
   });
 
   $("pick-summary").textContent = "Tick the stems you want written out as tab.";
+}
+
+// ───────────────────────────────── timing ──────────────────────────────────
+
+/** Show what analysis detected, and let the user correct it before transcribing. */
+async function loadTiming() {
+  try {
+    state.timing = await api(`/tracks/${state.trackId}/timing`);
+  } catch {
+    state.timing = null;
+  }
+  if (!state.timing) {
+    $("timing-note").textContent = "grid not analysed — defaults to 120 BPM in 4/4";
+    $("tempo-input").value = 120;
+    return;
+  }
+
+  $("tempo-input").value = state.timing.tempo_bpm.toFixed(1);
+  $("metre-input").value = String(state.timing.beats_per_bar);
+
+  const bits = [];
+  if (state.timing.key) bits.push(`key ${state.timing.key}`);
+  // Say plainly when the reading is shaky - a wrong tempo mis-bars the whole tab, and
+  // the person who wrote the song can fix it in one field.
+  if (state.timing.confidence < 0.6) {
+    bits.push("low confidence — check this before transcribing");
+  }
+  $("timing-note").textContent = bits.join(" · ");
+}
+
+function nudgeTempo(factor) {
+  const current = parseFloat($("tempo-input").value) || 120;
+  $("tempo-input").value = (current * factor).toFixed(1);
+}
+
+function timingOverrides() {
+  const overrides = {};
+  const tempo = parseFloat($("tempo-input").value);
+  const metre = parseInt($("metre-input").value, 10);
+  if (Number.isFinite(tempo) && tempo > 0) overrides.tempo_bpm = tempo;
+  if (Number.isFinite(metre)) overrides.beats_per_bar = metre;
+  return overrides;
 }
 
 // ───────────────────────────────── transport ────────────────────────────────
@@ -457,7 +507,7 @@ async function transcribe() {
     const job = await api(`/tracks/${state.trackId}/transcribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stems: picked, tunings }),
+      body: JSON.stringify({ stems: picked, tunings, ...timingOverrides() }),
     });
     const finished = await runJob(job.job_id, "Writing the tab…");
     renderTabs(finished.result);
@@ -469,6 +519,11 @@ async function transcribe() {
 
 function renderTabs(result) {
   $("x0r-link").href = `${API}/tracks/${state.trackId}/x0r`;
+  if (result.timing) {
+    state.timing = result.timing;
+    $("tempo-input").value = result.timing.tempo_bpm.toFixed(1);
+    $("metre-input").value = String(result.timing.beats_per_bar);
+  }
 
   $("tabs").innerHTML = result.artifacts
     .map((a) => {
@@ -588,6 +643,8 @@ $("personal").addEventListener("change", refreshUploadButton);
 $("upload-btn").addEventListener("click", upload);
 $("transcribe-btn").addEventListener("click", transcribe);
 $("play-btn").addEventListener("click", togglePlay);
+$("timing-halve").addEventListener("click", () => nudgeTempo(0.5));
+$("timing-double").addEventListener("click", () => nudgeTempo(2));
 $("clear-solo").addEventListener("click", () => {
   for (const lane of state.lanes.values()) lane.solo = false;
   applyGains();

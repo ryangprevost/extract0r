@@ -145,6 +145,21 @@
     </label>
     <p class="error" id="ref-error" hidden></p>
 
+    <div class="perstem" id="perstem">
+      <label class="toggle">
+        <input type="checkbox" id="per-stem-match" disabled />
+        <span><strong>Match each instrument separately</strong>
+          <em id="per-stem-note">Separate the reference first — bass matched to bass,
+            drums to drums. Fixes a whole-mix match cutting your bass away.</em></span>
+      </label>
+      <button class="link" id="separate-ref-btn" hidden>Separate the reference</button>
+      <div class="subtoggles" id="per-stem-options" hidden>
+        <label><input type="checkbox" id="ms-levels" checked /> levels</label>
+        <label><input type="checkbox" id="ms-tone" checked /> tone (EQ)</label>
+        <label><input type="checkbox" id="ms-width" checked /> stereo width</label>
+      </div>
+    </div>
+
     <div class="controls">
       <label class="control">
         <span>Match strength</span>

@@ -24,6 +24,8 @@ class TrackRecord:
     audio: AudioInfo | None = None
     separation: SeparationResult | None = None
     timing: TimingEstimate | None = None
+    #: Separated stems of the mastering reference, if it has been split.
+    reference_stems: dict = field(default_factory=dict)
     uploaded_at: str = field(
         default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds")
     )
@@ -58,6 +60,11 @@ class TrackRegistry:
         with self._lock:
             if track_id in self._records:
                 self._records[track_id].timing = timing
+
+    def set_reference_stems(self, track_id: str, stems: dict) -> None:
+        with self._lock:
+            if track_id in self._records:
+                self._records[track_id].reference_stems = stems
 
     def remove(self, track_id: str) -> None:
         with self._lock:

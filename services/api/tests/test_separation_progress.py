@@ -162,3 +162,35 @@ def test_an_explicit_job_count_is_respected():
     from app.services.separation.demucs import DemucsSeparator
 
     assert DemucsSeparator(jobs=3).jobs == 3
+
+
+
+def test_job_progress_never_goes_backwards():
+    """A progress bar that twitches backwards reads as a bug even when nothing is wrong.
+
+    Multi-stage workers produce values like 0.35000000000000003 followed by 0.35, and
+    that is enough to see. The floor belongs in the store rather than in every worker.
+    """
+    import threading
+
+    from app.jobs.store import Job, JobHandle, JobState
+
+    job = Job(id="j", kind="test", track_id="t")
+    handle = JobHandle(job, threading.Lock())
+
+    for value in (0.1, 0.35000000000000003, 0.35, 0.2, 0.9, 0.5, 1.0):
+        handle.update(JobState.RUNNING, value, "working")
+        assert job.progress >= 0.0
+
+    assert job.progress == 1.0
+
+
+def test_job_progress_is_still_clamped_to_one():
+    import threading
+
+    from app.jobs.store import Job, JobHandle, JobState
+
+    job = Job(id="j", kind="test", track_id="t")
+    handle = JobHandle(job, threading.Lock())
+    handle.update(JobState.RUNNING, 5.0, "overshooting")
+    assert job.progress == 1.0

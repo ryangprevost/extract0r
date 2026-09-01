@@ -41,6 +41,7 @@ const state = {
   page: "master",
   referenceFile: null,
   referenceLoaded: false,
+  referenceSeparated: false,
 };
 
 // ───────────────────────────────── plumbing ─────────────────────────────────
@@ -60,10 +61,20 @@ async function runJob(jobId, title, hint = "") {
   $("progress-title").textContent = title;
   $("progress-hint").textContent = hint;
 
+  const started = Date.now();
   for (;;) {
     const job = await api(`/jobs/${jobId}`);
     $("progress-fill").style.width = `${Math.round(job.progress * 100)}%`;
-    $("progress-message").textContent = job.message;
+
+    // "queued" on its own reads as a hang. Say what it is waiting for, and show the
+    // clock so a long job is visibly progressing even between stage updates.
+    const elapsed = Math.floor((Date.now() - started) / 1000);
+    const clockLabel = elapsed >= 3 ? `  ·  ${clock(elapsed)}` : "";
+    $("progress-message").textContent =
+      job.state === "queued"
+        ? `waiting for a free worker — another job is running${clockLabel}`
+        : `${job.message}${clockLabel}`;
+
     if (job.state === "succeeded") return job;
     if (job.state === "failed") throw new Error(job.error ?? "The job failed.");
     await new Promise((resolve) => setTimeout(resolve, 700));
@@ -338,6 +349,21 @@ async function buildMixer(separation, track) {
       </div>
       <div class="lane-wave" data-wave="${stem.stem}">
         <canvas></canvas>
+      </div>
+      <div class="fader-row">
+        <span class="fader">vol
+          <input type="range" data-gain="${stem.stem}" min="-24" max="12" step="0.5" value="0" />
+          <output data-gain-out="${stem.stem}">0.0 dB</output>
+        </span>
+        <span class="fader">pan
+          <input type="range" data-pan="${stem.stem}" min="-100" max="100" step="5" value="0" />
+          <output data-pan-out="${stem.stem}">C</output>
+        </span>
+        <span class="fader">width
+          <input type="range" data-width="${stem.stem}" min="0" max="200" step="5" value="100" />
+          <output data-width-out="${stem.stem}">100%</output>
+        </span>
+        <button class="link reset" data-reset="${stem.stem}">reset</button>
       </div>`;
     container.appendChild(lane);
 
@@ -351,6 +377,9 @@ async function buildMixer(separation, track) {
       peaks: null,
       muted: false,
       solo: false,
+      gainDb: 0,
+      pan: 0,
+      width: 1,
     });
     laneSizes.observe(lane.querySelector(".lane-wave"));
 
@@ -471,6 +500,56 @@ function wireLanes() {
     });
   });
 
+  // Volume changes are audible immediately in the preview, so the mixer tells the
+  // truth about what will be exported rather than only affecting the render.
+  document.querySelectorAll("[data-gain]").forEach((slider) => {
+    slider.addEventListener("input", () => {
+      const stem = slider.dataset.gain;
+      const db = parseFloat(slider.value);
+      state.lanes.get(stem).gainDb = db;
+      document.querySelector(`[data-gain-out="${stem}"]`).textContent =
+        `${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
+      applyGains();
+    });
+  });
+
+  document.querySelectorAll("[data-pan]").forEach((slider) => {
+    slider.addEventListener("input", () => {
+      const stem = slider.dataset.pan;
+      const pan = parseInt(slider.value, 10) / 100;
+      state.lanes.get(stem).pan = pan;
+      const label = pan === 0 ? "C" : `${pan < 0 ? "L" : "R"}${Math.abs(pan * 100).toFixed(0)}`;
+      document.querySelector(`[data-pan-out="${stem}"]`).textContent = label;
+    });
+  });
+
+  document.querySelectorAll("[data-width]").forEach((slider) => {
+    slider.addEventListener("input", () => {
+      const stem = slider.dataset.width;
+      const width = parseInt(slider.value, 10) / 100;
+      state.lanes.get(stem).width = width;
+      document.querySelector(`[data-width-out="${stem}"]`).textContent =
+        width === 0 ? "mono" : `${(width * 100).toFixed(0)}%`;
+    });
+  });
+
+  document.querySelectorAll("[data-reset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const stem = button.dataset.reset;
+      const lane = state.lanes.get(stem);
+      lane.gainDb = 0;
+      lane.pan = 0;
+      lane.width = 1;
+      button.closest(".fader-row").querySelector(`[data-gain="${stem}"]`).value = 0;
+      button.closest(".fader-row").querySelector(`[data-pan="${stem}"]`).value = 0;
+      button.closest(".fader-row").querySelector(`[data-width="${stem}"]`).value = 100;
+      document.querySelector(`[data-gain-out="${stem}"]`).textContent = "0.0 dB";
+      document.querySelector(`[data-pan-out="${stem}"]`).textContent = "C";
+      document.querySelector(`[data-width-out="${stem}"]`).textContent = "100%";
+      applyGains();
+    });
+  });
+
   document.querySelectorAll("[data-wave]").forEach((wave) => {
     wave.addEventListener("click", (event) => {
       const rect = wave.getBoundingClientRect();
@@ -535,6 +614,9 @@ function applyGains() {
   for (const [stem, lane] of state.lanes) {
     const audible = soloed ? lane.solo : !lane.muted;
     lane.audio.muted = !audible;
+    // HTMLMediaElement volume is linear 0..1, so convert from dB. Boosts above 0 dB
+    // cannot be previewed - the element clamps at 1 - but they still apply on export.
+    lane.audio.volume = Math.max(0, Math.min(1, 10 ** (Math.min(0, lane.gainDb) / 20)));
     lane.element.classList.toggle("dimmed", !audible);
     lane.element.querySelector("[data-solo]")?.classList.toggle("on", lane.solo);
     lane.element.querySelector("[data-mute]")?.classList.toggle("on", lane.muted);
@@ -716,12 +798,72 @@ async function uploadReference() {
     $("ref-hint").textContent =
       `${info.duration_s.toFixed(0)}s${loudness} — will be matched`;
     updateMasterSummary();
+    await refreshPerStemState();
   } catch (error) {
     state.referenceLoaded = false;
     $("ref-dropzone").classList.remove("has-file");
     $("ref-name").textContent = "Drop a reference track here";
     $("ref-hint").textContent = "a commercial master you want to sound like — optional";
     fail("ref-error", error);
+  }
+}
+
+/** Reflect whether the reference has been split, and whether per-stem matching is on. */
+async function refreshPerStemState() {
+  const box = $("per-stem-match");
+  const button = $("separate-ref-btn");
+  const note = $("per-stem-note");
+
+  if (!state.referenceLoaded) {
+    box.disabled = true;
+    box.checked = false;
+    button.hidden = true;
+    $("per-stem-options").hidden = true;
+    note.textContent =
+      "Upload a reference first. Matching per instrument fixes a whole-mix match " +
+      "cutting your bass away.";
+    return;
+  }
+
+  let separated = false;
+  try {
+    separated = (await api(`/tracks/${state.trackId}/reference/stems`)).separated;
+  } catch {
+    separated = false;
+  }
+  state.referenceSeparated = separated;
+
+  box.disabled = !separated;
+  button.hidden = separated;
+  if (separated) {
+    note.textContent =
+      "Bass matched to bass, drums to drums — level, tone and stereo width each taken " +
+      "from the matching instrument.";
+    box.checked = true;
+    $("per-stem-options").hidden = false;
+  } else {
+    note.textContent =
+      "Needs the reference separated too — another pass of roughly the same length as " +
+      "the first. Without it, matching can only tilt the whole mix.";
+    $("per-stem-options").hidden = true;
+  }
+}
+
+async function separateReference() {
+  try {
+    const job = await api(`/tracks/${state.trackId}/reference/separate`, {
+      method: "POST",
+    });
+    await runJob(
+      job.job_id,
+      "Splitting the reference…",
+      "Same cost as separating your own track. Done once per reference.",
+    );
+    goToPage("master");
+    await refreshPerStemState();
+  } catch (error) {
+    goToPage("master");
+    fail("master-error", error);
   }
 }
 
@@ -745,8 +887,9 @@ async function runMaster() {
   // what you hear in the mixer is what gets exported.
   const stems = [...state.lanes].map(([stem, lane]) => ({
     stem,
-    gain_db: 0,
-    pan: 0,
+    gain_db: lane.gainDb,
+    pan: lane.pan,
+    width: lane.width,
     muted: lane.muted,
     solo: lane.solo,
   }));
@@ -759,6 +902,10 @@ async function runMaster() {
         stems,
         reference_track_id: state.referenceLoaded ? state.trackId : null,
         match_strength: parseInt($("strength").value, 10) / 100,
+        per_stem_match: $("per-stem-match").checked,
+        match_stem_levels: $("ms-levels").checked,
+        match_stem_tone: $("ms-tone").checked,
+        match_stem_width: $("ms-width").checked,
         bitrate_kbps: parseInt($("bitrate").value, 10),
       }),
     });
@@ -799,6 +946,37 @@ function renderMaster(result) {
   $("master-curve").innerHTML = info?.eq_curve_db?.length
     ? renderCurve(info.eq_curve_db)
     : "";
+
+  // Per-instrument moves are the interesting part when they happened: they say what the
+  // reference thought of your balance, instrument by instrument.
+  const perStem = result.per_stem ?? [];
+  if (perStem.length) {
+    const rows = perStem.map((a) => {
+      const bits = [];
+      if (a.gain_db) {
+        const dir = a.gain_db > 0 ? "up" : "down";
+        bits.push(`<span class="tag ${dir}">${a.gain_db > 0 ? "+" : ""}${a.gain_db} dB</span>`);
+      }
+      if (a.width_factor && a.width_factor !== 1) {
+        bits.push(`<span class="tag">width x${a.width_factor}</span>`);
+      }
+      const biggest = (a.eq_bands ?? [])
+        .slice()
+        .sort((x, y) => Math.abs(y[1]) - Math.abs(x[1]))[0];
+      if (biggest && Math.abs(biggest[1]) >= 0.5) {
+        const hz = biggest[0] >= 1000 ? `${biggest[0] / 1000}k` : biggest[0];
+        bits.push(`<span class="tag">${biggest[1] > 0 ? "+" : ""}${biggest[1]} dB @ ${hz}</span>`);
+      }
+      for (const note of a.notes ?? []) bits.push(`<span class="tag">${note}</span>`);
+      if (!bits.length) bits.push('<span class="tag">no change</span>');
+      return `<div class="row" style="--lane: var(--stem-${a.stem}, var(--stem-other))">
+                <b>${LABELS[a.stem] ?? a.stem}</b>${bits.join("")}
+              </div>`;
+    });
+    $("master-curve").innerHTML +=
+      `<h4 style="margin:22px 0 0;font-size:14px">Per-instrument matching</h4>
+       <div class="stem-report">${rows.join("")}</div>`;
+  }
 
   const warnings = info?.warnings ?? [];
   $("master-warnings").textContent = warnings.join(" ");
@@ -991,6 +1169,10 @@ $("strength").addEventListener("input", () => {
   $("strength-out").textContent = `${$("strength").value}%`;
 });
 $("master-btn").addEventListener("click", runMaster);
+$("separate-ref-btn").addEventListener("click", separateReference);
+$("per-stem-match").addEventListener("change", () => {
+  $("per-stem-options").hidden = !$("per-stem-match").checked;
+});
 
 $("modal-close").addEventListener("click", () => $("modal").close());
 document.addEventListener("click", (e) => {

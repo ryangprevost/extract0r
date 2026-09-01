@@ -32,6 +32,8 @@ class StemMixSetting(BaseModel):
     stem: StemKind
     gain_db: float = Field(default=0.0, ge=-60, le=12)
     pan: float = Field(default=0.0, ge=-1, le=1)
+    #: 1.0 leaves stereo alone, 0 collapses to mono, >1 widens.
+    width: float = Field(default=1.0, ge=0.0, le=3.0)
     muted: bool = False
     solo: bool = False
 
@@ -42,8 +44,19 @@ class MasterJobRequest(BaseModel):
     reference_track_id: str | None = None
     #: 0 leaves the tone alone, 1 applies the full clamped correction curve.
     match_strength: float = Field(default=1.0, ge=0.0, le=1.0)
+    #: Match each stem to its counterpart in the reference. Requires the reference to
+    #: have been separated first; ignored when it has not.
+    per_stem_match: bool = False
+    match_stem_levels: bool = True
+    match_stem_tone: bool = True
+    match_stem_width: bool = True
     bitrate_kbps: int = Field(default=320)
     export_wav: bool = False
+
+
+class ReferenceStemsResponse(BaseModel):
+    separated: bool
+    stems: list[StemKind] = Field(default_factory=list)
 
 
 class ReferenceResponse(BaseModel):
@@ -127,6 +140,64 @@ async def upload_reference(
 
 
 @router.post(
+    "/{track_id}/reference/separate",
+    response_model=JobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def separate_reference(
+    track_id: str,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """Split the reference into stems so matching can work per instrument.
+
+    Costs a second separation pass - roughly as long as the first - which is why it is a
+    separate, explicit step rather than something the reference upload does for you.
+    """
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    reference = storage.reference_path(track_id)
+    if reference is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Upload a reference before separating it."
+        )
+
+    out_dir = storage.reference_stems_dir(track_id)
+
+    def work(handle: JobHandle) -> dict:
+        from app.services.factory import make_separator
+
+        def progress(fraction: float) -> None:
+            handle.update(JobState.RUNNING, fraction, f"separating reference ({fraction:.0%})")
+
+        handle.update(JobState.RUNNING, 0.02, "loading model")
+        result = make_separator(settings).separate(reference, out_dir, on_progress=progress)
+        registry.set_reference_stems(
+            track_id, {s.kind: s.path for s in result.stems}
+        )
+        return {"stems": [s.kind.value for s in result.stems], "model": result.model}
+
+    return to_response(jobs.submit("separate-reference", track_id, work))
+
+
+@router.get("/{track_id}/reference/stems", response_model=ReferenceStemsResponse)
+def reference_stems(
+    track_id: str, registry: TrackRegistry = Depends(get_registry)
+) -> ReferenceStemsResponse:
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    stems = record.reference_stems or {}
+    return ReferenceStemsResponse(separated=bool(stems), stems=list(stems))
+
+
+@router.post(
     "/{track_id}/master", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED
 )
 def start_master(
@@ -166,17 +237,36 @@ def start_master(
                 "No reference has been uploaded for that track.",
             )
 
+    reference_stems: dict = {}
+    if body.per_stem_match:
+        reference_stems = record.reference_stems or {}
+        if not reference_stems:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Per-instrument matching needs the reference separated first. "
+                "POST /reference/separate, then try again.",
+            )
+
     request = MasterRequest(
         stems=available,
         settings=[
             StemSetting(
-                stem=s.stem, gain_db=s.gain_db, pan=s.pan, muted=s.muted, solo=s.solo
+                stem=s.stem,
+                gain_db=s.gain_db,
+                pan=s.pan,
+                width=s.width,
+                muted=s.muted,
+                solo=s.solo,
             )
             for s in body.stems
         ],
         reference=reference,
+        reference_stems=reference_stems,
         bitrate_kbps=body.bitrate_kbps,
         match_strength=body.match_strength,
+        match_stem_levels=body.match_stem_levels,
+        match_stem_tone=body.match_stem_tone,
+        match_stem_width=body.match_stem_width,
         export_wav=body.export_wav,
     )
     work_dir = storage.exports_dir(track_id)
@@ -192,6 +282,16 @@ def start_master(
             "duration_s": round(result.duration_s, 2),
             "stems": [s.value for s in result.included],
             "matched": result.report is not None,
+            "per_stem": [
+                {
+                    "stem": a.stem.value,
+                    "gain_db": a.gain_db,
+                    "width_factor": a.width_factor,
+                    "eq_bands": a.eq_bands,
+                    "notes": a.notes,
+                }
+                for a in result.stem_adjustments
+            ],
         }
         if result.report:
             payload["mastering"] = {

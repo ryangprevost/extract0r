@@ -86,6 +86,10 @@ class TrackStorage:
         path.write_bytes(data)
         return path
 
+    def reference_stems_dir(self, track_id: str) -> Path:
+        """Where the reference's own separated stems live."""
+        return self.track_dir(track_id) / "reference_stems"
+
     def reference_path(self, track_id: str) -> Path | None:
         directory = self.track_dir(track_id)
         if not directory.is_dir():

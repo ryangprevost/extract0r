@@ -309,6 +309,51 @@ a.link { color: var(--accent); }
 
 .restart-row { padding: 26px 0 0; }
 
+/* ───────────────────────────── per-stem mix controls ───────────────────────────── */
+
+/* A second row under each lane head, so faders sit with the stem they belong to. */
+.lane { grid-template-rows: auto; }
+.lane-head { flex-wrap: wrap; }
+
+.fader-row {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 8px 14px 10px;
+  border-top: 1px dashed var(--edge);
+  background: color-mix(in srgb, var(--lane) 4%, transparent);
+}
+.fader {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--muted); font-family: var(--mono);
+}
+.fader input[type=range] { width: 118px; accent-color: var(--lane); }
+.fader output { min-width: 46px; color: var(--text); }
+.fader .reset { font-size: 11px; padding: 0; }
+
+.perstem {
+  margin-top: 22px; padding: 14px 16px;
+  border: 1px solid var(--edge); border-radius: var(--radius); background: var(--panel);
+}
+.toggle { display: flex; align-items: flex-start; gap: 11px; font-size: 14px; }
+.toggle input { margin-top: 3px; accent-color: var(--accent); width: 16px; height: 16px; }
+.toggle strong { display: block; font-weight: 600; }
+.toggle em { display: block; font-style: normal; font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.subtoggles { display: flex; gap: 18px; margin: 12px 0 0 27px; flex-wrap: wrap; }
+.subtoggles label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+.subtoggles input { accent-color: var(--accent); }
+
+.stem-report { display: grid; gap: 7px; margin-top: 18px; }
+.stem-report .row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 12px; border-radius: 8px;
+  border-left: 3px solid var(--lane); background: var(--panel);
+  font-size: 12.5px;
+}
+.stem-report .row b { min-width: 62px; font-weight: 600; }
+.stem-report .tag { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.stem-report .tag.up { color: var(--accent); }
+.stem-report .tag.down { color: var(--warn); }
+
 /* ───────────────────────────── timing controls ───────────────────────────── */
 
 .timing {

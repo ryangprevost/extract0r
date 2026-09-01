@@ -182,40 +182,104 @@ def apply_curve(
     n_fft: int = DEFAULT_N_FFT,
     hop: int = DEFAULT_HOP,
 ) -> np.ndarray:
-    """Filter audio by a per-bin magnitude curve, via overlap-add STFT.
+    """Filter audio by a per-bin magnitude curve, via STFT.
 
     Channels are processed with the same curve so the stereo image is untouched — a
     matching EQ should change tone, not width.
+
+    Uses scipy rather than a hand-rolled overlap-add. The first version looped over
+    frames in Python: about 11,000 iterations of rfft/irfft for a four-minute track,
+    which is most of why mastering felt slow. scipy does the same job in C, and its
+    istft handles the window normalisation that a hand-rolled version has to get exactly
+    right — the earlier one did not, and every master came out 4/3 too loud.
     """
+    from scipy.signal import istft, stft
+
     audio = np.asarray(samples, dtype=np.float64)
     single = audio.ndim == 1
     if single:
         audio = audio[:, None]
 
-    window = np.hanning(n_fft)
-    # Weighted overlap-add: window going in *and* coming out.
-    #
-    # The synthesis window is not optional once the spectrum has been modified - without
-    # it, each frame's edges land in the output discontinuously and the result buzzes.
-    # It also has to be matched by the normalisation: analysis-only windowing divides by
-    # the sum of windows, analysis-plus-synthesis by the sum of their squares. Getting
-    # that pair wrong is silent - it just scales everything. Mixing them here made the
-    # output exactly 4/3 too loud, which a reconstruction test caught.
-    step = n_fft // 4
-    padded = np.pad(audio, ((n_fft, n_fft), (0, 0)))
-    out = np.zeros_like(padded)
-    weight = np.zeros(padded.shape[0])
+    overlap = n_fft - n_fft // 4  # 75% overlap: Hann sums to a constant here
+    out = np.empty_like(audio)
 
-    for start in range(0, padded.shape[0] - n_fft, step):
-        chunk = padded[start : start + n_fft] * window[:, None]
-        spectrum = np.fft.rfft(chunk, axis=0) * curve[:, None]
-        out[start : start + n_fft] += np.fft.irfft(spectrum, n=n_fft, axis=0) * window[:, None]
-        weight[start : start + n_fft] += window**2
+    for channel in range(audio.shape[1]):
+        _f, _t, spectrum = stft(
+            audio[:, channel],
+            nperseg=n_fft,
+            noverlap=overlap,
+            window="hann",
+            boundary="zeros",
+            padded=True,
+        )
+        _t2, filtered = istft(
+            spectrum * curve[:, None],
+            nperseg=n_fft,
+            noverlap=overlap,
+            window="hann",
+            boundary=True,
+        )
+        # istft can return a sample or two more or fewer than it was given.
+        length = min(len(filtered), audio.shape[0])
+        out[:length, channel] = filtered[:length]
+        if length < audio.shape[0]:
+            out[length:, channel] = 0.0
 
-    weight = np.maximum(weight, 1e-9)
-    out /= weight[:, None]
-    result = out[n_fft : n_fft + audio.shape[0]]
-    return result[:, 0] if single else result
+    return out[:, 0] if single else out
+
+
+def to_mid_side(samples: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Split stereo into mid (what both channels share) and side (what differs)."""
+    audio = np.asarray(samples, dtype=np.float64)
+    if audio.ndim == 1:
+        return audio.copy(), np.zeros_like(audio)
+    return (audio[:, 0] + audio[:, 1]) / 2.0, (audio[:, 0] - audio[:, 1]) / 2.0
+
+
+def from_mid_side(mid: np.ndarray, side: np.ndarray) -> np.ndarray:
+    return np.stack([mid + side, mid - side], axis=1)
+
+
+def stereo_width(samples: np.ndarray) -> float:
+    """How wide a signal is: side energy over mid energy.
+
+    0 is mono, ~1 is very wide. This is the number that says a reference has its guitars
+    spread and its bass in the middle, which is most of what "professionally mixed"
+    means in stereo terms.
+    """
+    mid, side = to_mid_side(samples)
+    mid_rms = float(np.sqrt(np.mean(mid**2)))
+    side_rms = float(np.sqrt(np.mean(side**2)))
+    if mid_rms <= 1e-9:
+        return 1.0 if side_rms > 1e-9 else 0.0
+    return side_rms / mid_rms
+
+
+def set_width(samples: np.ndarray, factor: float) -> np.ndarray:
+    """Scale the side signal, leaving the mid alone.
+
+    Widening this way is phase-safe in the sense that collapsing to mono returns exactly
+    the mid, so nothing disappears on a mono system - which is the usual failure of naive
+    stereo wideners.
+    """
+    audio = np.asarray(samples, dtype=np.float64)
+    if audio.ndim == 1:
+        audio = np.stack([audio, audio], axis=1)
+    mid, side = to_mid_side(audio)
+    return from_mid_side(mid, side * max(0.0, factor))
+
+
+def match_width(
+    samples: np.ndarray, target_width: float, max_factor: float = 4.0
+) -> tuple[np.ndarray, float]:
+    """Widen or narrow a signal towards a target width. Returns (audio, factor used)."""
+    current = stereo_width(samples)
+    if current <= 1e-6:
+        # A mono source has no side content to scale, so widening it would be inventing
+        # stereo out of nothing. Left alone deliberately.
+        return np.asarray(samples, dtype=np.float64), 1.0
+    factor = float(np.clip(target_width / current, 1.0 / max_factor, max_factor))
+    return set_width(samples, factor), factor
 
 
 def peak_db(samples: np.ndarray) -> float:

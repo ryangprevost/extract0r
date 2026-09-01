@@ -98,8 +98,16 @@ class JobHandle:
     _lock: threading.Lock
 
     def update(self, state: JobState | None, progress: float, message: str) -> None:
+        """Report progress. Never goes backwards.
+
+        Workers compute progress from several stages and the arithmetic does not always
+        line up - one stage ending at 0.35000000000000003 and the next starting at 0.35
+        is enough to make a progress bar visibly twitch. Rather than ask every caller to
+        be careful, the floor is enforced here: a bar that only ever advances is a
+        property of the job store, not of each worker's mental arithmetic.
+        """
         with self._lock:
             if state is not None:
                 self.job.state = state
-            self.job.progress = max(0.0, min(1.0, progress))
+            self.job.progress = max(self.job.progress, max(0.0, min(1.0, progress)))
             self.job.message = message

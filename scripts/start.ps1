@@ -48,12 +48,15 @@ if ($Stubs -or -not (Test-Path $mlPython)) {
 }
 
 # ── API ─────────────────────────────────────────────────────────────────────────
+# Bound to 0.0.0.0 rather than 127.0.0.1 so it answers on IPv4 and IPv6 alike: anything
+# reaching it via the name "localhost" resolves to ::1 first on Windows, and a v4-only
+# listener makes every such call wait out a connect timeout.
 if (Test-PortBusy $ApiPort) {
     Write-Host "Something is already listening on :$ApiPort - reusing it." -ForegroundColor DarkGray
 } else {
     Write-Host "Starting the API on http://localhost:$ApiPort ..." -ForegroundColor Cyan
     Start-Process -FilePath $python `
-        -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "$ApiPort") `
+        -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "$ApiPort") `
         -WorkingDirectory $api
 
     # Wait for it to answer rather than guessing at a sleep duration.

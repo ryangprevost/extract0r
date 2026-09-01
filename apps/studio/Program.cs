@@ -13,7 +13,11 @@ using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var apiOrigin = builder.Configuration["ApiOrigin"] ?? "http://localhost:8000";
+// Note the literal 127.0.0.1 rather than "localhost". On Windows, localhost resolves to
+// ::1 before 127.0.0.1, and uvicorn bound to 127.0.0.1 is not listening on ::1 - so every
+// proxied request paid a ~2 second connect timeout before falling back to IPv4. Measured
+// in this app's own logs: 2054 ms for a call that takes 4 ms once the address is explicit.
+var apiOrigin = builder.Configuration["ApiOrigin"] ?? "http://127.0.0.1:8000";
 
 // Uploads are audio files. The API caps them at MAX_UPLOAD_MB (60 by default); Kestrel
 // must not reject them first with its own 30 MB default.

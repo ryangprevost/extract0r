@@ -20,6 +20,7 @@ from app.domain.notes import StemKind
 from app.jobs.store import JobHandle, JobState, JobStore
 from app.services.mastering import pipeline as master_pipeline
 from app.services.mastering.pipeline import MasterRequest, StemSetting
+from app.services.mastering.vocals import VocalPresence
 from app.services.registry import TrackRegistry
 from app.services.storage import TrackStorage, UnsupportedAudioError
 
@@ -50,6 +51,11 @@ class MasterJobRequest(BaseModel):
     match_stem_levels: bool = True
     match_stem_tone: bool = True
     match_stem_width: bool = True
+    #: Where the lead vocal should sit: back, natural, forward - or null to leave it
+    #: entirely to the reference.
+    vocal_presence: str | None = "natural"
+    #: How far competing stems duck inside the vocal band while the vocal sings.
+    vocal_duck_db: float = Field(default=3.0, ge=0.0, le=8.0)
     bitrate_kbps: int = Field(default=320)
     export_wav: bool = False
 
@@ -247,6 +253,17 @@ def start_master(
                 "POST /reference/separate, then try again.",
             )
 
+    presence = None
+    if body.vocal_presence:
+        try:
+            presence = VocalPresence(body.vocal_presence)
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"vocal_presence must be one of "
+                f"{', '.join(p.value for p in VocalPresence)}",
+            ) from exc
+
     request = MasterRequest(
         stems=available,
         settings=[
@@ -267,6 +284,8 @@ def start_master(
         match_stem_levels=body.match_stem_levels,
         match_stem_tone=body.match_stem_tone,
         match_stem_width=body.match_stem_width,
+        vocal_presence=presence,
+        vocal_duck_db=body.vocal_duck_db,
         export_wav=body.export_wav,
     )
     work_dir = storage.exports_dir(track_id)
@@ -282,6 +301,18 @@ def start_master(
             "duration_s": round(result.duration_s, 2),
             "stems": [s.value for s in result.included],
             "matched": result.report is not None,
+            "vocals": (
+                {
+                    "measured_lu": result.vocals.measured_lu,
+                    "target_lu": result.vocals.target_lu,
+                    "lift_db": result.vocals.lift_db,
+                    "ducked_stems": result.vocals.ducked_stems,
+                    "duck_depth_db": result.vocals.duck_depth_db,
+                    "notes": result.vocals.notes,
+                }
+                if result.vocals
+                else None
+            ),
             "per_stem": [
                 {
                     "stem": a.stem.value,

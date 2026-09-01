@@ -906,6 +906,8 @@ async function runMaster() {
         match_stem_levels: $("ms-levels").checked,
         match_stem_tone: $("ms-tone").checked,
         match_stem_width: $("ms-width").checked,
+        vocal_presence: $("vocal-presence").value || null,
+        vocal_duck_db: parseFloat($("vocal-duck").value),
         bitrate_kbps: parseInt($("bitrate").value, 10),
       }),
     });
@@ -946,6 +948,27 @@ function renderMaster(result) {
   $("master-curve").innerHTML = info?.eq_curve_db?.length
     ? renderCurve(info.eq_curve_db)
     : "";
+
+  // Where the vocal ended up. Worth its own line: it is the thing a listener notices
+  // first, and the number is meaningless unless it is shown.
+  const v = result.vocals;
+  if (v) {
+    const bits = [
+      `<span class="tag">was ${v.measured_lu.toFixed(1)} LU</span>`,
+      `<span class="tag">target ${v.target_lu.toFixed(1)} LU</span>`,
+    ];
+    if (v.lift_db > 0) bits.push(`<span class="tag up">lifted +${v.lift_db} dB</span>`);
+    else bits.push('<span class="tag">already forward enough</span>');
+    if (v.ducked_stems?.length) {
+      bits.push(`<span class="tag">${v.ducked_stems.join(", ")} ducked ${v.duck_depth_db} dB</span>`);
+    }
+    for (const note of v.notes ?? []) bits.push(`<span class="tag down">${note}</span>`);
+    $("master-curve").innerHTML +=
+      `<h4 style="margin:22px 0 0;font-size:14px">Vocal placement</h4>
+       <div class="stem-report">
+         <div class="row" style="--lane: var(--stem-vocals)"><b>Vocals</b>${bits.join("")}</div>
+       </div>`;
+  }
 
   // Per-instrument moves are the interesting part when they happened: they say what the
   // reference thought of your balance, instrument by instrument.
@@ -1167,6 +1190,9 @@ $("ref-dropzone").addEventListener("drop", (e) => pickReference(e.dataTransfer.f
 
 $("strength").addEventListener("input", () => {
   $("strength-out").textContent = `${$("strength").value}%`;
+});
+$("vocal-duck").addEventListener("input", () => {
+  $("vocal-duck-out").textContent = `${parseFloat($("vocal-duck").value).toFixed(1)} dB`;
 });
 $("master-btn").addEventListener("click", runMaster);
 $("separate-ref-btn").addEventListener("click", separateReference);

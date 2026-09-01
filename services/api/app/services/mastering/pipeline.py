@@ -24,14 +24,24 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from app.domain.notes import StemKind
 from app.services.mastering.base import MasteringReport
-from app.services.mastering.dsp import MatchSettings, set_width
+from app.services.mastering.dsp import MatchSettings, apply_gain_db, set_width
 from app.services.mastering.spectral import SpectralMatchEngine
 from app.services.mastering.stem_match import (
     StemAdjustment,
     match_stem,
     profile_stems,
+)
+from app.services.mastering.vocals import (
+    VocalPresence,
+    VocalReport,
+    duck_under_vocal,
+    should_duck,
+    vocal_envelope,
+    vocal_lift_db,
 )
 from app.services.mixdown.encode import (
     AudioBuffer,
@@ -75,6 +85,11 @@ class MasterRequest:
     match_stem_levels: bool = True
     match_stem_tone: bool = True
     match_stem_width: bool = True
+    #: Where the lead vocal should sit. Applied as a floor after matching, so a reference
+    #: cannot leave the vocal buried.
+    vocal_presence: VocalPresence | None = VocalPresence.NATURAL
+    #: How far competing stems duck inside the vocal band while the vocal is singing.
+    vocal_duck_db: float = 3.0
     export_wav: bool = False
 
 
@@ -86,6 +101,7 @@ class MasterResult:
     included: list[StemKind] = field(default_factory=list)
     duration_s: float = 0.0
     stem_adjustments: list[StemAdjustment] = field(default_factory=list)
+    vocals: VocalReport | None = None
 
 
 def audible(settings: list[StemSetting]) -> list[StemSetting]:
@@ -175,6 +191,16 @@ def run(
             f"{'matched' if target is not None else 'loaded'} {setting.stem.value}",
         )
 
+    # --- place the vocal ----------------------------------------------------
+    # Done after matching and before the sum, because it is a statement about the
+    # arrangement rather than about the reference: a vocal that a listener has to strain
+    # for is wrong even when every number matched.
+    vocal_report = None
+    if request.vocal_presence is not None:
+        vocal_report = _place_vocal(
+            chosen, buffers, gains, sample_rate, request, report
+        )
+
     # --- sum, then match the sum -------------------------------------------
     report(0.15 + span, "mixing stems")
     mixed = mix_buffers(buffers, gains)
@@ -211,4 +237,62 @@ def run(
         included=[s.stem for s in chosen],
         duration_s=final.duration_s,
         stem_adjustments=adjustments,
+        vocals=vocal_report,
     )
+
+
+def _place_vocal(
+    chosen: list[StemSetting],
+    buffers: list,
+    gains: list[float],
+    sample_rate: int,
+    request: MasterRequest,
+    report: Progress,
+) -> VocalReport | None:
+    """Lift the vocal to its target placement and duck what masks it."""
+    from app.services.mastering.loudness_meter import integrated_loudness
+    from app.services.mastering.vocals import PRESENCE_TARGETS
+
+    index = next(
+        (i for i, s in enumerate(chosen) if s.stem is StemKind.VOCALS), None
+    )
+    if index is None:
+        return None
+
+    out = VocalReport(target_lu=PRESENCE_TARGETS[request.vocal_presence])
+
+    # Measure the vocal against the mix it is actually sitting in, gains included.
+    provisional = mix_buffers(buffers, gains)
+    mix_lufs, _ = integrated_loudness(provisional, sample_rate)
+    vocal_lufs, _ = integrated_loudness(
+        apply_gain_db(buffers[index], gains[index]), sample_rate
+    )
+    if not (np.isfinite(mix_lufs) and np.isfinite(vocal_lufs)):
+        out.notes.append("could not measure the vocal; left as it was")
+        return out
+
+    out.measured_lu = round(float(vocal_lufs - mix_lufs), 2)
+    lift, note = vocal_lift_db(out.measured_lu, request.vocal_presence)
+    out.lift_db = round(lift, 2)
+    if note:
+        out.notes.append(note)
+
+    if lift > 0:
+        gains[index] += lift
+        report(0.15, f"vocal lifted {lift:+.1f} dB to sit at {out.target_lu:.1f} LU")
+
+    # --- duck what competes ------------------------------------------------
+    if request.vocal_duck_db > 0:
+        envelope = vocal_envelope(buffers[index], sample_rate)
+        for position, setting in enumerate(chosen):
+            if not should_duck(setting.stem):
+                continue
+            buffers[position] = duck_under_vocal(
+                buffers[position], envelope, sample_rate, request.vocal_duck_db
+            )
+            out.ducked_stems.append(setting.stem.value)
+        out.duck_depth_db = request.vocal_duck_db
+        if out.ducked_stems:
+            report(0.15, f"ducking {', '.join(out.ducked_stems)} under the vocal")
+
+    return out

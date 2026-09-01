@@ -162,6 +162,20 @@
 
     <div class="controls">
       <label class="control">
+        <span>Vocal presence</span>
+        <select id="vocal-presence">
+          <option value="natural">natural (-4.5 LU)</option>
+          <option value="forward">forward (-2.5 LU)</option>
+          <option value="back">back (-7 LU)</option>
+          <option value="">leave to the reference</option>
+        </select>
+      </label>
+      <label class="control">
+        <span>Duck under vocal</span>
+        <input type="range" id="vocal-duck" min="0" max="6" step="0.5" value="3" />
+        <output id="vocal-duck-out">3.0 dB</output>
+      </label>
+      <label class="control">
         <span>Match strength</span>
         <input type="range" id="strength" min="0" max="100" value="100" />
         <output id="strength-out">100%</output>

@@ -86,9 +86,14 @@ each backend imports before it claims success.
 
 ## Sprint 2 — Trust the output · 21 pts · **re-ordered after sprint 1**
 
-X0R-306 (quality benchmark, 3) · X0R-407 (tempo/key, 3) · X0R-406 finish (drums, 5) ·
-X0R-409 (tuning detection, 3) · X0R-203 (upload UX, 3) · X0R-304 (stem preview, 3) ·
-X0R-503 (MIDI export, 2)
+X0R-304 (stem preview, 3) ✅ · X0R-407 (tempo/key/metre, 3) ✅ ·
+X0R-306 (quality benchmark, 5) · X0R-406 finish (drums, 5) · X0R-409 (tuning detection, 3) ·
+X0R-203 (upload UX, 3) · X0R-503 (MIDI export, 2)
+
+**X0R-304 was pulled forward and done first**, out of sequence, because a user reported
+the tabs looked wrong and there was no way to tell whether the fault lay in separation or
+transcription. Being able to hear a stem answers that in seconds. **X0R-407 followed**,
+since a mis-detected tempo mis-bars every bar and was the most likely single cause.
 
 **X0R-306 moved to the front of the sprint.** It was scheduled sixth. Sprint 1 ended with
 every backend running and *no idea whether any of it is accurate* — the smoke tests prove

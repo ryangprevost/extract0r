@@ -190,11 +190,24 @@ first 5% of the job; the model owns the rest.
 
 ---
 
-### X0R-304 · Stem preview playback · 3 · `TODO`
+### X0R-304 · Stem preview playback · 3 · `DONE`
 **Acceptance criteria**
-- Each stem gets a waveform and an inline player in the studio.
-- Per-stem solo/mute during preview, so the user can hear what they are about to transcribe.
-- Range requests supported so seeking does not re-download the file.
+- Each stem gets a waveform and an inline player in the studio. ✅
+- Per-stem solo/mute during preview, with solo overriding mute as a DAW does. ✅
+- Range requests supported so seeking does not re-download the file. ✅
+
+Built as a stacked mixer rather than six separate players: one colour-coded lane per
+instrument, all sharing a single grid column and one playhead, so the stack reads as one
+song. Clicking any waveform seeks everything together.
+
+Waveform envelopes are computed server-side and cached (`/stems/{stem}/peaks`) — shipping
+six full stems to the browser to draw them would be hundreds of megabytes. They scale off
+the 98th percentile rather than the maximum, so one snare crack does not flatten the song
+into a flat line.
+
+**This card turned out to matter more than its 3 points suggest.** It is the only way to
+answer "is the tab wrong, or was the stem already wrong?", which is the first question
+asked of every bad transcription.
 
 ---
 
@@ -335,13 +348,34 @@ drum output**, not a nice-to-have. Promote it accordingly.
 
 ---
 
-### X0R-407 · Tempo, key, and time-signature detection · 3 · `TODO`
+### X0R-407 · Tempo, key, and time-signature detection · 3 · `DONE`
 **As a** user **I want** the grid to match the song **so that** the tab lines up with bars instead of drifting.
 
 **Acceptance criteria**
-- Tempo from the full mix, not per stem, and applied to every stem's grid.
-- Time signature detected or user-selectable; 3/4 and 6/8 render correctly.
-- A detected key is shown and used to prefer enharmonic spellings.
+- Tempo from the full mix, not per stem, applied to every stem's grid. ✅
+- Time signature detected **and** user-selectable; the metre drives bar lines. ✅
+- A detected key is shown and used to prefer enharmonic spellings. ✅
+- Tempo is user-overridable, with ×2 and ÷2 for the octave case. ✅
+
+**The octave fix.** Rather than trusting the beat tracker, every octave of its reading is
+scored against the onsets with an F-measure — precision is how many onsets land on a
+beat, recall is how many beats carry an onset. The symmetry is the point: scoring only
+precision ranks double-time perfectly, since every onset on a beat at N is also on one at
+2N, and recall is what punishes the empty beats a doubled grid invents. Measured against
+librosa on click tracks: **5 of 6 tempos correct**, including the 100 BPM case that
+previously read 99.4 for both 100 and 200 BPM.
+
+**Metre detection was rewritten mid-card.** The first version asked whether an onset
+*existed* on the downbeat and reported 0.99 confidence on wrong answers — music that plays
+on every beat fits any bar length equally well. It now compares onset *strength* on
+candidate downbeats against the other beats, and returns 4/4 with **zero** confidence when
+there is no accent, rather than inventing evidence. Confidently wrong is worse than
+admitting ignorance.
+
+**Detection is not good enough to trust blindly, and the UI says so.** A reading below 0.6
+confidence is flagged in the studio. Overriding is part of the normal workflow, not an
+escape hatch — the person who wrote the song knows its tempo. The original reading is kept
+in the timing `source` so a correction is never silent.
 
 ---
 

@@ -34,7 +34,8 @@ response is returned.
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/tracks/{id}/transcribe` | Body: `stems[]`, `tunings{}`, `capo`, `max_hand_span`. `202` + job |
+| `GET` | `/tracks/{id}/timing` | Detected tempo, metre, and key for the whole track. Cached |
+| `POST` | `/tracks/{id}/transcribe` | Body: `stems[]`, `tunings{}`, `capo`, `max_hand_span`, plus optional `tempo_bpm` / `beats_per_bar` overrides. `202` + job |
 | `GET` | `/tracks/{id}/tabs/{stem}` | `text/plain` ASCII tab, as a download |
 | `GET` | `/tracks/{id}/x0r` | The full session document |
 
@@ -42,6 +43,11 @@ The job result carries one artifact per stem: notation type, note count, downloa
 2000-character preview, and `dropped_count` / `folded_count` — notes the instrument could
 not play (usually separation bleed) and notes shifted by whole octaves to fit. Non-zero is
 normal, not an error.
+
+Timing is analysed once from the **full mix** and applied to every stem, so instruments
+cannot drift apart. Beat trackers report half or double the real tempo often enough that
+`tempo_bpm` and `beats_per_bar` overrides are part of the normal workflow — the response
+reports the grid actually used, and keeps the original reading in `source`.
 
 Stem audio and peaks exist for one workflow: when a transcription looks wrong, the first
 question is whether the *stem* was already wrong. Listening to it, and seeing its envelope,

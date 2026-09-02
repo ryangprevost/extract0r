@@ -260,13 +260,25 @@ def run(
     mix_wav = work_dir / "mix.wav"
     write_wav(mix_wav, mixed, sample_rate)
 
+    # The reference should be matched against your balance, not against your faders. A
+    # second mixdown with the user's own moves removed gives matching something neutral
+    # to read the tone from; see SpectralMatchEngine.match.
+    analysis_wav = None
+    if any(setting.gain_db for setting in chosen):
+        neutral = [g - setting.gain_db for g, setting in zip(gains, chosen, strict=True)]
+        analysis_wav = work_dir / "analysis.wav"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        write_wav(analysis_wav, mix_buffers(buffers, neutral), sample_rate)
+
     master_report = None
     mastered_wav = mix_wav
     if request.reference is not None:
         report(0.5, "matching the reference")
         engine = SpectralMatchEngine(MatchSettings(strength=request.match_strength))
         mastered_wav = work_dir / "mastered.wav"
-        master_report = engine.match(mix_wav, request.reference, mastered_wav)
+        master_report = engine.match(
+            mix_wav, request.reference, mastered_wav, analysis=analysis_wav
+        )
         report(0.8, f"matched, {master_report.gain_applied_db:+.1f} dB")
 
     # --- encode -------------------------------------------------------------
@@ -312,12 +324,16 @@ def _place_vocal(
 
     out = VocalReport(target_lu=PRESENCE_TARGETS[request.vocal_presence])
 
-    # Measure the vocal against the mix it is actually sitting in, gains included.
-    provisional = mix_buffers(buffers, gains)
+    # Measure the vocal where it naturally sits, with the user's own fader taken out of
+    # both sides. Placement sets a floor and the fader rides on top of it. Folding the
+    # fader into the measurement instead makes placement hand back exactly what the fader
+    # added, so "+3 dB on the vocal" lands as +0 dB in the finished master.
+    user_db = gains[index]
+    unfadered = list(gains)
+    unfadered[index] = 0.0
+    provisional = mix_buffers(buffers, unfadered)
     mix_lufs, _ = integrated_loudness(provisional, sample_rate)
-    vocal_lufs, _ = integrated_loudness(
-        apply_gain_db(buffers[index], gains[index]), sample_rate
-    )
+    vocal_lufs, _ = integrated_loudness(buffers[index], sample_rate)
     if not (np.isfinite(mix_lufs) and np.isfinite(vocal_lufs)):
         out.notes.append("could not measure the vocal; left as it was")
         return out
@@ -331,6 +347,10 @@ def _place_vocal(
     if lift > 0:
         gains[index] += lift
         report(0.15, f"vocal lifted {lift:+.1f} dB to sit at {out.target_lu:.1f} LU")
+
+    out.user_gain_db = round(float(user_db), 2)
+    if user_db:
+        out.notes.append(f"your fader adds {user_db:+.1f} dB on top of this")
 
     # --- duck what competes ------------------------------------------------
     if request.vocal_duck_db > 0:

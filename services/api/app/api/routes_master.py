@@ -306,6 +306,7 @@ def start_master(
                     "measured_lu": result.vocals.measured_lu,
                     "target_lu": result.vocals.target_lu,
                     "lift_db": result.vocals.lift_db,
+                    "user_gain_db": result.vocals.user_gain_db,
                     "ducked_stems": result.vocals.ducked_stems,
                     "duck_depth_db": result.vocals.duck_depth_db,
                     "notes": result.vocals.notes,

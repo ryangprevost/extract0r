@@ -80,6 +80,14 @@ number applied at the mix bus: it stacks on top of matching rather than feeding 
 measurement matching is derived from, so you can lift the vocal a little and still match the
 reference.
 
+Two things used to cancel that fader out. Vocal placement re-measured the vocal *after*
+the fader and handed back exactly what the fader added, and the whole-mix EQ match read
+the raised band as a tonal deviation and cut it out again — a +3 dB vocal landed as
++0.01 dB in the export. Placement now measures the vocal where it naturally sits, and the
+tonal correction is derived from a mix with the faders removed. Loudness is still measured
+on what is actually exported, so the master lands on the reference's level wherever the
+faders sit.
+
 None of this needs ffmpeg. Processing is numpy/scipy, encoding is `lameenc`, metering is
 `pyloudnorm`.
 

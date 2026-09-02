@@ -959,6 +959,10 @@ function renderMaster(result) {
     ];
     if (v.lift_db > 0) bits.push(`<span class="tag up">lifted +${v.lift_db} dB</span>`);
     else bits.push('<span class="tag">already forward enough</span>');
+    if (v.user_gain_db) {
+      const dir = v.user_gain_db > 0 ? "up" : "down";
+      bits.push(`<span class="tag ${dir}">your fader ${signed(v.user_gain_db)} dB</span>`);
+    }
     if (v.ducked_stems?.length) {
       bits.push(`<span class="tag">${v.ducked_stems.join(", ")} ducked ${v.duck_depth_db} dB</span>`);
     }

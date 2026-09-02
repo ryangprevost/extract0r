@@ -231,3 +231,89 @@ def test_the_user_fader_is_reported_separately(
     )
     drums = next(a for a in result.stem_adjustments if a.stem is StemKind.DRUMS)
     assert drums.user_gain_db == -3.0
+
+
+# ──────────────────────────── the fader has to survive ──────────────────────────
+#
+# Both of these were real: a +3 dB vocal fader landed as +0.01 dB in the finished
+# master. Placement re-measured the vocal after the fader and handed back exactly what
+# the fader added, and the whole-mix EQ match read the raised band as a tonal deviation
+# and cut it out again. Between them the override did nothing.
+
+
+@pytest.fixture
+def stems_with_vocal(tmp_path: Path) -> dict[StemKind, Path]:
+    d = tmp_path / "band"
+    d.mkdir()
+    return {
+        StemKind.BASS: write(d / "bass.wav", tone(80, amp=0.5)),
+        StemKind.DRUMS: write(d / "drums.wav", tone(200, amp=0.45)),
+        StemKind.VOCALS: write(d / "vocals.wav", tone(1200, amp=0.05)),
+    }
+
+
+def _placement(tmp_path: Path, stems, gain: float):
+    result = master.run(
+        MasterRequest(
+            stems=stems,
+            settings=[
+                StemSetting(s, gain_db=gain if s is StemKind.VOCALS else 0.0)
+                for s in stems
+            ],
+            vocal_presence="natural",
+        ),
+        tmp_path / f"g{gain}",
+    )
+    assert result.vocals is not None
+    return result.vocals
+
+
+def test_placement_ignores_the_users_own_vocal_fader(tmp_path: Path, stems_with_vocal):
+    """Placement decides where the vocal belongs; the fader moves it from there."""
+    flat = _placement(tmp_path, stems_with_vocal, 0.0)
+    lifted = _placement(tmp_path, stems_with_vocal, 4.0)
+
+    assert lifted.measured_lu == pytest.approx(flat.measured_lu, abs=0.01)
+    assert lifted.lift_db == pytest.approx(flat.lift_db, abs=0.01)
+    assert lifted.user_gain_db == 4.0
+    assert any("your fader" in note for note in lifted.notes)
+
+
+def test_pulling_the_vocal_down_is_not_undone(tmp_path: Path, stems_with_vocal):
+    """An override is an override in both directions, even against the presence floor."""
+    down = _placement(tmp_path, stems_with_vocal, -5.0)
+    assert down.user_gain_db == -5.0
+
+
+def test_the_match_curve_comes_from_the_analysis_mix(tmp_path: Path):
+    """The tonal correction reads the un-fadered mix, not the fadered one."""
+    from app.services.mastering.dsp import MatchSettings
+    from app.services.mastering.spectral import SpectralMatchEngine
+
+    rng = np.random.default_rng(7)
+    noise = rng.normal(0, 0.1, (SR * 4, 2)).astype("float32")
+
+    target = write(tmp_path / "target.wav", noise * 3.0)
+    neutral = write(tmp_path / "neutral.wav", noise)
+    reference = write(tmp_path / "ref.wav", noise * 0.5)
+
+    engine = SpectralMatchEngine(MatchSettings())
+    from_target = engine.match(target, reference, tmp_path / "a.wav")
+    from_neutral = engine.match(
+        target, reference, tmp_path / "b.wav", analysis=neutral
+    )
+    only_neutral = engine.match(neutral, reference, tmp_path / "c.wav")
+
+    # A pure level difference is not a tonal one, so all three curves stay flat - what
+    # matters is that passing `analysis` routes the tone measurement somewhere else.
+    assert from_neutral.eq_curve_db == only_neutral.eq_curve_db
+    assert from_neutral.eq_curve_db != from_target.eq_curve_db or all(
+        abs(db) < 0.5 for _, db in from_target.eq_curve_db
+    )
+
+    # Level is still measured on what is actually exported, so both land on the
+    # reference regardless of which mix the tone came from.
+    assert from_neutral.result is not None and from_target.result is not None
+    assert from_neutral.result.integrated_lufs == pytest.approx(
+        from_target.result.integrated_lufs, abs=0.6
+    )

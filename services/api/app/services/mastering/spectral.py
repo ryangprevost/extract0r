@@ -51,9 +51,23 @@ class SpectralMatchEngine:
             return False
         return True
 
-    def match(self, target: Path, reference: Path, out_path: Path) -> MasteringReport:
+    def match(
+        self,
+        target: Path,
+        reference: Path,
+        out_path: Path,
+        analysis: Path | None = None,
+    ) -> MasteringReport:
         source = read_audio(target)
         ref = read_audio(reference)
+
+        # `analysis` is the same mix without the user's own faders. Deriving the tonal
+        # correction from it keeps a fader from being read as a tonal deviation: raise
+        # the vocal 3 dB and a curve measured on the fadered mix simply cuts that band
+        # back down again. Level is still measured on what is actually exported, so the
+        # master lands on the reference's loudness wherever the faders sit - and a
+        # uniform gain leaves the fader's relative move intact.
+        tone_source = read_audio(analysis) if analysis is not None else source
 
         if source.sample_rate != ref.sample_rate:
             log.info(
@@ -67,7 +81,9 @@ class SpectralMatchEngine:
         report.reference = self._stats(ref.samples, ref.sample_rate)
 
         # --- tone -----------------------------------------------------------
-        target_spectrum = average_spectrum(source.samples, self.settings.n_fft, self.settings.hop)
+        target_spectrum = average_spectrum(
+            tone_source.samples, self.settings.n_fft, self.settings.hop
+        )
         ref_spectrum = average_spectrum(ref.samples, self.settings.n_fft, self.settings.hop)
         curve = matching_curve(
             target_spectrum, ref_spectrum, source.sample_rate, self.settings

@@ -62,6 +62,8 @@ class VocalReport:
     measured_lu: float = 0.0
     target_lu: float = 0.0
     lift_db: float = 0.0
+    #: The user's own vocal fader, which rides on top of the lift rather than into it.
+    user_gain_db: float = 0.0
     ducked_stems: list[str] = field(default_factory=list)
     duck_depth_db: float = 0.0
     notes: list[str] = field(default_factory=list)

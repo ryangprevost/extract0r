@@ -320,6 +320,9 @@ def start_master(
                     "width_factor": a.width_factor,
                     "eq_bands": a.eq_bands,
                     "notes": a.notes,
+                    "matched": a.matched,
+                    "proportional": a.proportional,
+                    "user_gain_db": a.user_gain_db,
                 }
                 for a in result.stem_adjustments
             ],

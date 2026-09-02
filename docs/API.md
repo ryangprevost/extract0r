@@ -71,6 +71,15 @@ The job result reports what was actually done: source, reference and result loud
 LUFS, the gain applied, the EQ correction per band, and any warnings. Omit
 `reference_track_id` to export the mix without matching anything.
 
+With `per_stem_match`, each entry in `per_stem` carries `matched`, `proportional` and
+`user_gain_db` alongside the gain, width and EQ. An instrument the reference does not
+contain cannot be matched, but it is not left alone either — standing still while every
+other stem moves changes its place in the arrangement by accident. It takes the mean of the
+matched gains instead (`proportional: true`). The per-stem `gain_db` you send is a separate
+number applied at the mix bus: it stacks on top of matching rather than feeding into the
+measurement matching is derived from, so you can lift the vocal a little and still match the
+reference.
+
 None of this needs ffmpeg. Processing is numpy/scipy, encoding is `lameenc`, metering is
 `pyloudnorm`.
 

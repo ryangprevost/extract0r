@@ -86,6 +86,22 @@ class StemAdjustment:
     width_factor: float = 1.0
     eq_bands: list[tuple[float, float]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    #: False when the reference had no counterpart for this instrument.
+    matched: bool = True
+    #: True when the level came from the rest of the mix rather than from a counterpart.
+    proportional: bool = False
+    #: The user's own fader, kept separate so it is visible that it stacks on top.
+    user_gain_db: float = 0.0
+
+
+def has_counterpart(reference: StemProfile | None) -> bool:
+    """Whether the reference actually contains this instrument.
+
+    Separation returns a stem for everything the model knows, so "the reference has no
+    piano" shows up as a piano stem tens of LU below its own mix rather than as a missing
+    file.
+    """
+    return reference is not None and reference.relative_lufs >= ABSENT_BELOW_LU
 
 
 def profile_stems(
@@ -143,11 +159,13 @@ def match_stem(
     out = np.asarray(samples, dtype=np.float64)
 
     # A reference that does not contain this instrument cannot say anything useful about
-    # it. Matching anyway would quietly delete a part the user actually played.
-    if reference.relative_lufs < ABSENT_BELOW_LU:
+    # it. Matching anyway would quietly delete a part the user actually played. The
+    # caller normally checks has_counterpart() first and mixes the stem proportionally
+    # instead; this is the backstop.
+    if not has_counterpart(reference):
+        adjustment.matched = False
         adjustment.notes.append(
-            "the reference has essentially no "
-            f"{source.stem.value}, so this stem was left alone"
+            f"the reference has essentially no {source.stem.value}"
         )
         return out, adjustment
 

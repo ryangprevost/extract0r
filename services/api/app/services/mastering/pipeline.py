@@ -32,6 +32,7 @@ from app.services.mastering.dsp import MatchSettings, apply_gain_db, set_width
 from app.services.mastering.spectral import SpectralMatchEngine
 from app.services.mastering.stem_match import (
     StemAdjustment,
+    has_counterpart,
     match_stem,
     profile_stems,
 )
@@ -151,22 +152,57 @@ def run(
     report(0.15, f"loading {len(chosen)} stem(s)")
     buffers, gains, sample_rate = [], [], 44100
     span = 0.35 if per_stem else 0.20
+
     for index, setting in enumerate(chosen):
         buffer: AudioBuffer = read_audio(request.stems[setting.stem])
         sample_rate = buffer.sample_rate
         samples = buffer.samples
 
-        # The user's own moves come first: matching should refine an intent, not erase it.
+        # The user's own moves come first: matching should refine an intent, not erase
+        # it. Their fader is kept out of `samples` and applied at the mix bus, so it
+        # stacks on top of whatever matching decides rather than being folded into the
+        # measurement matching is derived from.
         if setting.width != 1.0:
             samples = set_width(samples, setting.width)
         if setting.pan:
             samples = apply_pan(samples, setting.pan)
 
-        source = source_profiles.get(setting.stem)
-        target = reference_profiles.get(setting.stem)
-        if source is not None and target is not None:
-            samples, adjustment = match_stem(
-                samples,
+        buffers.append(samples)
+        gains.append(setting.gain_db)
+        report(0.15 + span * 0.4 * (index + 1) / len(chosen), f"loaded {setting.stem.value}")
+
+    # --- match the instruments the reference actually contains ---------------
+    #
+    # Two passes, because the second depends on the first. A stem the reference has no
+    # counterpart for cannot be matched - but leaving it untouched is wrong too: every
+    # other instrument has just moved, so a piano left where it was ends up louder or
+    # quieter *relative to the arrangement* purely by accident. It follows the others
+    # instead, which keeps its place in the mix.
+    matched_gains: list[float] = []
+    unmatched: list[int] = []
+
+    if per_stem:
+        for index, setting in enumerate(chosen):
+            source = source_profiles.get(setting.stem)
+            target = reference_profiles.get(setting.stem)
+
+            if source is None:
+                adjustments.append(
+                    StemAdjustment(
+                        stem=setting.stem,
+                        matched=False,
+                        user_gain_db=setting.gain_db,
+                        notes=["this stem is silent, so there was nothing to match"],
+                    )
+                )
+                continue
+
+            if not has_counterpart(target):
+                unmatched.append(index)
+                continue
+
+            buffers[index], adjustment = match_stem(
+                buffers[index],
                 sample_rate,
                 source,
                 target,
@@ -175,21 +211,36 @@ def run(
                 match_tone=request.match_stem_tone,
                 match_stereo=request.match_stem_width,
             )
+            adjustment.user_gain_db = setting.gain_db
             adjustments.append(adjustment)
-        elif per_stem:
+            if request.match_stem_levels:
+                matched_gains.append(adjustment.gain_db)
+            report(
+                0.15 + span * (0.4 + 0.6 * (len(adjustments)) / len(chosen)),
+                f"matched {setting.stem.value}",
+            )
+
+        # --- carry the unmatched stems along with everything else ------------
+        proportional_db = (
+            sum(matched_gains) / len(matched_gains) if matched_gains else 0.0
+        )
+        for index in unmatched:
+            setting = chosen[index]
+            buffers[index] = apply_gain_db(buffers[index], proportional_db)
             adjustments.append(
                 StemAdjustment(
                     stem=setting.stem,
-                    notes=["no matching stem in the reference; left as it was"],
+                    gain_db=round(proportional_db, 2),
+                    matched=False,
+                    proportional=True,
+                    user_gain_db=setting.gain_db,
+                    notes=[
+                        "the reference has no "
+                        f"{setting.stem.value}, so it follows the rest of the mix "
+                        f"({proportional_db:+.1f} dB)"
+                    ],
                 )
             )
-
-        buffers.append(samples)
-        gains.append(setting.gain_db)
-        report(
-            0.15 + span * (index + 1) / len(chosen),
-            f"{'matched' if target is not None else 'loaded'} {setting.stem.value}",
-        )
 
     # --- place the vocal ----------------------------------------------------
     # Done after matching and before the sum, because it is a statement about the

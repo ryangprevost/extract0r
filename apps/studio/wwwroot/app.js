@@ -971,14 +971,17 @@ function renderMaster(result) {
   }
 
   // Per-instrument moves are the interesting part when they happened: they say what the
-  // reference thought of your balance, instrument by instrument.
+  // reference thought of your balance, instrument by instrument. Three things have to stay
+  // distinguishable here: what the reference asked for, what was inferred for instruments
+  // the reference does not contain, and what you did on top with the faders.
   const perStem = result.per_stem ?? [];
   if (perStem.length) {
     const rows = perStem.map((a) => {
       const bits = [];
       if (a.gain_db) {
         const dir = a.gain_db > 0 ? "up" : "down";
-        bits.push(`<span class="tag ${dir}">${a.gain_db > 0 ? "+" : ""}${a.gain_db} dB</span>`);
+        const how = a.proportional ? " with the mix" : "";
+        bits.push(`<span class="tag ${dir}">${signed(a.gain_db)} dB${how}</span>`);
       }
       if (a.width_factor && a.width_factor !== 1) {
         bits.push(`<span class="tag">width x${a.width_factor}</span>`);
@@ -988,12 +991,24 @@ function renderMaster(result) {
         .sort((x, y) => Math.abs(y[1]) - Math.abs(x[1]))[0];
       if (biggest && Math.abs(biggest[1]) >= 0.5) {
         const hz = biggest[0] >= 1000 ? `${biggest[0] / 1000}k` : biggest[0];
-        bits.push(`<span class="tag">${biggest[1] > 0 ? "+" : ""}${biggest[1]} dB @ ${hz}</span>`);
+        bits.push(`<span class="tag">${signed(biggest[1])} dB @ ${hz}</span>`);
       }
       for (const note of a.notes ?? []) bits.push(`<span class="tag">${note}</span>`);
       if (!bits.length) bits.push('<span class="tag">no change</span>');
+      // Your own fader last, and labelled, so it reads as sitting on top of the match
+      // rather than as something the reference asked for.
+      if (a.user_gain_db) {
+        const dir = a.user_gain_db > 0 ? "up" : "down";
+        bits.push(
+          `<span class="tag ${dir}">your fader ${signed(a.user_gain_db)} dB</span>`
+        );
+      }
+      const badge = a.matched
+        ? ""
+        : `<span class="tag ${a.proportional ? "" : "down"}">` +
+          `${a.proportional ? "no reference part" : "unmatched"}</span>`;
       return `<div class="row" style="--lane: var(--stem-${a.stem}, var(--stem-other))">
-                <b>${LABELS[a.stem] ?? a.stem}</b>${bits.join("")}
+                <b>${LABELS[a.stem] ?? a.stem}</b>${badge}${bits.join("")}
               </div>`;
     });
     $("master-curve").innerHTML +=
@@ -1004,6 +1019,11 @@ function renderMaster(result) {
   const warnings = info?.warnings ?? [];
   $("master-warnings").textContent = warnings.join(" ");
   $("master-warnings").hidden = warnings.length === 0;
+}
+
+/** Always show the sign: "+2.1 dB" reads as a decision, "2.1 dB" reads as a magnitude. */
+function signed(value) {
+  return `${value > 0 ? "+" : ""}${value}`;
 }
 
 function meter(label, stats, against = null) {

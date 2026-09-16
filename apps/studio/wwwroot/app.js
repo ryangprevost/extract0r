@@ -36,6 +36,7 @@ const state = {
   compare: null,      // { before, after, delta_db } for the mastering before/after
   suggestion: null,   // what the reference says this mix needs
   mode: null,         // the starting point the user picked, if any
+  showAllFindings: false,
   picked: new Set(),
   tunings: {},
   chosenTuning: {},
@@ -1063,6 +1064,54 @@ function meter(label, stats, against = null) {
 
 Failing to draw a picture is not a reason to hide a finished master, so every failure
 path here leaves the rest of the result card alone. */
+/** The comparison, in words. Differences first, largest first; the things that already
+match are collapsed behind a toggle so the top of the card is the part worth acting on. */
+function renderCritique(summary) {
+  const card = $("mix-compare");
+  if (!summary?.findings?.length) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  $("compare-verdict").textContent = summary.verdict;
+
+  const differences = summary.findings.filter((f) => f.severity !== "match");
+  const matching = summary.findings.filter((f) => f.severity === "match");
+  state.showAllFindings = false;
+
+  const draw = () => {
+    const shown = state.showAllFindings ? [...differences, ...matching] : differences;
+    $("compare-findings").innerHTML = shown.map(finding).join("");
+    const toggle = $("findings-toggle");
+    toggle.hidden = matching.length === 0;
+    toggle.textContent = state.showAllFindings
+      ? "Hide what already matches"
+      : `Show ${matching.length} more that already match`;
+  };
+
+  $("findings-toggle").onclick = () => {
+    state.showAllFindings = !state.showAllFindings;
+    draw();
+  };
+  draw();
+
+  // Nothing to act on is worth saying plainly rather than leaving an empty card.
+  if (!differences.length) {
+    $("compare-findings").innerHTML =
+      '<p class="muted small" style="margin:0">Nothing stands out — every area is ' +
+      "within about a decibel of the reference.</p>";
+  }
+}
+
+function finding(f) {
+  return `<div class="finding ${f.severity}">
+            <div>
+              <b>${f.headline}<span class="area">${f.area}</span></b>
+              <span>${f.detail}</span>
+            </div>
+          </div>`;
+}
+
 // ───────────────────────────── finishing dials ──────────────────────────────
 //
 // Fixed starting points, plus one computed from the reference. They set the sliders and
@@ -1199,12 +1248,14 @@ async function loadSuggestion() {
   state.suggestion = null;
   button.disabled = true;
   describeDials(null);
+  $("mix-compare").hidden = true;
 
   try {
     const data = await api(`/tracks/${state.trackId}/master/suggest`);
     if (!data?.available) return;
     state.suggestion = data;
     button.disabled = false;
+    renderCritique(data.summary);
     // Only take over the dials if the user has not already chosen something.
     if (!state.mode) selectMode("suggested");
   } catch {
@@ -1671,6 +1722,12 @@ $("warmth").addEventListener("input", () => {
 for (const button of document.querySelectorAll(".mode")) {
   button.addEventListener("click", () => selectMode(button.dataset.mode));
 }
+// The same thing the Suggested chip does, put where someone has just finished reading
+// why they would want it.
+$("apply-suggested").addEventListener("click", () => {
+  selectMode("suggested");
+  $("modes").scrollIntoView({ behavior: "smooth", block: "start" });
+});
 // Touching a slider means the preset no longer describes what is set.
 for (const id of ["brightness", "warmth", "stereo-width", "headroom"]) {
   $(id).addEventListener("input", () => {

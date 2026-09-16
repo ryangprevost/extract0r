@@ -528,6 +528,7 @@ def suggest_settings(
         return {"available": False, "why": "No reference uploaded for this track yet."}
 
     try:
+        from app.services.mastering.critique import critique
         from app.services.mastering.suggest import suggest
         from app.services.mixdown.encode import read_audio
 
@@ -539,8 +540,32 @@ def suggest_settings(
         ) from exc
 
     result = suggest(source.samples, target.samples, source.sample_rate)
+
+    # The mix-balance findings need both sides separated. They are the most useful part of
+    # the comparison, so they are included whenever they can be, and simply absent
+    # otherwise rather than gated behind a separate call.
+    source_stems = (
+        {st.kind: st.path for st in record.separation.stems}
+        if record.separation is not None
+        else None
+    )
+    summary = critique(result, source_stems, record.reference_stems or None)
+
     polish = result.polish
     return {
+        "summary": {
+            "verdict": summary.verdict,
+            "findings": [
+                {
+                    "area": f.area,
+                    "severity": f.severity,
+                    "headline": f.headline,
+                    "detail": f.detail,
+                    "delta_db": f.delta_db,
+                }
+                for f in summary.findings
+            ],
+        },
         "available": True,
         "settings": {
             "brightness_db": polish.air_db,

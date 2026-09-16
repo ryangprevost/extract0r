@@ -66,8 +66,13 @@ class Reason:
 class Suggestion:
     polish: Polish = field(default_factory=Polish)
     reasons: list[Reason] = field(default_factory=list)
-    #: band -> (source share dB, reference share dB, gap)
+    #: band -> (source share dB, reference share dB, gap), after the tonal match
     bands: dict[str, tuple[float, float, float]] = field(default_factory=dict)
+    #: The same, before matching - what your mix actually sounds like next to theirs.
+    raw_bands: dict[str, tuple[float, float, float]] = field(default_factory=dict)
+    source_crest_db: float = 0.0
+    source_lufs: float = 0.0
+    reference_lufs: float = 0.0
     source_width: float = 0.0
     reference_width: float = 0.0
     reference_crest_db: float = 0.0
@@ -91,8 +96,8 @@ def matched_shares(
     reference: np.ndarray,
     sample_rate: int,
     settings: MatchSettings,
-) -> tuple[dict[str, float], dict[str, float], np.ndarray]:
-    """Band shares after matching, plus the power spectrum the dials will act on.
+) -> tuple[dict[str, float], dict[str, float], dict[str, float], np.ndarray]:
+    """Band shares before and after matching, plus the spectrum the dials will act on.
 
     Suggesting from the raw source double-corrects. Matching already moves tone toward the
     reference - on a real pair it applied +3.2 dB at 500 Hz, right in the body range - so a
@@ -110,6 +115,7 @@ def matched_shares(
     freqs = np.fft.rfftfreq(settings.n_fft, d=1.0 / sample_rate)
     matched_power = (source_spectrum * curve) ** 2
     return (
+        shares_from(source_spectrum**2, freqs),
         shares_from(matched_power, freqs),
         shares_from(reference_spectrum**2, freqs),
         matched_power,
@@ -184,9 +190,10 @@ def suggest(
     The comparison is against the *matched* mix, not the raw one - see `matched_shares`.
     """
     settings = MatchSettings(strength=match_strength)
-    mine, theirs, power = matched_shares(source, reference, sample_rate, settings)
+    raw, mine, theirs, power = matched_shares(source, reference, sample_rate, settings)
     out = Suggestion()
     out.bands = {name: (mine[name], theirs[name], theirs[name] - mine[name]) for name in BANDS}
+    out.raw_bands = {name: (raw[name], theirs[name], theirs[name] - raw[name]) for name in BANDS}
 
     # --- brightness: presence first, air second ------------------------------
     #
@@ -296,10 +303,18 @@ def suggest(
         out.reasons.append(Reason("width", "Your stereo image already matches closely."))
 
     # --- headroom -------------------------------------------------------------
-    loudness, _ = integrated_loudness(reference, sample_rate)
-    peak = float(np.max(np.abs(reference))) if np.size(reference) else 0.0
-    if np.isfinite(loudness) and peak > 0:
-        out.reference_crest_db = round(20.0 * np.log10(peak) - float(loudness), 2)
+    for audio, store in ((reference, "reference"), (source, "source")):
+        loudness, _ = integrated_loudness(audio, sample_rate)
+        peak = float(np.max(np.abs(audio))) if np.size(audio) else 0.0
+        if not (np.isfinite(loudness) and peak > 0):
+            continue
+        crest = round(20.0 * np.log10(peak) - float(loudness), 2)
+        if store == "reference":
+            out.reference_crest_db = crest
+            out.reference_lufs = round(float(loudness), 2)
+        else:
+            out.source_crest_db = crest
+            out.source_lufs = round(float(loudness), 2)
 
     if 0 < out.reference_crest_db < SQUASHED_CREST_DB:
         out.polish.headroom_db = 1.0

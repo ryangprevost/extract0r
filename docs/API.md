@@ -62,7 +62,7 @@ is the only way to tell a separation problem from a transcription one.
 | `GET` | `/tracks/{id}/reference/stems` | Whether the reference has been separated, and into what |
 | `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/width/mute/solo, optional `reference_track_id`, `per_stem_match`, `vocal_presence`, `vocal_duck_db`, `match_strength`, `brightness_db`, `brightness_from_hz`, `width`, `headroom_db`, `protect_dynamics`, `bitrate_kbps`. `202` + job |
 | `GET` | `/tracks/{id}/master/download` | The rendered MP3 |
-| `GET` | `/tracks/{id}/master/suggest` | Where this mix differs from its reference, and where to set each finishing dial — with the sentence explaining why |
+| `GET` | `/tracks/{id}/master/suggest` | How this mix compares with its reference in plain language, plus where to set each finishing dial and why |
 | `GET` | `/tracks/{id}/master/peaks` | The mix and the master as two envelopes on one time axis, plus their per-bucket difference in dB |
 
 Stems are mixed **first** and matched **second**. Tonal balance is a property of a whole
@@ -126,7 +126,23 @@ finishing dial, each with the sentence behind it. It reads the two uploads direc
 separation, no mastering run — so it answers in a couple of seconds and can be called the
 moment a reference lands.
 
-Two things it gets right that a naive version does not:
+It returns a `summary` alongside the settings: a one-line verdict and a list of findings,
+each with an `area` (tone, dynamics, width, loudness, balance), a `severity` (`match`,
+`slight`, `notable`), a headline and a sentence. Findings are sorted differences-first,
+largest-first.
+
+The `balance` findings are the most useful part and the part band energies cannot give
+you: how loud each instrument sits *relative to its own mix*, compared with the same
+instrument in the reference. "Your vocal sits 3.4 dB further back than that record's" is a
+mix note, not a mastering one. They need both sides separated, so they appear only once
+the reference has been split too, and are simply absent otherwise.
+
+Findings describe the mix **before** the tonal match, because "your low mids are 7 dB
+lighter than that record" is a fact about your mix; where matching is about to close a gap
+the finding says how much. The suggested dial values are computed from the residual after
+matching — the two questions have different right answers.
+
+Two things the settings get right that a naive version does not:
 
 **It compares against the *matched* mix, not the raw one.** The tonal match already moves
 the source toward the reference; a gap it is about to close is not a gap the dials should

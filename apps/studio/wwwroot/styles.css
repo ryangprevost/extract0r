@@ -495,3 +495,34 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 }
 .reasons > summary:hover { color: var(--accent); }
 .reasons[open] > summary { margin-bottom: 8px; }
+
+/* ── mix comparison ──────────────────────────────────────────────────────────
+   A read-out, not a control panel: findings are sorted worst-first and the ones
+   that already match are collapsed, so the top of the card is the part worth
+   acting on. */
+.compare-card {
+  border: 1px solid var(--edge); border-radius: var(--radius);
+  background: var(--panel); padding: 18px 20px; margin: 0 0 20px;
+}
+.compare-card .verdict {
+  margin: 12px 0 16px; font-size: 15px; line-height: 1.55; max-width: 74ch;
+}
+.primary.small { padding: 8px 15px; font-size: 13px; }
+
+.findings { display: grid; gap: 8px; }
+.finding {
+  display: grid; grid-template-columns: 4px 1fr; gap: 12px;
+  border-radius: 8px; background: var(--panel-2); overflow: hidden;
+}
+.finding::before { content: ""; background: var(--muted); }
+.finding.notable::before { background: var(--warn); }
+.finding.slight::before { background: color-mix(in srgb, var(--warn) 45%, var(--muted)); }
+.finding.match::before { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.finding > div { padding: 10px 12px 11px 0; }
+.finding b { display: block; font-size: 13px; margin-bottom: 3px; }
+.finding span { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.finding .area {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--muted); margin-left: 8px; font-weight: 400;
+}
+#findings-toggle { margin-top: 10px; font-size: 13px; }

@@ -327,7 +327,10 @@ def run(
     vocal_report = None
     if request.vocal_presence is not None:
         vocal_report = _place_vocal(
-            chosen, buffers, gains, sample_rate, request, report
+            chosen, buffers, gains, sample_rate, request, report,
+            match_curve=_predicted_match_curve(
+                buffers, gains, chosen, sample_rate, request
+            ),
         )
 
     # --- sum, then match the sum -------------------------------------------
@@ -465,6 +468,58 @@ def _apply_as_correction(
     return original[:length] + (mixed[:length] - untouched[:length])
 
 
+def _predicted_match_curve(
+    buffers: list,
+    gains: list[float],
+    chosen: list[StemSetting],
+    sample_rate: int,
+    request: MasterRequest,
+):
+    """The tone move the reference match is about to make, computed in advance.
+
+    Placement has to run before the match, because it changes the stem gains the match
+    will read. But that leaves it measuring a balance the match then rewrites, and the
+    rewrite is not neutral: a reference with more weight at both ends than yours scoops
+    the middle, which is where a lead vocal lives. Measured on one real track the match
+    asked for -3.5 dB at the vocal's body while adding +2 dB of bass and air - a 4.2 dB
+    tilt away from the vocal, applied after placement had already decided the vocal was
+    sitting fine.
+
+    So placement is given the curve and measures through it. Returns None when there is
+    no reference, in which case there is no tilt to allow for.
+
+    The curve is computed from the balance as it stands now, before placement moves the
+    vocal. Placement's own lift would shift it slightly - this is knowingly one
+    iteration of a fixed point rather than a solve, because the second iteration moves
+    the answer by a fraction of a decibel and costs another pair of spectra.
+    """
+    if request.reference is None:
+        return None
+    try:
+        from app.services.mastering.dsp import (
+            MatchSettings,
+            average_spectrum,
+            matching_curve,
+        )
+
+        # The user's own faders come out, exactly as they do for the real match: the
+        # question is what the reference does to this arrangement, not to their moves.
+        neutral = [g - setting.gain_db for g, setting in zip(gains, chosen, strict=True)]
+        provisional = mix_buffers(buffers, neutral)
+        reference = read_audio(request.reference).samples
+        settings = MatchSettings(strength=request.match_strength)
+        return matching_curve(
+            average_spectrum(provisional, settings.n_fft, settings.hop),
+            average_spectrum(reference, settings.n_fft, settings.hop),
+            sample_rate,
+            settings,
+        )
+    except Exception:
+        log.debug("could not predict the match curve; placing the vocal on the raw mix",
+                  exc_info=True)
+        return None
+
+
 def _place_vocal(
     chosen: list[StemSetting],
     buffers: list,
@@ -472,6 +527,7 @@ def _place_vocal(
     sample_rate: int,
     request: MasterRequest,
     report: Progress,
+    match_curve=None,
 ) -> VocalReport | None:
     """Lift the vocal to its target placement and duck what masks it."""
     from app.services.mastering.loudness_meter import integrated_loudness
@@ -493,8 +549,24 @@ def _place_vocal(
     unfadered = list(gains)
     unfadered[index] = 0.0
     provisional = mix_buffers(buffers, unfadered)
+    vocal = buffers[index]
+
+    # Measure through the match, not around it. Both signals get the same curve, so this
+    # changes the reading only in so far as their spectra differ - which is the whole
+    # point: a mid-heavy vocal loses more to a scooped match than the broad mix does,
+    # and that gap is what placement is supposed to be closing.
+    if match_curve is not None:
+        from app.services.mastering.dsp import MatchSettings, apply_curve
+
+        settings = MatchSettings(strength=request.match_strength)
+        try:
+            provisional = apply_curve(provisional, match_curve, settings.n_fft, settings.hop)
+            vocal = apply_curve(vocal, match_curve, settings.n_fft, settings.hop)
+        except Exception:
+            log.debug("could not measure through the match curve", exc_info=True)
+
     mix_lufs, _ = integrated_loudness(provisional, sample_rate)
-    vocal_lufs, _ = integrated_loudness(buffers[index], sample_rate)
+    vocal_lufs, _ = integrated_loudness(vocal, sample_rate)
     if not (np.isfinite(mix_lufs) and np.isfinite(vocal_lufs)):
         out.notes.append("could not measure the vocal; left as it was")
         return out

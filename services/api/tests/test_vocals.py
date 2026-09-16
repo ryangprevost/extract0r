@@ -156,3 +156,61 @@ def test_ducking_survives_a_short_envelope():
     guitar = np.stack([rng.standard_normal(SR * 2)] * 2, axis=1) * 0.2
     out = duck_under_vocal(guitar, np.ones(SR), SR, depth_db=3.0)
     assert out.shape == guitar.shape
+
+
+# --- placement has to allow for what the match is about to do -------------------------
+
+
+def _scooping_curve(n_fft: int, sample_rate: int) -> np.ndarray:
+    """A match curve shaped like a real one: ends lifted, middle cut.
+
+    This is the shape a reference with more weight at both ends than yours produces,
+    and it is the shape that quietly undoes vocal placement.
+    """
+    freqs = np.fft.rfftfreq(n_fft, 1 / sample_rate)
+    db = np.where((freqs > 200) & (freqs < 3000), -3.5, 2.0)
+    return 10 ** (db / 20.0)
+
+
+def test_placement_measures_the_vocal_through_the_coming_match():
+    """A mid-heavy vocal loses more to a scooped match than the broad mix does.
+
+    Placement runs before the match because it changes the gains the match reads, which
+    used to leave it deciding on a balance the match then rewrote. Measuring through the
+    curve is what closes that gap; without it a vocal sitting exactly on target before
+    the match ends up behind it afterwards.
+    """
+    from app.services.mastering.dsp import DEFAULT_HOP, DEFAULT_N_FFT, apply_curve
+    from app.services.mastering.loudness_meter import integrated_loudness
+
+    rate = 44100
+    t = np.arange(rate * 4) / rate
+    # A vocal living in the scooped band, against a mix spread across the spectrum.
+    vocal = np.stack([0.3 * np.sin(2 * np.pi * 800 * t)] * 2, axis=1)
+    mix = vocal + np.stack(
+        [0.3 * np.sin(2 * np.pi * 60 * t) + 0.3 * np.sin(2 * np.pi * 8000 * t)] * 2,
+        axis=1,
+    )
+
+    curve = _scooping_curve(DEFAULT_N_FFT, rate)
+    before = integrated_loudness(vocal, rate)[0] - integrated_loudness(mix, rate)[0]
+    after = (
+        integrated_loudness(apply_curve(vocal, curve, DEFAULT_N_FFT, DEFAULT_HOP), rate)[0]
+        - integrated_loudness(apply_curve(mix, curve, DEFAULT_N_FFT, DEFAULT_HOP), rate)[0]
+    )
+
+    # The match pushes the vocal back relative to the mix; that is the whole problem.
+    assert after < before - 0.5
+
+    # And placement asks for more lift once it can see that happening.
+    lift_blind, _ = vocal_lift_db(before, VocalPresence.NATURAL)
+    lift_aware, _ = vocal_lift_db(after, VocalPresence.NATURAL)
+    assert lift_aware > lift_blind
+
+
+def test_predicting_the_match_curve_is_skipped_without_a_reference():
+    """No reference means no tilt to allow for, and no spectra worth computing."""
+    from app.services.mastering.pipeline import MasterRequest, _predicted_match_curve
+
+    request = MasterRequest(stems={}, settings=[], reference=None)
+    assert _predicted_match_curve([], [], [], 44100, request) is None

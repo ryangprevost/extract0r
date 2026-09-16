@@ -34,6 +34,8 @@ const state = {
   duration: 0,
   lanes: new Map(),   // stem -> { audio, canvas, peaks, muted, solo }
   compare: null,      // { before, after, delta_db } for the mastering before/after
+  suggestion: null,   // what the reference says this mix needs
+  mode: null,         // the starting point the user picked, if any
   picked: new Set(),
   tunings: {},
   chosenTuning: {},
@@ -804,6 +806,8 @@ async function uploadReference() {
       `${info.duration_s.toFixed(0)}s${loudness} — will be matched`;
     updateMasterSummary();
     await refreshPerStemState();
+    // Now there is something to compare against, so the dials can be set for this pair.
+    await loadSuggestion();
   } catch (error) {
     state.referenceLoaded = false;
     $("ref-dropzone").classList.remove("has-file");
@@ -909,6 +913,7 @@ async function runMaster() {
         match_strength: parseInt($("strength").value, 10) / 100,
         per_stem_match: $("per-stem-match").checked,
         brightness_db: parseFloat($("brightness").value),
+        warmth_db: parseFloat($("warmth").value),
         brightness_from_hz: parseFloat($("brightness-hz").value),
         width: parseInt($("stereo-width").value, 10) / 100,
         headroom_db: parseFloat($("headroom").value),
@@ -1058,6 +1063,155 @@ function meter(label, stats, against = null) {
 
 Failing to draw a picture is not a reason to hide a finished master, so every failure
 path here leaves the rest of the result card alone. */
+// ───────────────────────────── finishing dials ──────────────────────────────
+//
+// Fixed starting points, plus one computed from the reference. They set the sliders and
+// then get out of the way: the sliders stay the source of truth, so a preset is somewhere
+// to start rather than a mode you are stuck in.
+
+const MODES = {
+  flat: {
+    label: "Flat",
+    why: "Every finishing dial off — whatever the reference match decides, and nothing else.",
+    dials: { brightness: 0, brightnessHz: 8000, warmth: 0, width: 100, headroom: 0 },
+  },
+  bright: {
+    label: "Brighten",
+    why: "A shelf from <b>6 kHz</b>. High enough to stay out of the midrange, low enough to " +
+         "reach the top of the presence range where a closed-in mix usually needs opening up.",
+    dials: { brightness: 3, brightnessHz: 6000, warmth: 0, width: 100, headroom: 0 },
+  },
+  warm: {
+    label: "Warmer",
+    why: "Body around <b>450 Hz</b> with the very top eased back. Warmth is weight in the low " +
+         "mids, not less treble — the bell leaves the bass alone so it does not turn boomy.",
+    dials: { brightness: -1, brightnessHz: 12000, warmth: 2.5, width: 100, headroom: 0 },
+  },
+  punchy: {
+    label: "Punchier",
+    why: "Punch is transients surviving the limiter, so this mostly buys headroom: " +
+         "<b>1.5 dB</b> further under the reference, with a little presence for attack. " +
+         "It trades loudness for impact.",
+    dials: { brightness: 1.5, brightnessHz: 3000, warmth: 0.5, width: 100, headroom: 1.5 },
+  },
+  wide: {
+    label: "Wider",
+    why: "Spreads everything above <b>250 Hz</b> to 125% and adds sheen at 12 kHz, which the " +
+         "ear also reads as width. The bass stays centred so it survives a mono system.",
+    dials: { brightness: 1.5, brightnessHz: 12000, warmth: 0, width: 125, headroom: 0 },
+  },
+};
+
+/** Push a set of dial values into the sliders and fire their listeners.
+
+Guarded, because those listeners include the one that clears the preset badge when a
+person moves a slider. Without the flag a preset wipes its own highlight on the way in. */
+let settingDials = false;
+
+function applyDials(dials) {
+  settingDials = true;
+  const map = {
+    brightness: "brightness", warmth: "warmth",
+    width: "stereo-width", headroom: "headroom",
+  };
+  for (const [key, id] of Object.entries(map)) {
+    if (dials[key] === undefined) continue;
+    const el = $(id);
+    el.value = dials[key];
+    el.dispatchEvent(new Event("input"));
+  }
+  if (dials.brightnessHz !== undefined) {
+    $("brightness-hz").value = String(nearestBrightnessOption(dials.brightnessHz));
+  }
+  settingDials = false;
+}
+
+function selectMode(name) {
+  state.mode = name;
+  for (const button of document.querySelectorAll(".mode")) {
+    button.setAttribute("aria-pressed", String(button.dataset.mode === name));
+  }
+  if (name === "suggested") {
+    applySuggestion();
+    return;
+  }
+  applyDials(MODES[name].dials);
+  $("mode-why").innerHTML = MODES[name].why;
+}
+
+/** The computed starting point: what the reference says this particular mix needs. */
+function applySuggestion() {
+  const s = state.suggestion;
+  if (!s?.available) return;
+  applyDials({
+    brightness: s.settings.brightness_db,
+    brightnessHz: nearestBrightnessOption(s.settings.brightness_from_hz),
+    warmth: s.settings.warmth_db,
+    width: Math.round(s.settings.width * 100),
+    headroom: s.settings.headroom_db,
+  });
+  $("mode-why").innerHTML =
+    "Measured against your reference, after allowing for what the tonal match already " +
+    "does. Hover any dial for the reasoning behind its value.";
+  describeDials(s.reasons);
+}
+
+/** The dropdown only holds a few corners; snap a suggested frequency to the nearest. */
+function nearestBrightnessOption(hz) {
+  const options = [...$("brightness-hz").options].map((o) => parseFloat(o.value));
+  return options.reduce((best, v) => (Math.abs(v - hz) < Math.abs(best - hz) ? v : best));
+}
+
+/** Put each reason on its own control as hover text, and under the row as help. */
+function describeDials(reasons) {
+  const targets = {
+    brightness: ["brightness", "brightness-hz"],
+    warmth: ["warmth"],
+    width: ["stereo-width"],
+    headroom: ["headroom"],
+  };
+  for (const [control, ids] of Object.entries(targets)) {
+    const text = reasons?.[control];
+    if (!text) continue;
+    for (const id of ids) {
+      const label = $(id).closest(".control");
+      if (label) label.title = text;
+    }
+  }
+  $("dial-reasons").innerHTML = !reasons
+    ? ""
+    : Object.entries(targets)
+        .filter(([control]) => reasons[control])
+        .map(([control]) =>
+          `<div class="row" style="--lane: var(--stem-other)">
+             <b>${control[0].toUpperCase()}${control.slice(1)}</b>
+             <span class="tag">${reasons[control]}</span>
+           </div>`)
+        .join("");
+  // Collapsed by default: the same sentences are on each control as hover text, and four
+  // paragraphs open by default push the dials themselves below the fold.
+  $("dial-reasons-box").hidden = !reasons;
+}
+
+/** Ask the API what this mix needs. Cheap - no separation, no mastering run. */
+async function loadSuggestion() {
+  const button = document.querySelector('.mode[data-mode="suggested"]');
+  state.suggestion = null;
+  button.disabled = true;
+  describeDials(null);
+
+  try {
+    const data = await api(`/tracks/${state.trackId}/master/suggest`);
+    if (!data?.available) return;
+    state.suggestion = data;
+    button.disabled = false;
+    // Only take over the dials if the user has not already chosen something.
+    if (!state.mode) selectMode("suggested");
+  } catch {
+    // A suggestion is a convenience; failing to get one changes nothing else.
+  }
+}
+
 async function renderCompare() {
   const panel = $("master-compare");
   panel.hidden = true;
@@ -1510,6 +1664,21 @@ $("headroom").addEventListener("input", () => {
   const value = parseFloat($("headroom").value);
   $("headroom-out").textContent = value ? `-${value.toFixed(1)} dB` : "off";
 });
+$("warmth").addEventListener("input", () => {
+  const value = parseFloat($("warmth").value);
+  $("warmth-out").textContent = value ? `${signed(value.toFixed(1))} dB` : "off";
+});
+for (const button of document.querySelectorAll(".mode")) {
+  button.addEventListener("click", () => selectMode(button.dataset.mode));
+}
+// Touching a slider means the preset no longer describes what is set.
+for (const id of ["brightness", "warmth", "stereo-width", "headroom"]) {
+  $(id).addEventListener("input", () => {
+    if (settingDials || !state.mode) return;
+    state.mode = null;
+    document.querySelectorAll(".mode").forEach((b) => b.setAttribute("aria-pressed", "false"));
+  });
+}
 $("master-btn").addEventListener("click", runMaster);
 $("separate-ref-btn").addEventListener("click", separateReference);
 $("per-stem-match").addEventListener("change", () => {

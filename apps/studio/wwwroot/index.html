@@ -161,6 +161,29 @@
       </div>
     </div>
 
+    <div class="modes" id="modes">
+      <span class="modes-label">Start from</span>
+      <button class="mode" data-mode="suggested" disabled
+              title="Measures your mix against the reference and sets each dial to close
+                     what the tonal match will not. Needs a reference.">Suggested</button>
+      <button class="mode" data-mode="flat"
+              title="Every finishing dial off. The reference match alone.">Flat</button>
+      <button class="mode" data-mode="bright"
+              title="A shelf from 6 kHz. Opens up a mix that sounds closed-in.">Brighten</button>
+      <button class="mode" data-mode="warm"
+              title="Body around 450 Hz, with the very top eased back slightly.">Warmer</button>
+      <button class="mode" data-mode="punchy"
+              title="Sits further under the reference so transients survive the limiter,
+                     with a little presence for attack.">Punchier</button>
+      <button class="mode" data-mode="wide"
+              title="Spreads everything above 250 Hz and adds air, which reads as width.">Wider</button>
+    </div>
+    <p class="muted small mode-why" id="mode-why"></p>
+    <details class="reasons" id="dial-reasons-box" hidden>
+      <summary>Why these settings?</summary>
+      <div class="stem-report" id="dial-reasons"></div>
+    </details>
+
     <div class="controls">
       <label class="control">
         <span>Vocal presence</span>
@@ -180,6 +203,11 @@
         <span>Match strength</span>
         <input type="range" id="strength" min="0" max="100" value="100" />
         <output id="strength-out">100%</output>
+      </label>
+      <label class="control">
+        <span>Warmth</span>
+        <input type="range" id="warmth" min="-3" max="4" step="0.5" value="0" />
+        <output id="warmth-out">off</output>
       </label>
       <label class="control">
         <span>Brightness</span>

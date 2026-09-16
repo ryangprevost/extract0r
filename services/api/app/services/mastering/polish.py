@@ -39,8 +39,14 @@ DEFAULT_AIR_HZ = 8000.0
 #: phone speaker or a club rig.
 DEFAULT_WIDTH_FLOOR_HZ = 250.0
 
+#: Centre of the warmth bell: the body of guitars, snares and male vocals.
+DEFAULT_WARMTH_HZ = 450.0
+
 #: A shelf beyond this stops sounding like air and starts sounding like a broken tweeter.
 MAX_AIR_DB = 6.0
+
+#: Past this the low mids stop sounding warm and start sounding boxy.
+MAX_WARMTH_DB = 4.0
 
 #: Past 1.6 the side channel is loud enough that mono compatibility starts to suffer.
 MAX_WIDTH = 1.6
@@ -54,6 +60,9 @@ class Polish:
     #: High-shelf lift in dB. 0 leaves the matched tone exactly as matched.
     air_db: float = 0.0
     air_hz: float = DEFAULT_AIR_HZ
+    #: Low-shelf lift in dB. Body, not "less treble" - the two are different requests.
+    warmth_db: float = 0.0
+    warmth_hz: float = DEFAULT_WARMTH_HZ
     #: Side-channel scale above `width_floor_hz`. 1.0 is untouched.
     width: float = 1.0
     width_floor_hz: float = DEFAULT_WIDTH_FLOOR_HZ
@@ -64,7 +73,9 @@ class Polish:
     protect_dynamics: bool = True
 
     def wanted(self) -> bool:
-        return bool(self.air_db or self.width != 1.0 or self.headroom_db)
+        return bool(
+            self.air_db or self.warmth_db or self.width != 1.0 or self.headroom_db
+        )
 
 
 @dataclass(slots=True)
@@ -72,6 +83,7 @@ class PolishReport:
     """What the finishing stage actually did, in numbers a person can check."""
 
     air_db: float = 0.0
+    warmth_db: float = 0.0
     width_factor: float = 1.0
     width_before: float = 0.0
     width_after: float = 0.0
@@ -83,14 +95,18 @@ class PolishReport:
     notes: list[str] = field(default_factory=list)
 
 
-def shelf_curve(
-    n_fft: int, sample_rate: int, hz: float, gain_db: float, octaves: float = 1.0
+def shelf_ramp(
+    n_fft: int,
+    sample_rate: int,
+    hz: float,
+    octaves: float = 1.0,
+    kind: str = "high",
 ) -> np.ndarray:
-    """A high shelf as a per-bin magnitude curve, for `apply_curve`.
+    """0-to-1 weighting per bin: how much of a shelf's gain each frequency receives.
 
-    The transition is a raised cosine across `octaves` either side of `hz` rather than a
-    step. A step in the frequency domain is a sinc in the time domain, which smears
-    transients — audible as a lisp on cymbals, which is the opposite of the point.
+    Kept separate from the gain so the suggestion engine can ask the question the other
+    way round — "what shelf gain would close a gap of N dB in this band?" — by averaging
+    the ramp over that band rather than guessing a fudge factor.
     """
     freqs = np.fft.rfftfreq(n_fft, d=1.0 / sample_rate)
     low = hz / (2.0**octaves)
@@ -101,7 +117,24 @@ def shelf_curve(
             np.log2(high) - np.log2(low)
         )
     ramp = 0.5 - 0.5 * np.cos(np.pi * np.clip(position, 0.0, 1.0))
-    return 10.0 ** (gain_db * ramp / 20.0)
+    return ramp if kind == "high" else 1.0 - ramp
+
+
+def shelf_curve(
+    n_fft: int,
+    sample_rate: int,
+    hz: float,
+    gain_db: float,
+    octaves: float = 1.0,
+    kind: str = "high",
+) -> np.ndarray:
+    """A shelf as a per-bin magnitude curve, for `apply_curve`.
+
+    The transition is a raised cosine across `octaves` either side of `hz` rather than a
+    step. A step in the frequency domain is a sinc in the time domain, which smears
+    transients — audible as a lisp on cymbals, which is the opposite of the point.
+    """
+    return 10.0 ** (gain_db * shelf_ramp(n_fft, sample_rate, hz, octaves, kind) / 20.0)
 
 
 def add_air(
@@ -113,6 +146,44 @@ def add_air(
     gain_db = float(np.clip(gain_db, -MAX_AIR_DB, MAX_AIR_DB))
     curve = shelf_curve(DEFAULT_N_FFT, sample_rate, hz, gain_db)
     return apply_curve(samples, curve)
+
+
+def bell_ramp(
+    n_fft: int, sample_rate: int, hz: float, octaves: float = 0.7
+) -> np.ndarray:
+    """0-to-1 weighting for a bell centred on `hz`, Gaussian in log frequency.
+
+    A shelf is the wrong shape for warmth. Every shelf lifts *everything* below its
+    corner, so a shelf placed to cover 250-800 Hz also lifts 40 Hz by the same amount and
+    the result is boomy rather than warm. A bell leaves the bottom octave where it is.
+    """
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / sample_rate)
+    with np.errstate(divide="ignore"):
+        distance = (np.log2(np.maximum(freqs, 1e-6)) - np.log2(hz)) / octaves
+    return np.exp(-0.5 * distance**2)
+
+
+def bell_curve(
+    n_fft: int, sample_rate: int, hz: float, gain_db: float, octaves: float = 0.7
+) -> np.ndarray:
+    """A bell as a per-bin magnitude curve, for `apply_curve`."""
+    return 10.0 ** (gain_db * bell_ramp(n_fft, sample_rate, hz, octaves) / 20.0)
+
+
+def add_warmth(
+    samples: np.ndarray, sample_rate: int, gain_db: float, hz: float = DEFAULT_WARMTH_HZ
+) -> np.ndarray:
+    """Lift the low mids, leaving both the top and the bottom alone.
+
+    "Warmer" is not the same as "less bright". Turning the treble down makes a mix dull;
+    what people mean is more body around 250-800 Hz, where the weight of guitars, snares
+    and male vocals lives. A bell rather than a shelf, so the bottom octave is not dragged
+    up with it - see `bell_ramp`.
+    """
+    if not gain_db:
+        return np.asarray(samples, dtype=np.float64)
+    gain_db = float(np.clip(gain_db, -MAX_WARMTH_DB, MAX_WARMTH_DB))
+    return apply_curve(samples, bell_curve(DEFAULT_N_FFT, sample_rate, hz, gain_db))
 
 
 def widen_above(

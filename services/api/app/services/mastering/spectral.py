@@ -33,6 +33,7 @@ from app.services.mastering.polish import (
     Polish,
     PolishReport,
     add_air,
+    add_warmth,
     ceiling_headroom,
     crest_db,
     widen_above,
@@ -108,8 +109,17 @@ class SpectralMatchEngine:
         # ceiling. Doing them before means the limiter sees what is actually being
         # exported.
         polish = polish or Polish()
-        finish = PolishReport(air_db=polish.air_db, width_factor=polish.width)
+        finish = PolishReport(
+            air_db=polish.air_db, warmth_db=polish.warmth_db, width_factor=polish.width
+        )
 
+        if polish.warmth_db:
+            processed = add_warmth(
+                processed, source.sample_rate, polish.warmth_db, polish.warmth_hz
+            )
+            finish.notes.append(
+                f"{polish.warmth_db:+.1f} dB shelf below {polish.warmth_hz:.0f} Hz"
+            )
         if polish.air_db:
             processed = add_air(processed, source.sample_rate, polish.air_db, polish.air_hz)
             finish.notes.append(

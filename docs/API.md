@@ -62,6 +62,7 @@ is the only way to tell a separation problem from a transcription one.
 | `GET` | `/tracks/{id}/reference/stems` | Whether the reference has been separated, and into what |
 | `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/width/mute/solo, optional `reference_track_id`, `per_stem_match`, `vocal_presence`, `vocal_duck_db`, `match_strength`, `brightness_db`, `brightness_from_hz`, `width`, `headroom_db`, `protect_dynamics`, `bitrate_kbps`. `202` + job |
 | `GET` | `/tracks/{id}/master/download` | The rendered MP3 |
+| `GET` | `/tracks/{id}/master/suggest` | Where this mix differs from its reference, and where to set each finishing dial — with the sentence explaining why |
 | `GET` | `/tracks/{id}/master/peaks` | The mix and the master as two envelopes on one time axis, plus their per-bucket difference in dB |
 
 Stems are mixed **first** and matched **second**. Tonal balance is a property of a whole
@@ -100,6 +101,7 @@ limiter would push the master back over its ceiling.
 |---|---|
 | `brightness_db` | High shelf on top of the matched tone, ±6 dB. The match can only give you the reference's top end; this is how you ask for more |
 | `brightness_from_hz` | Where the shelf starts. ~3 kHz reads as clarity and presence, ~10 kHz as air |
+| `warmth_db` | Bell around `warmth_from_hz` (default 450 Hz), ±4 dB. A bell, not a shelf — every shelf lifts *everything* below its corner, so a shelf placed for 250–800 Hz also lifts 40 Hz and the result is boomy rather than warm |
 | `width` | Side-channel scale **above `width_floor_hz`** (default 250 Hz), 0.7–1.6. The low end is never widened |
 | `headroom_db` | Sit this far under the reference on purpose, 0–6 dB |
 | `protect_dynamics` | Aim at the reference's loudness *relative to its own peak* rather than absolutely. On by default |
@@ -116,6 +118,32 @@ the master with the reference's own crest factor. Measured on a real pair: match
 outright gave a 7.91 dB crest with the limiter working on 31% of the track; backing off
 1.31 dB gives 9.08 dB and 6%. It will not make a master *more* dynamic than its reference
 — that is what `headroom_db` is for.
+
+### Suggestions
+
+`master/suggest` compares the track with its reference and returns a value for every
+finishing dial, each with the sentence behind it. It reads the two uploads directly — no
+separation, no mastering run — so it answers in a couple of seconds and can be called the
+moment a reference lands.
+
+Two things it gets right that a naive version does not:
+
+**It compares against the *matched* mix, not the raw one.** The tonal match already moves
+the source toward the reference; a gap it is about to close is not a gap the dials should
+close again. On a real pair the raw comparison showed a 7.0 dB body deficit and wanted the
+full +4 dB shelf on top of a +3.2 dB correction that was already coming. Predicting the
+post-match spectrum — the correction curve applied to the source's average spectrum, no
+audio rendered — brings that to a 1.5 dB residual and a proportionate +2.5 dB.
+
+**It solves for the gain numerically.** A filter does not move a band by its own gain: the
+shelf is still climbing through most of the band, and because the gaps are measured as a
+*share* of the whole, lifting one band moves the denominator too. Two linear estimates
+were tried and both undershot by around 40%; bisection over the exact expression costs a
+few dozen operations and cannot be wrong about either.
+
+A filter that cannot deliver its share of a gap returns zero rather than a clamped
+maximum — dividing by a small overlap is how a 1.5 dB gap became a 16 dB demand that
+looked like a considered recommendation.
 
 The job result reports all of it under `finishing`, including `limiter_max_db`,
 `limiter_mean_db` and `limiter_active`. Those three are the answer to "does this sound

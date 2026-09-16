@@ -23,8 +23,10 @@ from app.services.mastering import pipeline as master_pipeline
 from app.services.mastering.pipeline import MasterRequest, StemSetting
 from app.services.mastering.polish import (
     DEFAULT_AIR_HZ,
+    DEFAULT_WARMTH_HZ,
     DEFAULT_WIDTH_FLOOR_HZ,
     MAX_AIR_DB,
+    MAX_WARMTH_DB,
     MAX_WIDTH,
     MIN_WIDTH,
     Polish,
@@ -77,6 +79,9 @@ class MasterJobRequest(BaseModel):
     #: high (~10 kHz) for air.
     brightness_db: float = Field(default=0.0, ge=-MAX_AIR_DB, le=MAX_AIR_DB)
     brightness_from_hz: float = Field(default=DEFAULT_AIR_HZ, ge=1500.0, le=14000.0)
+    #: Low-shelf lift for body and weight. Not the same request as less brightness.
+    warmth_db: float = Field(default=0.0, ge=-MAX_WARMTH_DB, le=MAX_WARMTH_DB)
+    warmth_from_hz: float = Field(default=DEFAULT_WARMTH_HZ, ge=100.0, le=600.0)
     #: Side-channel scale above `width_floor_hz`; the low end is never widened.
     width: float = Field(default=1.0, ge=MIN_WIDTH, le=MAX_WIDTH)
     width_floor_hz: float = Field(default=DEFAULT_WIDTH_FLOOR_HZ, ge=80.0, le=600.0)
@@ -318,6 +323,8 @@ def start_master(
         polish=Polish(
             air_db=body.brightness_db,
             air_hz=body.brightness_from_hz,
+            warmth_db=body.warmth_db,
+            warmth_hz=body.warmth_from_hz,
             width=body.width,
             width_floor_hz=body.width_floor_hz,
             headroom_db=body.headroom_db,
@@ -392,6 +399,7 @@ def _finishing(report) -> dict | None:
     if polish is not None:
         payload |= {
             "brightness_db": polish.air_db,
+            "warmth_db": polish.warmth_db,
             "width_factor": polish.width_factor,
             "width_before": polish.width_before,
             "width_after": polish.width_after,
@@ -492,3 +500,64 @@ def master_peaks(
         log.debug("could not cache master peaks for %s", track_id)
 
     return payload
+
+
+@router.get("/{track_id}/master/suggest")
+def suggest_settings(
+    track_id: str,
+    registry: TrackRegistry = Depends(get_registry),
+    storage: TrackStorage = Depends(get_storage),
+) -> dict:
+    """Where this mix differs from its reference, and which dial closes the gap.
+
+    Compares the uploaded track against the uploaded reference directly - no separation
+    and no mastering run, so it answers in a couple of seconds and can be called the
+    moment a reference lands.
+
+    Every suggested value comes back with the sentence explaining it and the measurement
+    behind it. A dial that moves on its own without saying why is worse than one that
+    stays put.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    reference = storage.reference_path(track_id)
+    if reference is None or not reference.exists():
+        return {"available": False, "why": "No reference uploaded for this track yet."}
+
+    try:
+        from app.services.mastering.suggest import suggest
+        from app.services.mixdown.encode import read_audio
+
+        source = read_audio(record.path)
+        target = read_audio(reference)
+    except ImportError as exc:  # pragma: no cover - numpy/soundfile are hard requirements
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED, "numpy/soundfile are required."
+        ) from exc
+
+    result = suggest(source.samples, target.samples, source.sample_rate)
+    polish = result.polish
+    return {
+        "available": True,
+        "settings": {
+            "brightness_db": polish.air_db,
+            "brightness_from_hz": polish.air_hz,
+            "warmth_db": polish.warmth_db,
+            "warmth_from_hz": polish.warmth_hz,
+            "width": polish.width,
+            "headroom_db": polish.headroom_db,
+        },
+        "reasons": {r.control: r.text for r in result.reasons},
+        "measured": {
+            "bands": {
+                name: {"yours": mine, "reference": theirs, "gap": round(gap, 2)}
+                for name, (mine, theirs, gap) in result.bands.items()
+            },
+            "source_width": result.source_width,
+            "reference_width": result.reference_width,
+            "reference_crest_db": result.reference_crest_db,
+        },
+    }

@@ -464,3 +464,34 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 }
 .compare-key .swatch.up { background: var(--accent); }
 .compare-key .swatch.down { background: var(--warn); }
+
+/* ── starting points ─────────────────────────────────────────────────────────
+   Presets, not state: picking one sets the dials and then gets out of the way,
+   so the sliders stay the source of truth. */
+.modes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+.modes-label {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted); margin-right: 4px;
+}
+.mode {
+  font: inherit; font-size: 13px; padding: 6px 13px; border-radius: 999px;
+  background: var(--panel-2); border: 1px solid var(--edge); color: var(--text);
+  cursor: pointer;
+}
+.mode:hover:not(:disabled) { border-color: var(--accent); }
+.mode[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent);
+}
+.mode:disabled { opacity: 0.45; cursor: not-allowed; }
+.mode-why { margin: 0 0 16px; max-width: 76ch; min-height: 1em; }
+.mode-why b { color: var(--text); font-weight: 600; }
+
+.reasons { margin: 0 0 18px; }
+.reasons > summary {
+  cursor: pointer; font-size: 13px; color: var(--muted);
+  padding: 4px 0; list-style-position: outside;
+}
+.reasons > summary:hover { color: var(--accent); }
+.reasons[open] > summary { margin-bottom: 8px; }

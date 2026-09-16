@@ -497,8 +497,14 @@ def critique(
     result,
     source_stems: dict[StemKind, Path] | None = None,
     reference_stems: dict[StemKind, Path] | None = None,
+    clarity: list[dict] | None = None,
 ) -> Critique:
-    """Turn a measured comparison into something worth reading."""
+    """Turn a measured comparison into something worth reading.
+
+    ``clarity`` arrives as dicts from ``mastering.clarity``, which measures the things a
+    master EQ cannot reach and therefore offers no action for. They are passed in rather
+    than computed here so this module stays free of audio I/O.
+    """
     findings: list[Finding] = []
     _tone(result, findings)
     _dynamics(result, findings)
@@ -506,6 +512,20 @@ def critique(
     _loudness(result, findings)
     if source_stems and reference_stems:
         findings.extend(balance(source_stems, reference_stems))
+    for item in clarity or []:
+        findings.append(
+            Finding(
+                area=item['area'],
+                severity=item['severity'],
+                headline=item['headline'],
+                detail=item['detail'],
+                delta_db=item.get('delta_db', 0.0),
+                clause=item.get('clause', ''),
+                # There is no dial for an arrangement, and pretending otherwise is how a
+                # tool loses trust.
+                handled_by_match=False,
+            )
+        )
 
     # Differences first, largest first; the things that match go at the end where they
     # read as reassurance rather than filler.

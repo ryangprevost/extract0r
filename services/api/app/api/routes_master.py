@@ -673,7 +673,17 @@ def suggest_settings(
         else None
     )
     reference_stems = (record.reference_stems or None) if stems else None
-    summary = critique(result, source_stems, reference_stems)
+
+    # Clarity needs the source separated to say which instruments crowd which band. The
+    # reference does not have to be: without its stems the congestion findings still
+    # work, and only "nothing of yours reaches up here" goes quiet.
+    clarity: list[dict] = []
+    if source_stems:
+        from app.services.mastering.clarity import compare
+
+        clarity = compare(source_file, reference, source_stems, reference_stems)
+
+    summary = critique(result, source_stems, reference_stems, clarity=clarity)
 
     polish = result.polish
     return {

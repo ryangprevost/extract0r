@@ -121,6 +121,20 @@ would make that sentence false. Those hosts are recognised only so the refusal c
 Errors: `400` a bad or unreachable URL · `403` missing rights attestation, or an internal
 address · `413`/`400` too large · `415` not decodable audio · `422` a streaming page.
 
+### The deep-bass guard
+
+The matching curve may cut at most `max_low_cut_db` (2 dB) below `low_guard_hz` (140 Hz),
+easing back to the full `max_cut_db` over the two octaves around it.
+
+Two reasons, both pointing the same way. An average spectrum is a poor guide down there:
+at 50 Hz it mostly measures which notes the bass player played and what key the song is
+in, so two good mixes differ by several dB for reasons unrelated to how they were made.
+And it is the most audible cut available — on a real pair the curve wanted **−4.6 dB at
+45 Hz and +6 dB at 500 Hz**, a scoop straight through the kick's fundamental into the
+boxiest part of the spectrum, and the kick came out with its bottom gone.
+
+It limits cuts only. A mix genuinely short of low end is still allowed to gain some.
+
 ### Drum layering
 
 `drum_kit`, `drum_targets` and `drum_blend` on the master request find each kick, snare and

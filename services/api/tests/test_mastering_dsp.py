@@ -299,7 +299,11 @@ def test_the_curve_is_centred_by_octave_not_by_bin():
     mix[freqs > 11000] *= 0.25
     reference = (f / 100.0) ** -1.0
 
-    db = 20 * np.log10(matching_curve(mix, reference, SR))
+    # The deep-bass guard is switched off here: it caps cuts below 140 Hz, which is a
+    # separate rule with its own tests, and leaving it on would mask what this is about.
+    db = 20 * np.log10(
+        matching_curve(mix, reference, SR, MatchSettings(max_low_cut_db=12.0))
+    )
 
     def at(hz):
         return db[int(np.searchsorted(freqs, hz))]
@@ -320,3 +324,68 @@ def test_centring_survives_an_unusual_sample_rate():
         spectrum = np.linspace(1.0, 0.1, bins)
         curve = matching_curve(spectrum, spectrum[::-1], rate)
         assert np.all(np.isfinite(curve)), f"{rate} Hz produced a non-finite curve"
+
+
+# ─────────────────────────── the deep-bass guard ───────────────────────────
+#
+# A user heard it before these existed: "the bassiness to the kick was completely
+# removed and the sample sounded flat". On that pair the curve wanted -4.6 dB at 45 Hz
+# and +6 dB at 500 - a scoop straight through the kick's fundamental into the boxiest
+# part of the spectrum.
+
+
+def bass_heavy_against_light(n_fft=4096):
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / SR)
+    f = np.maximum(freqs, 20.0)
+    mix = (f / 100.0) ** -1.6          # a lot of weight underneath
+    reference = (f / 100.0) ** -0.8    # much lighter down there
+    return freqs, mix, reference
+
+
+def test_the_deep_bass_is_not_scooped_out():
+    freqs, mix, reference = bass_heavy_against_light()
+    db = 20 * np.log10(matching_curve(mix, reference, SR))
+
+    def at(hz):
+        return db[int(np.searchsorted(freqs, hz))]
+
+    for hz in (30, 45, 60):
+        assert at(hz) >= -MatchSettings().max_low_cut_db - 0.01, (
+            f"{at(hz):+.1f} dB at {hz} Hz takes the bottom off the kick"
+        )
+
+
+def test_the_guard_only_limits_cuts_not_boosts():
+    """A mix genuinely short of low end should still be allowed to gain some."""
+    freqs = np.fft.rfftfreq(4096, d=1.0 / SR)
+    f = np.maximum(freqs, 20.0)
+    thin = (f / 100.0) ** -0.6
+    full = (f / 100.0) ** -1.6
+    db = 20 * np.log10(matching_curve(thin, full, SR))
+    assert db[int(np.searchsorted(freqs, 45))] > 1.0
+
+
+def test_the_rest_of_the_spectrum_is_untouched_by_it():
+    """The guard is about the bottom two octaves, not a general softening."""
+    freqs, mix, reference = bass_heavy_against_light()
+    db = 20 * np.log10(matching_curve(mix, reference, SR))
+    assert db[int(np.searchsorted(freqs, 400))] < -MatchSettings().max_low_cut_db
+
+
+def test_the_guard_eases_in_rather_than_stepping():
+    """A cliff in the correction is a resonance; the limit tapers across an octave."""
+    freqs, mix, reference = bass_heavy_against_light()
+    db = 20 * np.log10(matching_curve(mix, reference, SR))
+    low = int(np.searchsorted(freqs, 40))
+    high = int(np.searchsorted(freqs, 400))
+    # Per bin, and the bins are 10.8 Hz apart here, so this is a slope rather than a step.
+    assert np.abs(np.diff(db[low:high])).max() < 1.2
+
+
+def test_it_can_be_turned_off():
+    """It is a default, not a law - the tests for centring need it out of the way."""
+    freqs, mix, reference = bass_heavy_against_light()
+    db = 20 * np.log10(
+        matching_curve(mix, reference, SR, MatchSettings(max_low_cut_db=12.0))
+    )
+    assert db[int(np.searchsorted(freqs, 45))] < -2.0

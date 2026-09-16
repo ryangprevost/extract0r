@@ -46,6 +46,10 @@ class MatchSettings:
     #: amplifies noise and separation artefacts, while cutting one is comparatively safe.
     max_boost_db: float = 6.0
     max_cut_db: float = 12.0
+    #: How much the curve may cut *below* `low_guard_hz`, which is far less than
+    #: elsewhere. See `matching_curve` for why the deep bass gets its own limit.
+    max_low_cut_db: float = 2.0
+    low_guard_hz: float = 140.0
     #: 0 = no correction, 1 = the full clamped curve. A dial, because "as much of the
     #: reference as possible" is rarely what a person actually wants.
     strength: float = 1.0
@@ -149,6 +153,31 @@ def matching_curve(
     # means what it says.
     db -= _centre_db(db, sample_rate)
     db = np.clip(db, -settings.max_cut_db, settings.max_boost_db)
+
+    # The deep bass is held to a much smaller cut than the rest of the spectrum, for two
+    # reasons that both point the same way.
+    #
+    # An average spectrum is a bad guide down here. At 50 Hz what it mostly measures is
+    # which notes the bass player happened to play and what key the song is in, so two
+    # perfectly good mixes differ by several dB for reasons that have nothing to do with
+    # how they were made. Chasing that difference is chasing an artefact.
+    #
+    # And it is the most audible cut there is. On a real pair the curve wanted -4.6 dB at
+    # 45 Hz and +6 dB at 500 - a scoop straight through the kick's fundamental into the
+    # boxy part of the spectrum - and the result was a kick with its bottom gone.
+    freqs = np.fft.rfftfreq((len(db) - 1) * 2, d=1.0 / sample_rate)
+    guarded = freqs < settings.low_guard_hz * 2
+    # Eased in over two octaves around the corner rather than switched on. One octave
+    # was tried first and is too abrupt at this resolution: the bins are 10.8 Hz apart, so
+    # a single octave near 100 Hz spans about six of them and the limit moved 1.9 dB per
+    # bin, which is a resonance rather than a transition.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        blend = np.clip(
+            np.log2(np.maximum(freqs, 1e-6) / (settings.low_guard_hz / 2)) / 2.0, 0, 1
+        )
+    allowed = -(settings.max_low_cut_db + blend * (settings.max_cut_db - settings.max_low_cut_db))
+    db = np.where(guarded, np.maximum(db, allowed), db)
+
     db *= float(np.clip(settings.strength, 0.0, 1.0))
     return 10.0 ** (db / 20.0)
 

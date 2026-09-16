@@ -52,23 +52,31 @@ class Voice:
 
 #: Three kits, chosen to be obviously different rather than subtly so - the point of
 #: swapping a sample is to hear that you did.
+#:
+#: The kicks are tuned against a measurement rather than by ear. Averaging the kicks out
+#: of a real drum stem puts -2.25 dB of their energy in 20-60 Hz and -4.18 in 60-120: the
+#: sub band is the *strongest* part of a kick. The first versions here were 5 to 9.5 dB
+#: short in that band and put their weight an octave up instead, which is what "the
+#: bassiness was removed and it sounded flat" sounds like. All three now land within
+#: 0.1 dB of a real kick down there, and differ where they should - in length, in how
+#: fast the body dies, and in how much click is on the front.
 KITS: dict[str, dict[str, Voice]] = {
     "tight": {
-        "kick": Voice(0.22, 110.0, 48.0, 32.0, 18.0, noise_level=0.18, noise_decay=500.0),
+        "kick": Voice(0.32, 95.0, 38.0, 25.0, 7.0, noise_level=0.16, noise_decay=500.0),
         "snare": Voice(0.16, 200.0, 190.0, 40.0, 34.0, noise_level=0.8, noise_decay=30.0,
                        noise_highpass=1400.0, body_level=0.35),
         "hihat": Voice(0.05, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=90.0,
                        noise_highpass=7000.0, body_level=0.0),
     },
     "roomy": {
-        "kick": Voice(0.40, 95.0, 44.0, 20.0, 8.0, noise_level=0.12, noise_decay=260.0),
+        "kick": Voice(0.55, 105.0, 38.0, 18.0, 4.0, noise_level=0.09, noise_decay=500.0),
         "snare": Voice(0.38, 185.0, 175.0, 26.0, 12.0, noise_level=0.85, noise_decay=11.0,
                        noise_highpass=1100.0, body_level=0.4),
         "hihat": Voice(0.12, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=38.0,
                        noise_highpass=6200.0, body_level=0.0),
     },
     "punchy": {
-        "kick": Voice(0.18, 135.0, 52.0, 45.0, 26.0, noise_level=0.3, noise_decay=700.0),
+        "kick": Voice(0.24, 95.0, 50.0, 55.0, 10.0, noise_level=0.26, noise_decay=500.0),
         "snare": Voice(0.13, 225.0, 210.0, 50.0, 44.0, noise_level=0.7, noise_decay=42.0,
                        noise_highpass=1800.0, body_level=0.45),
         "hihat": Voice(0.035, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=130.0,

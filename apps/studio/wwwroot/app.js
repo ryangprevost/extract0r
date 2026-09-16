@@ -1695,6 +1695,57 @@ for (const type of ["dragleave", "drop"]) {
 }
 $("ref-dropzone").addEventListener("drop", (e) => pickReference(e.dataTransfer.files[0]));
 
+/** Fetch a reference from a link instead of uploading one.
+
+The server does the fetching and enforces what a URL may point at, so this only has to
+report back - the interesting refusals (streaming sites, internal addresses) arrive as
+ordinary error messages and are worth showing verbatim. */
+async function fetchReferenceUrl() {
+  const url = $("ref-url").value.trim();
+  if (!url) return;
+
+  const button = $("ref-url-btn");
+  button.disabled = true;
+  button.textContent = "Fetching…";
+  $("ref-error").hidden = true;
+
+  try {
+    const info = await api(`/tracks/${state.trackId}/reference/url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, owns_or_licensed: true }),
+    });
+
+    state.referenceLoaded = true;
+    state.referenceFile = null;
+    $("ref-dropzone").classList.add("has-file");
+    $("ref-name").textContent = info.filename;
+    const loudness =
+      info.integrated_lufs != null ? ` · ${info.integrated_lufs.toFixed(1)} LUFS` : "";
+    $("ref-hint").textContent =
+      `${info.duration_s.toFixed(0)}s${loudness} — fetched, will be matched`;
+    $("ref-url").value = "";
+
+    updateMasterSummary();
+    await refreshPerStemState();
+    await loadSuggestion();
+  } catch (error) {
+    state.referenceLoaded = false;
+    fail("ref-error", error);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Fetch";
+  }
+}
+
+$("ref-url-btn").addEventListener("click", fetchReferenceUrl);
+$("ref-url").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    fetchReferenceUrl();
+  }
+});
+
 $("strength").addEventListener("input", () => {
   $("strength-out").textContent = `${$("strength").value}%`;
 });

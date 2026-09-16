@@ -58,6 +58,7 @@ is the only way to tell a separation problem from a transcription one.
 | Method | Path | Notes |
 |---|---|---|
 | `POST` | `/tracks/{id}/reference` | Multipart. Store a reference to match against; same rights gate as an upload. Returns its measured loudness |
+| `POST` | `/tracks/{id}/reference/url` | Fetch a reference from a direct link instead of uploading it. Same rights gate, size limit and probing |
 | `POST` | `/tracks/{id}/reference/separate` | Split the reference into stems so matching can work per instrument. `202` + job |
 | `GET` | `/tracks/{id}/reference/stems` | Whether the reference has been separated, and into what |
 | `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/width/mute/solo, optional `reference_track_id`, `per_stem_match`, `vocal_presence`, `vocal_duck_db`, `match_strength`, `brightness_db`, `brightness_from_hz`, `width`, `headroom_db`, `protect_dynamics`, `bitrate_kbps`. `202` + job |
@@ -89,6 +90,35 @@ the raised band as a tonal deviation and cut it out again — a +3 dB vocal land
 tonal correction is derived from a mix with the faders removed. Loudness is still measured
 on what is actually exported, so the master lands on the reference's level wherever the
 faders sit.
+
+### Fetching a reference by URL
+
+`reference/url` takes `{url, owns_or_licensed}` and stores the result exactly as an upload
+would — it is a different way to get the bytes, not a different set of rules about them.
+
+A server that fetches arbitrary URLs on request is a request-forgery primitive, so
+`app/services/fetch.py` is mostly refusals:
+
+- **http and https only.** `file://` reads the server's own disk.
+- **Every resolved address is checked, not the hostname.** `internal.example.com` can
+  resolve to `10.0.0.5`. Any private, loopback, link-local, reserved, multicast or
+  carrier-NAT address disqualifies the name — *any*, not all, since which address gets
+  connected to is not ours to choose. IPv4-mapped IPv6 (`::ffff:127.0.0.1`) is unmapped
+  first.
+- **Redirects are walked by hand and re-checked at every hop**, because a public URL that
+  302s to `169.254.169.254` is the standard way to read a cloud instance's credentials.
+  `follow_redirects=True` would land there happily.
+- **The size cap is enforced while reading.** `Content-Length` is a claim, not a fact.
+- **Content type must look like audio**, so an HTML page fails with a useful message
+  rather than later as "unsupported format".
+
+Streaming sites are **refused, not supported** — `422` with an explanation. Extract0r's own
+terms (`NO_DRM_CIRCUMVENTION` in `app/legal.py`) say it will not process audio ripped from
+a streaming service in breach of that service's terms, and building the downloader in
+would make that sentence false. Those hosts are recognised only so the refusal can say why.
+
+Errors: `400` a bad or unreachable URL · `403` missing rights attestation, or an internal
+address · `413`/`400` too large · `415` not decodable audio · `422` a streaming page.
 
 ### Finishing
 

@@ -526,3 +526,26 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   letter-spacing: 0.08em; color: var(--muted); margin-left: 8px; font-weight: 400;
 }
 #findings-toggle { margin-top: 10px; font-size: 13px; }
+
+/* ── reference by URL ────────────────────────────────────────────────────── */
+.or-url { margin: 14px 0 4px; }
+.or-url .or {
+  display: block; font-family: var(--mono); font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 7px;
+}
+.url-row { display: flex; gap: 8px; max-width: 560px; }
+.url-row input {
+  flex: 1; font: inherit; font-size: 13px; padding: 9px 12px;
+  border-radius: 8px; border: 1px solid var(--edge);
+  background: var(--panel-2); color: var(--text);
+}
+.url-row input:focus { outline: none; border-color: var(--accent); }
+.url-row input::placeholder { color: color-mix(in srgb, var(--muted) 70%, transparent); }
+.ghost {
+  font: inherit; font-size: 13px; padding: 9px 16px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--edge); color: var(--text);
+  cursor: pointer; white-space: nowrap;
+}
+.ghost:hover:not(:disabled) { border-color: var(--accent); }
+.ghost:disabled { opacity: 0.55; cursor: progress; }
+.or-url p { margin: 9px 0 0; max-width: 68ch; }

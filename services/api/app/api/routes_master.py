@@ -104,6 +104,13 @@ class ReferenceResponse(BaseModel):
     filename: str
     duration_s: float
     integrated_lufs: float | None = None
+    #: Present when the reference came from a URL rather than an upload.
+    source_url: str | None = None
+
+
+class ReferenceUrlRequest(BaseModel):
+    url: str = Field(min_length=4, max_length=2048)
+    owns_or_licensed: bool = False
 
 
 @router.post(
@@ -147,8 +154,19 @@ async def upload_reference(
             f"Reference exceeds the {settings.max_upload_mb} MB limit.",
         )
 
+    return _store_reference(track_id, file.filename or "reference.wav", data, storage)
+
+
+def _store_reference(
+    track_id: str, filename: str, data: bytes, storage: TrackStorage
+) -> ReferenceResponse:
+    """Save, probe and meter a reference, however the bytes arrived.
+
+    Shared by the upload and the URL route on purpose: where the audio came from should
+    not change what is checked about it, and two copies of this would drift.
+    """
     try:
-        stored = storage.save_reference(track_id, file.filename or "reference.wav", data)
+        stored = storage.save_reference(track_id, filename, data)
     except UnsupportedAudioError as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
 
@@ -177,6 +195,62 @@ async def upload_reference(
         duration_s=round(info.duration_s, 2),
         integrated_lufs=loudness,
     )
+
+
+@router.post(
+    "/{track_id}/reference/url",
+    response_model=ReferenceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def reference_from_url(
+    track_id: str,
+    body: ReferenceUrlRequest,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> ReferenceResponse:
+    """Fetch a reference from a direct link instead of uploading it.
+
+    The same rights gate, size limit and probing as an upload - this is a different way to
+    get the bytes, not a different set of rules about them. What a URL is allowed to point
+    at, and why the answer is narrow, is in `app.services.fetch`.
+
+    Streaming sites are refused rather than supported. Extract0r's own terms say it will
+    not process audio ripped from a streaming service in breach of that service's terms,
+    and building the downloader in would make that sentence false.
+    """
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    if settings.require_rights_attestation and not body.owns_or_licensed:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Confirm you have the right to use this reference recording. It is analysed "
+            "only - no audio from it is copied into your master - but fetching it is "
+            "still obtaining a copy.",
+        )
+
+    from app.services.fetch import (
+        BlockedHostError,
+        FetchError,
+        StreamingSiteError,
+        fetch_audio,
+    )
+
+    try:
+        fetched = await fetch_audio(body.url, settings.max_upload_mb * 1024 * 1024)
+    except StreamingSiteError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except BlockedHostError as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
+    except FetchError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    response = _store_reference(track_id, fetched.filename, fetched.data, storage)
+    response.source_url = fetched.source_url
+    return response
 
 
 @router.post(

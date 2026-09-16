@@ -23,9 +23,11 @@ from app.services.mastering import pipeline as master_pipeline
 from app.services.mastering.pipeline import MasterRequest, StemSetting
 from app.services.mastering.polish import (
     DEFAULT_AIR_HZ,
+    DEFAULT_BASS_HZ,
     DEFAULT_WARMTH_HZ,
     DEFAULT_WIDTH_FLOOR_HZ,
     MAX_AIR_DB,
+    MAX_BASS_DB,
     MAX_WARMTH_DB,
     MAX_WIDTH,
     MIN_WIDTH,
@@ -82,6 +84,9 @@ class MasterJobRequest(BaseModel):
     #: Low-shelf lift for body and weight. Not the same request as less brightness.
     warmth_db: float = Field(default=0.0, ge=-MAX_WARMTH_DB, le=MAX_WARMTH_DB)
     warmth_from_hz: float = Field(default=DEFAULT_WARMTH_HZ, ge=100.0, le=600.0)
+    #: Low-shelf lift for weight under the body range.
+    bass_db: float = Field(default=0.0, ge=-MAX_BASS_DB, le=MAX_BASS_DB)
+    bass_from_hz: float = Field(default=DEFAULT_BASS_HZ, ge=40.0, le=200.0)
     #: Side-channel scale above `width_floor_hz`; the low end is never widened.
     width: float = Field(default=1.0, ge=MIN_WIDTH, le=MAX_WIDTH)
     width_floor_hz: float = Field(default=DEFAULT_WIDTH_FLOOR_HZ, ge=80.0, le=600.0)
@@ -399,6 +404,8 @@ def start_master(
             air_hz=body.brightness_from_hz,
             warmth_db=body.warmth_db,
             warmth_hz=body.warmth_from_hz,
+            bass_db=body.bass_db,
+            bass_hz=body.bass_from_hz,
             width=body.width,
             width_floor_hz=body.width_floor_hz,
             headroom_db=body.headroom_db,
@@ -474,6 +481,7 @@ def _finishing(report) -> dict | None:
         payload |= {
             "brightness_db": polish.air_db,
             "warmth_db": polish.warmth_db,
+            "bass_db": polish.bass_db,
             "width_factor": polish.width_factor,
             "width_before": polish.width_before,
             "width_after": polish.width_after,
@@ -646,6 +654,8 @@ def suggest_settings(
                     "headline": f.headline,
                     "detail": f.detail,
                     "delta_db": f.delta_db,
+                    "action": f.action,
+                    "handled_by_match": f.handled_by_match,
                 }
                 for f in summary.findings
             ],
@@ -656,6 +666,8 @@ def suggest_settings(
             "brightness_from_hz": polish.air_hz,
             "warmth_db": polish.warmth_db,
             "warmth_from_hz": polish.warmth_hz,
+            "bass_db": polish.bass_db,
+            "bass_from_hz": polish.bass_hz,
             "width": polish.width,
             "headroom_db": polish.headroom_db,
         },

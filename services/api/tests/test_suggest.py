@@ -129,7 +129,7 @@ def test_every_control_gets_a_reason_whether_or_not_it_moved():
     result = suggest(source, reference, SR)
 
     controls = {r.control for r in result.reasons}
-    assert controls == {"brightness", "warmth", "width", "headroom"}
+    assert controls == {"brightness", "warmth", "bass", "width", "headroom"}
     assert all(r.text.strip() for r in result.reasons)
 
 
@@ -239,7 +239,18 @@ def test_every_finding_from_the_endpoint_is_shaped_for_the_ui(client, sample_wav
     attach_reference(client, track, sample_wav)
 
     for f in client.get(f"/api/v1/tracks/{track}/master/suggest").json()["summary"]["findings"]:
-        assert set(f) == {"area", "severity", "headline", "detail", "delta_db"}
+        assert set(f) == {
+            "area", "severity", "headline", "detail", "delta_db", "action",
+            "handled_by_match",
+        }
+        # An action, where there is one, has to be applyable as it stands.
+        if f["action"]:
+            assert f["action"]["label"].strip()
+            assert f["action"]["dials"]
+        else:
+            # No offer has to mean something: either matching covers it, or it is
+            # context. A difference with neither would look ignored.
+            assert f["handled_by_match"] or f["severity"] == "match"
         assert f["severity"] in {"match", "slight", "notable"}
 
 

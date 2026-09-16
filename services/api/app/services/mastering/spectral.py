@@ -33,6 +33,7 @@ from app.services.mastering.polish import (
     Polish,
     PolishReport,
     add_air,
+    add_bass,
     add_warmth,
     ceiling_headroom,
     crest_db,
@@ -110,9 +111,19 @@ class SpectralMatchEngine:
         # exported.
         polish = polish or Polish()
         finish = PolishReport(
-            air_db=polish.air_db, warmth_db=polish.warmth_db, width_factor=polish.width
+            air_db=polish.air_db,
+            warmth_db=polish.warmth_db,
+            bass_db=polish.bass_db,
+            width_factor=polish.width,
         )
 
+        if polish.bass_db:
+            processed = add_bass(
+                processed, source.sample_rate, polish.bass_db, polish.bass_hz
+            )
+            finish.notes.append(
+                f"{polish.bass_db:+.1f} dB shelf below {polish.bass_hz:.0f} Hz"
+            )
         if polish.warmth_db:
             processed = add_warmth(
                 processed, source.sample_rate, polish.warmth_db, polish.warmth_hz

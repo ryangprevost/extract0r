@@ -42,11 +42,17 @@ DEFAULT_WIDTH_FLOOR_HZ = 250.0
 #: Centre of the warmth bell: the body of guitars, snares and male vocals.
 DEFAULT_WARMTH_HZ = 450.0
 
+#: Corner of the bass shelf: kick weight and bass fundamentals, below the body range.
+DEFAULT_BASS_HZ = 90.0
+
 #: A shelf beyond this stops sounding like air and starts sounding like a broken tweeter.
 MAX_AIR_DB = 6.0
 
 #: Past this the low mids stop sounding warm and start sounding boxy.
 MAX_WARMTH_DB = 4.0
+
+#: Low end eats headroom faster than anything else, so the cap is tighter than it looks.
+MAX_BASS_DB = 4.0
 
 #: Past 1.6 the side channel is loud enough that mono compatibility starts to suffer.
 MAX_WIDTH = 1.6
@@ -60,9 +66,12 @@ class Polish:
     #: High-shelf lift in dB. 0 leaves the matched tone exactly as matched.
     air_db: float = 0.0
     air_hz: float = DEFAULT_AIR_HZ
-    #: Low-shelf lift in dB. Body, not "less treble" - the two are different requests.
+    #: Bell lift in dB. Body, not "less treble" - the two are different requests.
     warmth_db: float = 0.0
     warmth_hz: float = DEFAULT_WARMTH_HZ
+    #: Low-shelf lift in dB. Weight under the body range.
+    bass_db: float = 0.0
+    bass_hz: float = DEFAULT_BASS_HZ
     #: Side-channel scale above `width_floor_hz`. 1.0 is untouched.
     width: float = 1.0
     width_floor_hz: float = DEFAULT_WIDTH_FLOOR_HZ
@@ -74,7 +83,11 @@ class Polish:
 
     def wanted(self) -> bool:
         return bool(
-            self.air_db or self.warmth_db or self.width != 1.0 or self.headroom_db
+            self.air_db
+            or self.warmth_db
+            or self.bass_db
+            or self.width != 1.0
+            or self.headroom_db
         )
 
 
@@ -84,6 +97,7 @@ class PolishReport:
 
     air_db: float = 0.0
     warmth_db: float = 0.0
+    bass_db: float = 0.0
     width_factor: float = 1.0
     width_before: float = 0.0
     width_after: float = 0.0
@@ -184,6 +198,23 @@ def add_warmth(
         return np.asarray(samples, dtype=np.float64)
     gain_db = float(np.clip(gain_db, -MAX_WARMTH_DB, MAX_WARMTH_DB))
     return apply_curve(samples, bell_curve(DEFAULT_N_FFT, sample_rate, hz, gain_db))
+
+
+def add_bass(
+    samples: np.ndarray, sample_rate: int, gain_db: float, hz: float = DEFAULT_BASS_HZ
+) -> np.ndarray:
+    """Lift the bottom by a shelf, leaving everything above it alone.
+
+    A shelf here, where warmth uses a bell, and the difference is the point. Warmth sits
+    at 450 Hz, so a shelf would drag the sub up with it and turn body into boom. Bass sits
+    at 90 Hz, where lifting *everything below* the corner is precisely what "more bass"
+    means - there is nothing underneath it to protect.
+    """
+    if not gain_db:
+        return np.asarray(samples, dtype=np.float64)
+    gain_db = float(np.clip(gain_db, -MAX_BASS_DB, MAX_BASS_DB))
+    curve = shelf_curve(DEFAULT_N_FFT, sample_rate, hz, gain_db, kind="low")
+    return apply_curve(samples, curve)
 
 
 def widen_above(

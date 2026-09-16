@@ -915,6 +915,7 @@ async function runMaster() {
         per_stem_match: $("per-stem-match").checked,
         brightness_db: parseFloat($("brightness").value),
         warmth_db: parseFloat($("warmth").value),
+        bass_db: parseFloat($("bass").value),
         brightness_from_hz: parseFloat($("brightness-hz").value),
         width: parseInt($("stereo-width").value, 10) / 100,
         headroom_db: parseFloat($("headroom").value),
@@ -1081,7 +1082,20 @@ function renderCritique(summary) {
 
   const draw = () => {
     const shown = state.showAllFindings ? [...differences, ...matching] : differences;
-    $("compare-findings").innerHTML = shown.map(finding).join("");
+    $("compare-findings").innerHTML = shown.map((f, i) => finding(f, i)).join("");
+
+    // Applying one finding moves only its own dials, so the rest of the mix stays where
+    // the person left it. That is the difference between this and "apply everything".
+    for (const button of $("compare-findings").querySelectorAll(".fix")) {
+      button.addEventListener("click", () => {
+        applyDials(shown[Number(button.dataset.fix)].action.dials);
+        button.dataset.done = "true";
+        button.textContent = "Applied";
+        state.mode = null;
+        document.querySelectorAll(".mode")
+          .forEach((b) => b.setAttribute("aria-pressed", "false"));
+      });
+    }
     const toggle = $("findings-toggle");
     toggle.hidden = matching.length === 0;
     toggle.textContent = state.showAllFindings
@@ -1103,11 +1117,22 @@ function renderCritique(summary) {
   }
 }
 
-function finding(f) {
+function finding(f, index) {
+  // Three states, and the difference matters. There is a dial for this; there is no dial
+  // because matching already handles it; or it is context with nothing to do about it.
+  const foot = f.action
+    ? `<div class="finding-foot">
+         <button class="fix" data-fix="${index}">${f.action.label}</button>
+       </div>`
+    : f.handled_by_match
+      ? '<div class="finding-foot"><span class="handled">handled by the reference match</span></div>'
+      : "";
+
   return `<div class="finding ${f.severity}">
             <div>
               <b>${f.headline}<span class="area">${f.area}</span></b>
               <span>${f.detail}</span>
+              ${foot}
             </div>
           </div>`;
 }
@@ -1122,32 +1147,39 @@ const MODES = {
   flat: {
     label: "Flat",
     why: "Every finishing dial off — whatever the reference match decides, and nothing else.",
-    dials: { brightness: 0, brightnessHz: 8000, warmth: 0, width: 100, headroom: 0 },
+    dials: { brightness: 0, brightnessHz: 8000, warmth: 0, bass: 0, width: 100, headroom: 0 },
   },
   bright: {
     label: "Brighten",
     why: "A shelf from <b>6 kHz</b>. High enough to stay out of the midrange, low enough to " +
          "reach the top of the presence range where a closed-in mix usually needs opening up.",
-    dials: { brightness: 3, brightnessHz: 6000, warmth: 0, width: 100, headroom: 0 },
+    dials: { brightness: 3, brightnessHz: 6000, warmth: 0, bass: 0, width: 100, headroom: 0 },
+  },
+  bassier: {
+    label: "Bassier",
+    why: "A shelf below <b>90 Hz</b> — kick weight and bass fundamentals. Separate from " +
+         "Warmer on purpose: 90 Hz is weight, 450 Hz is body, and asking for one usually " +
+         "means you do not want the other.",
+    dials: { brightness: 0, brightnessHz: 8000, warmth: 0, bass: 3, width: 100, headroom: 0 },
   },
   warm: {
     label: "Warmer",
     why: "Body around <b>450 Hz</b> with the very top eased back. Warmth is weight in the low " +
          "mids, not less treble — the bell leaves the bass alone so it does not turn boomy.",
-    dials: { brightness: -1, brightnessHz: 12000, warmth: 2.5, width: 100, headroom: 0 },
+    dials: { brightness: -1, brightnessHz: 12000, warmth: 2.5, bass: 0, width: 100, headroom: 0 },
   },
   punchy: {
     label: "Punchier",
     why: "Punch is transients surviving the limiter, so this mostly buys headroom: " +
          "<b>1.5 dB</b> further under the reference, with a little presence for attack. " +
          "It trades loudness for impact.",
-    dials: { brightness: 1.5, brightnessHz: 3000, warmth: 0.5, width: 100, headroom: 1.5 },
+    dials: { brightness: 1.5, brightnessHz: 3000, warmth: 0.5, bass: 1, width: 100, headroom: 1.5 },
   },
   wide: {
     label: "Wider",
     why: "Spreads everything above <b>250 Hz</b> to 125% and adds sheen at 12 kHz, which the " +
          "ear also reads as width. The bass stays centred so it survives a mono system.",
-    dials: { brightness: 1.5, brightnessHz: 12000, warmth: 0, width: 125, headroom: 0 },
+    dials: { brightness: 1.5, brightnessHz: 12000, warmth: 0, bass: 0, width: 125, headroom: 0 },
   },
 };
 
@@ -1160,7 +1192,7 @@ let settingDials = false;
 function applyDials(dials) {
   settingDials = true;
   const map = {
-    brightness: "brightness", warmth: "warmth",
+    brightness: "brightness", warmth: "warmth", bass: "bass",
     width: "stereo-width", headroom: "headroom",
   };
   for (const [key, id] of Object.entries(map)) {
@@ -1196,6 +1228,7 @@ function applySuggestion() {
     brightness: s.settings.brightness_db,
     brightnessHz: nearestBrightnessOption(s.settings.brightness_from_hz),
     warmth: s.settings.warmth_db,
+    bass: s.settings.bass_db,
     width: Math.round(s.settings.width * 100),
     headroom: s.settings.headroom_db,
   });
@@ -1216,6 +1249,7 @@ function describeDials(reasons) {
   const targets = {
     brightness: ["brightness", "brightness-hz"],
     warmth: ["warmth"],
+    bass: ["bass"],
     width: ["stereo-width"],
     headroom: ["headroom"],
   };
@@ -1765,6 +1799,10 @@ $("stereo-width").addEventListener("input", () => {
 $("headroom").addEventListener("input", () => {
   const value = parseFloat($("headroom").value);
   $("headroom-out").textContent = value ? `-${value.toFixed(1)} dB` : "off";
+});
+$("bass").addEventListener("input", () => {
+  const value = parseFloat($("bass").value);
+  $("bass-out").textContent = value ? `${signed(value.toFixed(1))} dB` : "off";
 });
 $("warmth").addEventListener("input", () => {
   const value = parseFloat($("warmth").value);

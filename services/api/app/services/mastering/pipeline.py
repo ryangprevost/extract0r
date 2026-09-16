@@ -34,7 +34,13 @@ from app.services.mastering.dsp import (
     normalise_peak,
     set_width,
 )
-from app.services.mastering.polish import Polish, add_air, add_warmth, widen_above
+from app.services.mastering.polish import (
+    Polish,
+    add_air,
+    add_bass,
+    add_warmth,
+    widen_above,
+)
 from app.services.mastering.spectral import SpectralMatchEngine
 from app.services.mastering.stem_match import (
     StemAdjustment,
@@ -299,6 +305,10 @@ def run(
         # nothing whenever matching is off.
         report(0.5, "finishing")
         shaped = mixed
+        if request.polish.bass_db:
+            shaped = add_bass(
+                shaped, sample_rate, request.polish.bass_db, request.polish.bass_hz
+            )
         if request.polish.warmth_db:
             shaped = add_warmth(
                 shaped, sample_rate, request.polish.warmth_db, request.polish.warmth_hz

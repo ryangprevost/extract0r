@@ -24,8 +24,10 @@ from app.services.mastering.dsp import (
 )
 from app.services.mastering.loudness_meter import integrated_loudness
 from app.services.mastering.polish import (
+    DEFAULT_BASS_HZ,
     DEFAULT_WARMTH_HZ,
     MAX_AIR_DB,
+    MAX_BASS_DB,
     MAX_WARMTH_DB,
     MAX_WIDTH,
     Polish,
@@ -274,6 +276,33 @@ def suggest(
         )
     else:
         out.reasons.append(Reason("warmth", "Your low mids already match the reference."))
+
+    # --- bass -----------------------------------------------------------------
+    #
+    # Separate from warmth on purpose. "Thin" and "no weight underneath" are different
+    # complaints with different fixes, and a single low control would have to pick one.
+    low_gap = out.bands["low"][2]
+    if low_gap > MEANINGFUL_GAP_DB:
+        ramp = shelf_ramp(DEFAULT_N_FFT, sample_rate, DEFAULT_BASS_HZ, kind="low")
+        gain = gain_for(ramp, low_gap * CLOSE_FRACTION, "low", sample_rate, power)
+        out.polish.bass_db = round(float(np.clip(gain, 0.0, MAX_BASS_DB)), 1)
+        out.reasons.append(
+            Reason(
+                "bass",
+                f"The reference has {low_gap:.1f} dB more below 250 Hz. A shelf at 90 Hz "
+                f"adds weight under the body range without thickening the low mids.",
+            )
+        )
+    elif low_gap < -MEANINGFUL_GAP_DB:
+        out.reasons.append(
+            Reason(
+                "bass",
+                f"Left at zero: your low end is already {abs(low_gap):.1f} dB heavier "
+                f"than the reference. More would cost headroom and muddy the mix.",
+            )
+        )
+    else:
+        out.reasons.append(Reason("bass", "Your low end already matches the reference."))
 
     # --- width ----------------------------------------------------------------
     out.source_width = round(stereo_width(source), 3)

@@ -195,6 +195,9 @@
               title="Every finishing dial off. The reference match alone.">Flat</button>
       <button class="mode" data-mode="bright"
               title="A shelf from 6 kHz. Opens up a mix that sounds closed-in.">Brighten</button>
+      <button class="mode" data-mode="bassier"
+              title="Weight under 90 Hz, where kick and bass fundamentals live. Separate
+                     from Warmer, which fills in the 450 Hz body range.">Bassier</button>
       <button class="mode" data-mode="warm"
               title="Body around 450 Hz, with the very top eased back slightly.">Warmer</button>
       <button class="mode" data-mode="punchy"
@@ -228,6 +231,11 @@
         <span>Match strength</span>
         <input type="range" id="strength" min="0" max="100" value="100" />
         <output id="strength-out">100%</output>
+      </label>
+      <label class="control">
+        <span>Bass</span>
+        <input type="range" id="bass" min="-3" max="4" step="0.5" value="0" />
+        <output id="bass-out">off</output>
       </label>
       <label class="control">
         <span>Warmth</span>

@@ -57,6 +57,13 @@ class Finding:
     headline: str
     detail: str
     delta_db: float = 0.0
+    #: The dial move that addresses this one finding, when there is one. Taken from the
+    #: suggestion rather than recomputed, so "fix this" and "apply everything" can never
+    #: disagree about what the right number is.
+    action: dict | None = None
+    #: Set when nothing is offered because the tonal match already covers it. The
+    #: midrange is the usual case: it has no dial of its own, and it does not need one.
+    handled_by_match: bool = False
     #: A fragment that reads correctly inside a list, for the one-line verdict. Kept apart
     #: from the headline because the two need different grammar: a headline is a sentence
     #: on its own, a clause has to slot into someone else's.
@@ -74,6 +81,47 @@ def severity(delta_db: float) -> str:
     if size < SAME_DB:
         return "match"
     return "notable" if size >= NOTABLE_DB else "slight"
+
+
+#: Which dial addresses a shortfall in each band, and what to call the offer. Only
+#: shortfalls: there is no dial for "you have too much", because cutting to match a
+#: reference is what the tonal match already does.
+BAND_ACTIONS: dict[str, tuple[str, str]] = {
+    "low": ("bass", "Add low end"),
+    "body": ("warmth", "Add body"),
+    "presence": ("brightness", "Add presence"),
+    "air": ("brightness", "Add air"),
+}
+
+
+def _action_for(result, band: str) -> dict | None:
+    """The offer attached to a band finding, if the engine recommended anything there.
+
+    Read off the computed suggestion rather than worked out again here. Two places
+    deciding the same number independently is two places to disagree, and the user would
+    see it as "fix this" and "apply all" doing different things.
+    """
+    entry = BAND_ACTIONS.get(band)
+    if entry is None:
+        return None
+    control, label = entry
+    polish = result.polish
+
+    if control == "bass" and polish.bass_db:
+        return {"label": label, "dials": {"bass": polish.bass_db}}
+    if control == "warmth" and polish.warmth_db:
+        return {"label": label, "dials": {"warmth": polish.warmth_db}}
+    if control == "brightness" and polish.air_db:
+        # Brightness has one shelf and two bands that could want it; the engine already
+        # chose which, so only the band it chose gets the offer.
+        wanted_low = band == "presence" and polish.air_hz <= 5000
+        wanted_high = band == "air" and polish.air_hz > 5000
+        if wanted_low or wanted_high:
+            return {
+                "label": label,
+                "dials": {"brightness": polish.air_db, "brightnessHz": polish.air_hz},
+            }
+    return None
 
 
 def _tone(result, out: list[Finding]) -> None:
@@ -106,9 +154,25 @@ def _tone(result, out: list[Finding]) -> None:
                 f"{direction.capitalize()} through the {label}",
                 f"Your mix is {abs(gap):.1f} dB {direction} than the reference there.{tail}",
                 round(gap, 2),
+                action=_action_for(result, name) if gap > 0 else None,
+                handled_by_match=closing > 0.5,
                 clause=f"{direction} through the {label}",
             )
         )
+
+
+def _headroom_action(result) -> dict | None:
+    """The headroom offer, when the engine asked for one.
+
+    Its reason lives in the suggestion rather than in any single finding - it comes from
+    the *reference* being heavily limited, not from anything about your mix. Without
+    attaching it here the dial moved on "apply all" with nothing in the card accounting
+    for it.
+    """
+    wanted = result.polish.headroom_db
+    if not wanted:
+        return None
+    return {"label": f"Keep {wanted:.1f} dB more headroom", "dials": {"headroom": wanted}}
 
 
 def _dynamics(result, out: list[Finding]) -> None:
@@ -120,7 +184,7 @@ def _dynamics(result, out: list[Finding]) -> None:
         out.append(
             Finding("dynamics", "match", "Dynamics are comparable",
                     f"Both sit around {mine:.1f} dB between peaks and average level.",
-                    round(gap, 2))
+                    round(gap, 2), action=_headroom_action(result))
         )
     elif gap > 0:
         out.append(
@@ -132,6 +196,7 @@ def _dynamics(result, out: list[Finding]) -> None:
                 f"not been mastered yet — the limiter will take some of it back, and the "
                 f"headroom dial decides how much.",
                 round(gap, 2),
+                action=_headroom_action(result),
                 clause="more dynamic",
             )
         )
@@ -143,6 +208,8 @@ def _dynamics(result, out: list[Finding]) -> None:
                 f"reference's {theirs:.1f}. Something upstream is already compressing "
                 f"hard; mastering cannot put that back.",
                 round(gap, 2),
+                action=_headroom_action(result) or
+                {"label": "Keep more headroom", "dials": {"headroom": 1.5}},
                 clause="already flatter than the reference",
             )
         )
@@ -161,6 +228,7 @@ def _loudness(result, out: list[Finding]) -> None:
             f"{result.reference_lufs:.1f}. Level is matched automatically, so this is "
             f"context rather than something to act on.",
             round(gap, 2),
+            handled_by_match=True,
         )
     )
 
@@ -180,7 +248,11 @@ def _width(result, out: list[Finding]) -> None:
             Finding("width", "slight", "Narrower than the reference",
                     f"Yours measures {mine:.2f} against the reference's {theirs:.2f}. "
                     f"The width dial spreads everything above 250 Hz and leaves the bass "
-                    f"centred.", clause="narrower")
+                    f"centred.",
+                    action={"label": "Widen", "dials": {"width": result.polish.width}}
+                    if result.polish.width != 1.0
+                    else None,
+                    clause="narrower")
         )
     else:
         out.append(

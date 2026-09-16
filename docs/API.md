@@ -131,6 +131,7 @@ limiter would push the master back over its ceiling.
 |---|---|
 | `brightness_db` | High shelf on top of the matched tone, ±6 dB. The match can only give you the reference's top end; this is how you ask for more |
 | `brightness_from_hz` | Where the shelf starts. ~3 kHz reads as clarity and presence, ~10 kHz as air |
+| `bass_db` | Low shelf below `bass_from_hz` (default 90 Hz), ±4 dB. A *shelf* here where warmth is a bell: at 90 Hz there is nothing underneath to protect, and lifting everything below the corner is exactly what "more bass" means |
 | `warmth_db` | Bell around `warmth_from_hz` (default 450 Hz), ±4 dB. A bell, not a shelf — every shelf lifts *everything* below its corner, so a shelf placed for 250–800 Hz also lifts 40 Hz and the result is boomy rather than warm |
 | `width` | Side-channel scale **above `width_floor_hz`** (default 250 Hz), 0.7–1.6. The low end is never widened |
 | `headroom_db` | Sit this far under the reference on purpose, 0–6 dB |
@@ -155,6 +156,16 @@ outright gave a 7.91 dB crest with the limiter working on 31% of the track; back
 finishing dial, each with the sentence behind it. It reads the two uploads directly — no
 separation, no mastering run — so it answers in a couple of seconds and can be called the
 moment a reference lands.
+
+Each finding also carries an `action` — `{label, dials}` — where one dial addresses that
+one difference, so the card can offer "Add body" next to the sentence explaining why. The
+values are read off the computed suggestion rather than worked out again, so applying one
+finding and applying everything can never disagree about the number.
+
+Where there is no action, `handled_by_match` says whether that is because the tonal match
+already covers it. Between them every difference is accounted for: it has a dial, or it is
+handled, or it is context. A difference with none of the three would look ignored, and a
+test enforces that none exist.
 
 It returns a `summary` alongside the settings: a one-line verdict and a list of findings,
 each with an `area` (tone, dynamics, width, loudness, balance), a `severity` (`match`,

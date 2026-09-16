@@ -606,7 +606,17 @@ def suggest_settings(
         from app.services.mastering.suggest import suggest
         from app.services.mixdown.encode import read_audio
 
-        source = read_audio(record.path)
+        # The normalised copy is written at the start of separation, so it is only
+        # there once a track has been split; before that the upload itself is the
+        # source. Reaching for record.path - which does not exist - is what made this
+        # endpoint 500 on every real request while passing every test that called
+        # suggest() directly.
+        normalised = storage.normalized_path(track_id)
+        source_file = normalised if normalised.exists() else storage.source_path(track_id)
+        if source_file is None or not source_file.exists():
+            return {"available": False, "why": "The source audio for this track is gone."}
+
+        source = read_audio(source_file)
         target = read_audio(reference)
     except ImportError as exc:  # pragma: no cover - numpy/soundfile are hard requirements
         raise HTTPException(

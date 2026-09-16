@@ -188,3 +188,67 @@ def test_gaps_are_measured_after_matching_not_before():
 
     assert raw_gap > MEANINGFUL_GAP_DB
     assert abs(residual) < raw_gap, "the match was not taken into account"
+
+
+# ─────────────────────────── through the actual endpoint ───────────────────────
+#
+# These exist because every test above calls suggest() directly, and the route around it
+# shipped reading a field that does not exist. It 500'd on every real request while the
+# suite stayed green. A function being right is not the same as an endpoint working.
+
+
+def upload(client, sample_wav):
+    with sample_wav.open("rb") as handle:
+        response = client.post(
+            "/api/v1/tracks",
+            files={"file": ("song.wav", handle, "audio/wav")},
+            data={"owns_or_licensed": "true", "personal_use_only": "true"},
+        )
+    assert response.status_code == 201, response.text
+    return response.json()["track_id"]
+
+
+def attach_reference(client, track, sample_wav):
+    with sample_wav.open("rb") as handle:
+        response = client.post(
+            f"/api/v1/tracks/{track}/reference",
+            files={"file": ("ref.wav", handle, "audio/wav")},
+            data={"owns_or_licensed": "true"},
+        )
+    assert response.status_code == 201, response.text
+
+
+def test_the_endpoint_answers_before_any_separation(client, sample_wav):
+    """The normalised copy is only written at separation time, so this has to work off
+    the upload itself - which is exactly what broke."""
+    track = upload(client, sample_wav)
+    attach_reference(client, track, sample_wav)
+
+    response = client.get(f"/api/v1/tracks/{track}/master/suggest")
+    assert response.status_code == 200, response.text
+
+    body = response.json()
+    assert body["available"] is True
+    assert set(body["settings"]) >= {"brightness_db", "warmth_db", "width", "headroom_db"}
+    assert body["summary"]["verdict"].strip()
+    assert body["summary"]["findings"]
+
+
+def test_every_finding_from_the_endpoint_is_shaped_for_the_ui(client, sample_wav):
+    track = upload(client, sample_wav)
+    attach_reference(client, track, sample_wav)
+
+    for f in client.get(f"/api/v1/tracks/{track}/master/suggest").json()["summary"]["findings"]:
+        assert set(f) == {"area", "severity", "headline", "detail", "delta_db"}
+        assert f["severity"] in {"match", "slight", "notable"}
+
+
+def test_without_a_reference_it_says_so_rather_than_failing(client, sample_wav):
+    track = upload(client, sample_wav)
+    response = client.get(f"/api/v1/tracks/{track}/master/suggest")
+    assert response.status_code == 200
+    assert response.json()["available"] is False
+
+
+def test_an_unknown_track_is_a_404(client):
+    assert client.get("/api/v1/tracks/nope/master/suggest").status_code == 404

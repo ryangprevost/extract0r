@@ -107,6 +107,12 @@ class MasterRequest:
     vocal_presence: VocalPresence | None = VocalPresence.NATURAL
     #: How far competing stems duck inside the vocal band while the vocal is singing.
     vocal_duck_db: float = 3.0
+    #: The track the stems were separated from. When present, the mix is built by
+    #: applying the stems' *changes* to this rather than by summing the stems - see
+    #: `_apply_as_correction`.
+    source: Path | None = None
+    #: Whether to do that. Off means summing the stems, artefacts and all.
+    preserve_source: bool = True
     #: Name of a kit to lay over the drums, or None to leave them as recorded.
     drum_kit: str | None = None
     #: Which drums to trigger, and how far to lean on the samples against the originals.
@@ -176,10 +182,26 @@ def run(
     buffers, gains, sample_rate = [], [], 44100
     span = 0.35 if per_stem else 0.20
 
+    # The stems exactly as separated, summed. Subtracting this from the original leaves
+    # only what separation got wrong, which is how the artefacts are kept out of the mix.
+    #
+    # Every separated stem goes in, not only the audible ones. A muted stem is still part
+    # of what the original contains, so leaving it out means never subtracting it and the
+    # mute does nothing at all - which is exactly what happened before a test caught it.
+    untouched: np.ndarray | None = None
+
     for index, setting in enumerate(chosen):
         buffer: AudioBuffer = read_audio(request.stems[setting.stem])
         sample_rate = buffer.sample_rate
         samples = buffer.samples
+
+        if request.preserve_source:
+            raw = np.asarray(samples, dtype=np.float64)
+            if untouched is None:
+                untouched = raw.copy()
+            else:
+                length = min(len(untouched), len(raw))
+                untouched[:length] += raw[:length]
 
         # The user's own moves come first: matching should refine an intent, not erase
         # it. Their fader is kept out of `samples` and applied at the mix bus, so it
@@ -215,6 +237,17 @@ def run(
         buffers.append(samples)
         gains.append(setting.gain_db)
         report(0.15 + span * 0.4 * (index + 1) / len(chosen), f"loaded {setting.stem.value}")
+
+    if request.preserve_source:
+        silent = [k for k in request.stems if k not in {s.stem for s in chosen}]
+        for kind in silent:
+            muted_buffer = read_audio(request.stems[kind])
+            raw = np.asarray(muted_buffer.samples, dtype=np.float64)
+            if untouched is None:
+                untouched = raw.copy()
+            else:
+                length = min(len(untouched), len(raw))
+                untouched[:length] += raw[:length]
 
     # --- match the instruments the reference actually contains ---------------
     #
@@ -300,6 +333,8 @@ def run(
     # --- sum, then match the sum -------------------------------------------
     report(0.15 + span, "mixing stems")
     mixed = mix_buffers(buffers, gains)
+    if request.preserve_source and request.source is not None and untouched is not None:
+        mixed = _apply_as_correction(request.source, untouched, mixed, report)
 
     work_dir.mkdir(parents=True, exist_ok=True)
     mix_wav = work_dir / "mix.wav"
@@ -376,6 +411,58 @@ def run(
         stem_adjustments=adjustments,
         vocals=vocal_report,
     )
+
+
+def _apply_as_correction(
+    source: Path,
+    untouched: np.ndarray,
+    mixed: np.ndarray,
+    report: Progress,
+) -> np.ndarray:
+    """Apply what the stems *changed* to the original, instead of using the stems.
+
+    Separation is not lossless. Summing this track's six stems back up reproduces it only
+    to within -25.6 dB, and that error is worst in the presence range - which is what a
+    sizzle or a rattle is: what the separator could not put back, sitting up where nothing
+    masks it.
+
+    Summing the processed stems inherits all of that. Adding the *difference* instead does
+    not::
+
+        out = original + (processed stems - untouched stems)
+
+    With nothing changed the two sums cancel exactly and the output is the original file,
+    sample for sample, with no separation error in it at all. Once something is changed,
+    the artefacts come back only in proportion to the change: a stem lifted 3 dB
+    contributes 0.41 of itself rather than all of it, so its share of the error arrives
+    about 8 dB quieter. Muting a stem is the one case with no saving, and rightly - it is
+    a full-magnitude subtraction - but everything not muted keeps the original's fidelity
+    instead of its own reconstruction's.
+
+    The one case it does not help is soloing. Keeping one stem out of six means
+    subtracting the other five from the original, which leaves that stem *plus* the whole
+    track's reconstruction error - worse than simply taking the stem. Muting one or two is
+    fine and better than the alternative; hearing one alone is what the toggle is for.
+
+    Trimmed to the shortest of the three, because a stem can come back a sample or two
+    longer than what went in.
+    """
+    try:
+        original = read_audio(source).samples
+    except Exception:
+        log.info("could not read %s; mixing the stems directly", source.name)
+        return mixed
+
+    original = np.asarray(original, dtype=np.float64)
+    if original.ndim == 1:
+        original = np.stack([original, original], axis=1)
+
+    length = min(len(original), len(untouched), len(mixed))
+    if length == 0 or original.shape[1] != mixed.shape[1]:
+        return mixed
+
+    report(0.15, "applying changes to the original rather than to the stems")
+    return original[:length] + (mixed[:length] - untouched[:length])
 
 
 def _place_vocal(

@@ -288,6 +288,19 @@
       reference; the master already stops short of over-driving its own limiter.
     </p>
 
+    <div class="drumkit">
+      <label class="toggle">
+        <input type="checkbox" id="preserve-source" checked />
+        <span><strong>Keep the original underneath</strong>
+          <em>Builds the master by applying what the stems changed to your original file,
+            rather than by adding the stems back together. Separation is not lossless —
+            these six stems only sum back to within 25.6 dB of the track, worst in the
+            presence range, which is where a sizzle lives. This keeps that out of anything
+            you did not change. Turn it off if you are exporting a single soloed stem.</em>
+        </span>
+      </label>
+    </div>
+
     <div class="drumkit" id="drumkit">
       <label class="toggle">
         <input type="checkbox" id="kit-on" />

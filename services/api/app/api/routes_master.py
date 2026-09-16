@@ -99,6 +99,10 @@ class MasterJobRequest(BaseModel):
     protect_dynamics: bool = True
 
     # --- drums: lay a kit over the ones that were recorded --------------------
+    #: Build the mix by applying the stems' changes to the original rather than by
+    #: summing the stems, which keeps separation artefacts out of whatever was not
+    #: changed. Off reproduces the old behaviour.
+    preserve_source: bool = True
     #: Kit name, or null to leave the drums alone.
     drum_kit: str | None = None
     drum_targets: list[str] = Field(default_factory=lambda: ["kick", "snare"])
@@ -403,6 +407,12 @@ def start_master(
         ],
         reference=reference,
         reference_stems=reference_stems,
+        source=(
+            storage.normalized_path(track_id)
+            if storage.normalized_path(track_id).exists()
+            else storage.source_path(track_id)
+        ),
+        preserve_source=body.preserve_source,
         bitrate_kbps=body.bitrate_kbps,
         match_strength=body.match_strength,
         match_stem_levels=body.match_stem_levels,

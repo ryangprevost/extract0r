@@ -121,6 +121,34 @@ would make that sentence false. Those hosts are recognised only so the refusal c
 Errors: `400` a bad or unreachable URL · `403` missing rights attestation, or an internal
 address · `413`/`400` too large · `415` not decodable audio · `422` a streaming page.
 
+### Keeping the original underneath
+
+`preserve_source` (default on) builds the mix by applying what the stems *changed* to the
+original file rather than by summing the stems:
+
+    out = original + (processed stems - untouched stems)
+
+Separation is not lossless. This project's six stems sum back to the track only to within
+**−25.6 dB**, worst in the presence range at −22.9 dB — which is what a sizzle or a rattle
+is, the part the separator could not put back, sitting where nothing masks it. Summing the
+processed stems inherits all of it.
+
+With nothing changed the two sums cancel and the output is the original, sample for sample:
+measured at **−188 dB** against −25.6 dB for the summed version. And the saving does not
+depend on the settings — algebraically the two renders differ by exactly the reconstruction
+residual, confirmed at −37.24 dB for every set of gains tried.
+
+Muting is handled by subtracting that stem from the original, which leaves everything else
+at the original's fidelity rather than at its own reconstruction's. Every separated stem is
+summed into the untouched side for this reason, audible or not; leaving the muted ones out
+meant never subtracting them and the mute did nothing.
+
+Soloing is the case it does not help: keeping one stem of six subtracts the other five and
+leaves that stem plus the whole track's error. Turn it off for that.
+
+Demucs' shift averaging was measured as an alternative and rejected: `--shifts 2` moved the
+reconstruction error from −25.6 dB to −26.1 dB for 38% more time (317 s against 229 s).
+
 ### The deep-bass guard
 
 The matching curve may cut at most `max_low_cut_db` (2 dB) below `low_guard_hz` (140 Hz),

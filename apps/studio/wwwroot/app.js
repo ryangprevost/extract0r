@@ -954,6 +954,7 @@ async function runMaster() {
         reference_track_id: state.referenceLoaded ? state.trackId : null,
         match_strength: parseInt($("strength").value, 10) / 100,
         per_stem_match: $("per-stem-match").checked,
+        preserve_source: $("preserve-source").checked,
         ...kitSettings(),
         brightness_db: parseFloat($("brightness").value),
         warmth_db: parseFloat($("warmth").value),

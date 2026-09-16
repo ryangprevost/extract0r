@@ -41,6 +41,7 @@ from app.services.mastering.polish import (
     add_warmth,
     widen_above,
 )
+from app.services.mastering.reverb import apply_reverb
 from app.services.mastering.spectral import SpectralMatchEngine
 from app.services.mastering.stem_match import (
     StemAdjustment,
@@ -79,6 +80,9 @@ class StemSetting:
     pan: float = 0.0
     #: 1.0 leaves the stereo image alone; >1 widens, <1 narrows towards mono.
     width: float = 1.0
+    #: Seconds of tail, and how much of it to blend in. 0 mix leaves it dry.
+    reverb_s: float = 1.2
+    reverb_mix: float = 0.0
     muted: bool = False
     solo: bool = False
 
@@ -176,6 +180,12 @@ def run(
         # it. Their fader is kept out of `samples` and applied at the mix bus, so it
         # stacks on top of whatever matching decides rather than being folded into the
         # measurement matching is derived from.
+        if setting.reverb_mix > 0:
+            # Before width and pan: the tail is part of the sound, so it should be placed
+            # and spread with it rather than sitting outside the stem's position.
+            samples = apply_reverb(
+                samples, sample_rate, setting.reverb_s, setting.reverb_mix
+            )
         if setting.width != 1.0:
             samples = set_width(samples, setting.width)
         if setting.pan:

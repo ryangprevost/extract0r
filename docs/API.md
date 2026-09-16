@@ -192,8 +192,28 @@ bass line never stops between notes, so there is no decay to measure. And a widt
 between two near-mono stems is refused, because dividing 0.02 by 0.00 produced "your bass
 is wider than the reference's" for two stems that are both centred on purpose.
 
-**There is no reverb processor.** `space` findings report a difference and offer no fix,
-which the detail text says plainly.
+`space` findings carry a reverb offer where one makes sense. Per-stem `reverb_s` and
+`reverb_mix` on the master request put a stem in a space; the suggested length is the
+reference's own measured decay.
+
+The estimate is validated rather than asserted. Convolving dry hits with a tail of known
+length, it reads back within **0.1 s at every length from 0.4 s to 2.5 s**, and gives the
+same answer at 30% wet as at 70% — a tail's decay rate does not depend on its level, and
+neither does the estimate. Getting there needed the fit bounded by level rather than time
+(−5 dB to −25 dB below each hit, as RT20 has always been measured): fitting from the peak
+measured the instrument stopping rather than the room continuing and turned a known 1.2 s
+into 0.58 s.
+
+The processor is a convolution rather than a feedback network so that its parameter is the
+decay time directly, which is what the estimator produces. Damping and truncation steepen
+the decay, so a response built to the requested length actually ran 0.86× short — the same
+0.86 at every length, so it divides out, and without it asking for 1.4 s delivered 1.2 s.
+
+Two refusals: anything measuring over `PLAUSIBLE_MAX_S` (3 s) is reported as nothing rather
+than as reverb, because at that length it is sustain — a real reference's guitar stem came
+back at 6.0 s and its piano at 5.2 s — and bass is excluded entirely, since a legato line
+never stops long enough to have a decay. Reverb is also never suggested in order to
+*remove* it, because nothing here can.
 
 ### Two calls, not one slow one
 

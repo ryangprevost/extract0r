@@ -367,6 +367,11 @@ async function buildMixer(separation, track) {
           <input type="range" data-width="${stem.stem}" min="0" max="200" step="5" value="100" />
           <output data-width-out="${stem.stem}">100%</output>
         </span>
+        <span class="fader" title="How much of this stem's own reverb tail to blend in.
+The tail length comes from the reference when the comparison can measure it.">reverb
+          <input type="range" data-reverb="${stem.stem}" min="0" max="60" step="5" value="0" />
+          <output data-reverb-out="${stem.stem}">dry</output>
+        </span>
         <button class="link reset" data-reset="${stem.stem}">reset</button>
       </div>`;
     container.appendChild(lane);
@@ -383,6 +388,8 @@ async function buildMixer(separation, track) {
       solo: false,
       gainDb: 0,
       pan: 0,
+      reverbMix: 0,
+      reverbS: 1.2,
       width: 1,
     });
     laneSizes.observe(lane.querySelector(".lane-wave"));
@@ -480,6 +487,16 @@ function drawWave(stem) {
   }
 }
 
+/** Show the wet amount together with the tail it applies to. */
+function showReverb(stem) {
+  const lane = state.lanes.get(stem);
+  const out = document.querySelector(`[data-reverb-out="${stem}"]`);
+  if (!out || !lane) return;
+  out.textContent = lane.reverbMix
+    ? `${Math.round(lane.reverbMix * 100)}% · ${lane.reverbS.toFixed(1)}s`
+    : "dry";
+}
+
 function wireLanes() {
   document.querySelectorAll("[data-pick]").forEach((box) => {
     box.addEventListener("change", () => {
@@ -541,6 +558,15 @@ function wireLanes() {
     });
   });
 
+  document.querySelectorAll("[data-reverb]").forEach((slider) => {
+    slider.addEventListener("input", () => {
+      const stem = slider.dataset.reverb;
+      const lane = state.lanes.get(stem);
+      lane.reverbMix = parseInt(slider.value, 10) / 100;
+      showReverb(stem);
+    });
+  });
+
   document.querySelectorAll("[data-reset]").forEach((button) => {
     button.addEventListener("click", () => {
       const stem = button.dataset.reset;
@@ -548,12 +574,16 @@ function wireLanes() {
       lane.gainDb = 0;
       lane.pan = 0;
       lane.width = 1;
+      lane.reverbMix = 0;
+      lane.reverbS = 1.2;
+      button.closest(".fader-row").querySelector(`[data-reverb="${stem}"]`).value = 0;
       button.closest(".fader-row").querySelector(`[data-gain="${stem}"]`).value = 0;
       button.closest(".fader-row").querySelector(`[data-pan="${stem}"]`).value = 0;
       button.closest(".fader-row").querySelector(`[data-width="${stem}"]`).value = 100;
       document.querySelector(`[data-gain-out="${stem}"]`).textContent = "0.0 dB";
       document.querySelector(`[data-pan-out="${stem}"]`).textContent = "C";
       document.querySelector(`[data-width-out="${stem}"]`).textContent = "100%";
+      showReverb(stem);
       applyGains();
     });
   });
@@ -907,6 +937,8 @@ async function runMaster() {
   const stems = [...state.lanes].map(([stem, lane]) => ({
     stem,
     gain_db: lane.gainDb,
+    reverb_s: lane.reverbS,
+    reverb_mix: lane.reverbMix,
     pan: lane.pan,
     width: lane.width,
     muted: lane.muted,
@@ -1200,6 +1232,20 @@ let settingDials = false;
 
 function applyDials(dials) {
   settingDials = true;
+
+  // Reverb is per stem, so it lands on a lane rather than on one of the master dials.
+  for (const [stem, want] of Object.entries(dials.stemReverb ?? {})) {
+    const lane = state.lanes.get(stem);
+    if (!lane) continue;
+    // Snapped to the slider's own step, so the control and the value behind it agree.
+    // Left exact, the fader would sit at 25% while the mix was 0.27 and jump the first
+    // time it was touched.
+    lane.reverbS = want.seconds;
+    lane.reverbMix = Math.round(want.mix * 20) / 20;
+    const slider = document.querySelector(`[data-reverb="${stem}"]`);
+    if (slider) slider.value = String(Math.round(lane.reverbMix * 100));
+    showReverb(stem);
+  }
   const map = {
     brightness: "brightness", warmth: "warmth", bass: "bass",
     width: "stereo-width", headroom: "headroom",

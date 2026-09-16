@@ -54,6 +54,9 @@ class StemMixSetting(BaseModel):
     pan: float = Field(default=0.0, ge=-1, le=1)
     #: 1.0 leaves stereo alone, 0 collapses to mono, >1 widens.
     width: float = Field(default=1.0, ge=0.0, le=3.0)
+    #: Tail length in seconds, and how much of it to blend in. 0 mix leaves it dry.
+    reverb_s: float = Field(default=1.2, ge=0.15, le=4.0)
+    reverb_mix: float = Field(default=0.0, ge=0.0, le=0.6)
     muted: bool = False
     solo: bool = False
 
@@ -385,6 +388,8 @@ def start_master(
                 gain_db=s.gain_db,
                 pan=s.pan,
                 width=s.width,
+                reverb_s=s.reverb_s,
+                reverb_mix=s.reverb_mix,
                 muted=s.muted,
                 solo=s.solo,
             )

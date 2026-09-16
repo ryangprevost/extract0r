@@ -355,12 +355,13 @@ def _space(
     how the part was played. Comparing the same instrument on both sides cancels some of
     that; it does not cancel all of it, and the wording says so.
     """
+    from app.services.mastering.reverb import mix_for_gap
     from app.services.mastering.space import (
         DECAY_IS_MEANINGFUL,
         SAME_DECAY_RATIO,
         SAME_WIDTH_RATIO,
-        decay_slope_db_per_s,
         middle_slice,
+        reverb_time_s,
         width_ratio,
     )
 
@@ -394,40 +395,48 @@ def _space(
     except Exception:  # pragma: no cover - unreadable stem is not worth failing over
         return
 
-    ours = decay_slope_db_per_s(mine_audio, mine_rate)
-    hers = decay_slope_db_per_s(their_audio, their_rate)
-    if ours is None or hers is None or ours == 0:
+    ours = reverb_time_s(mine_audio, mine_rate)
+    hers = reverb_time_s(their_audio, their_rate)
+    if ours is None or hers is None or ours <= 0:
+        # One of them sustains too much to read as a space. Better to say nothing than to
+        # call a held chord a cathedral.
         return
 
-    # Steeper is drier. A ratio, because the absolute rates depend on the instrument.
     ratio = hers / ours
     if 1 / SAME_DECAY_RATIO <= ratio <= SAME_DECAY_RATIO:
         out.append(
             Finding(
                 "space", "match", f"Your {word} {sits} in a similar amount of space",
-                "Both ring on at about the same rate after each hit.",
+                f"Both ring on for about {ours:.1f} s after each hit.",
             )
         )
         return
 
-    reference_drier = abs(hers) > abs(ours)
+    reference_wetter = hers > ours
+    seconds, mix = mix_for_gap(ours, hers)
     out.append(
         Finding(
             "space",
             "slight",
-            f"Your {word} {verb} {'wetter' if reference_drier else 'drier'} than the "
+            f"Your {word} {verb} {'drier' if reference_wetter else 'wetter'} than the "
             f"reference's",
-            f"After each hit yours falls at {ours:.0f} dB per second against the "
-            f"reference's {hers:.0f}. "
-            + (
-                "Longer ringing usually means more room or reverb"
-                if reference_drier
-                else "Faster decay usually means a drier, closer sound"
-            )
-            + " — though a part played with more sustain measures the same way, and "
-            "Extract0r has no reverb of its own to change it with.",
+            f"Yours rings on for about {ours:.1f} s after each hit against the "
+            f"reference's {hers:.1f} s. Estimated from how fast each part stops, so a "
+            f"line played with more sustain reads the same way as a wetter one.",
             0.0,
-            clause=f"a {'wetter' if reference_drier else 'drier'} {word}",
+            action=(
+                {
+                    "label": f"Add {seconds:.1f}s reverb",
+                    "dials": {
+                        "stemReverb": {
+                            stem.value: {"seconds": seconds, "mix": mix}
+                        }
+                    },
+                }
+                if mix > 0
+                else None
+            ),
+            clause=f"a {'drier' if reference_wetter else 'wetter'} {word}",
         )
     )
 

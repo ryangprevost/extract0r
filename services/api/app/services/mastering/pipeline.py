@@ -107,6 +107,11 @@ class MasterRequest:
     vocal_presence: VocalPresence | None = VocalPresence.NATURAL
     #: How far competing stems duck inside the vocal band while the vocal is singing.
     vocal_duck_db: float = 3.0
+    #: Name of a kit to lay over the drums, or None to leave them as recorded.
+    drum_kit: str | None = None
+    #: Which drums to trigger, and how far to lean on the samples against the originals.
+    drum_targets: tuple[str, ...] = ("kick", "snare")
+    drum_blend: float = 0.5
     #: Air, width and headroom - the finishing moves a reference match cannot make.
     polish: Polish = field(default_factory=Polish)
     export_wav: bool = False
@@ -180,6 +185,22 @@ def run(
         # it. Their fader is kept out of `samples` and applied at the mix bus, so it
         # stacks on top of whatever matching decides rather than being folded into the
         # measurement matching is derived from.
+        if setting.stem is StemKind.DRUMS and request.drum_kit:
+            # Before anything else: the samples should be panned, widened and reverbed
+            # along with the drums they are reinforcing, not bolted on afterwards.
+            from app.services.drums.detect import find_hits
+            from app.services.drums.kit import layer
+
+            report(0.15, "finding the drums")
+            samples = layer(
+                samples,
+                sample_rate,
+                find_hits(samples, sample_rate),
+                kit=request.drum_kit,
+                drums=tuple(request.drum_targets),
+                blend=request.drum_blend,
+            )
+
         if setting.reverb_mix > 0:
             # Before width and pan: the tail is part of the sound, so it should be placed
             # and spread with it rather than sitting outside the stem's position.

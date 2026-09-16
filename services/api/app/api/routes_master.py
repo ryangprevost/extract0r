@@ -98,6 +98,12 @@ class MasterJobRequest(BaseModel):
     #: Refuse to squash the master past the reference's own dynamic range.
     protect_dynamics: bool = True
 
+    # --- drums: lay a kit over the ones that were recorded --------------------
+    #: Kit name, or null to leave the drums alone.
+    drum_kit: str | None = None
+    drum_targets: list[str] = Field(default_factory=lambda: ["kick", "snare"])
+    drum_blend: float = Field(default=0.5, ge=0.0, le=1.0)
+
     bitrate_kbps: int = Field(default=320)
     export_wav: bool = False
 
@@ -404,6 +410,9 @@ def start_master(
         match_stem_width=body.match_stem_width,
         vocal_presence=presence,
         vocal_duck_db=body.vocal_duck_db,
+        drum_kit=body.drum_kit,
+        drum_targets=tuple(body.drum_targets),
+        drum_blend=body.drum_blend,
         polish=Polish(
             air_db=body.brightness_db,
             air_hz=body.brightness_from_hz,
@@ -700,4 +709,31 @@ def suggest_settings(
             "reference_width": result.reference_width,
             "reference_crest_db": result.reference_crest_db,
         },
+    }
+
+
+@router.get("/drum-kits")
+def drum_kits() -> dict:
+    """The kits available to lay over a drum track, and what they are.
+
+    Synthesised rather than sampled, for the same reason a reference is analysed and never
+    sampled: shipping recorded hits would mean shipping someone's recordings.
+    """
+    from app.services.drums.kit import DRUMS, KITS
+
+    descriptions = {
+        "tight": "Short and controlled. Modern rock and pop.",
+        "roomy": "Longer decays, more air around each hit.",
+        "punchy": "Fast and forward, with more attack.",
+    }
+    return {
+        "drums": list(DRUMS),
+        "kits": [
+            {
+                "name": name,
+                "description": descriptions.get(name, ""),
+                "drums": sorted(voices),
+            }
+            for name, voices in KITS.items()
+        ],
     }

@@ -569,3 +569,15 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite;
 }
 @keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+/* ── drum kit ────────────────────────────────────────────────────────────── */
+.drumkit {
+  border: 1px solid var(--edge); border-radius: var(--radius);
+  background: var(--panel); padding: 16px 18px; margin: 0 0 20px;
+}
+.kit-options {
+  display: flex; flex-wrap: wrap; gap: 22px; align-items: center; margin-top: 14px;
+}
+.kit-drums { display: flex; gap: 14px; font-size: 13px; color: var(--muted); }
+.kit-drums label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+#kit-note { margin: 10px 0 0; max-width: 70ch; }

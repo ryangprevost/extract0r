@@ -63,6 +63,7 @@ is the only way to tell a separation problem from a transcription one.
 | `GET` | `/tracks/{id}/reference/stems` | Whether the reference has been separated, and into what |
 | `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/width/mute/solo, optional `reference_track_id`, `per_stem_match`, `vocal_presence`, `vocal_duck_db`, `match_strength`, `brightness_db`, `brightness_from_hz`, `width`, `headroom_db`, `protect_dynamics`, `bitrate_kbps`. `202` + job |
 | `GET` | `/tracks/{id}/master/download` | The rendered MP3 |
+| `GET` | `/tracks/drum-kits` | The kits available to lay over a drum track |
 | `GET` | `/tracks/{id}/master/suggest` | How this mix compares with its reference in plain language, plus where to set each finishing dial and why |
 | `GET` | `/tracks/{id}/master/peaks` | The mix and the master as two envelopes on one time axis, plus their per-bucket difference in dB |
 
@@ -119,6 +120,43 @@ would make that sentence false. Those hosts are recognised only so the refusal c
 
 Errors: `400` a bad or unreachable URL · `403` missing rights attestation, or an internal
 address · `413`/`400` too large · `415` not decodable audio · `422` a streaming page.
+
+### Drum layering
+
+`drum_kit`, `drum_targets` and `drum_blend` on the master request find each kick, snare and
+hi-hat in the drums stem and trigger a synthesised sample on it.
+
+**It layers, it does not replace.** Removing the original snare would mean separating drums
+from drums, which the separator does not do. What happens instead — and what every
+practical drum replacement does — is trigger a sample and blend it against the original.
+`drum_blend` is how far to lean on the new one.
+
+**The samples are synthesised, not sampled**, for the same reason a reference is analysed
+and never sampled. Velocity comes from the detected hit, so ghost notes stay ghost notes.
+
+Detection is in `app/services/drums/detect.py` and is a rewrite rather than a reuse of the
+transcription classifier, which had two bugs that made it useless for this:
+
+- **It picked one drum per onset.** A kick and a hat land together on almost every rock
+  downbeat, so the hat won and the kick was never seen. Against a constructed beat with 32
+  kicks and 32 snares — all under hats — it found none of either and still scored itself
+  100% correct, because the hat it named was really there. Drums are now tested
+  independently and a stroke can carry several.
+- **It compared bands of unequal width.** Kick was 20–120 Hz and hi-hat 5–14 kHz, ninety
+  times wider; summed raw the wide band wins whatever is playing. A real drum stem came
+  back as 615 hi-hats, 205 kicks and *no snares at all* — which means drum tabs have never
+  had snares either.
+
+What replaced it measures each band's **rise** at the onset and requires the band to be
+loud at the same time. Both are needed: a rise alone fires on noise in a silent band, and a
+level alone cannot find a kick under a ringing crash. The presence ceiling is taken from
+the onsets rather than the whole track, because a separated drums stem carries bass bleed —
+on a real track the 30–120 Hz band idled at 24 dB from bleed and only reached 8 dB on an
+actual kick, so a whole-track ceiling rejected every kick. Kick and snare each additionally
+have to out-rise the hi-hat band, which is what separates them from cymbals.
+
+Against the constructed beat: **kick 97%, snare 100%, hi-hat 99%, no false positives on
+any of the three.**
 
 ### Finishing
 

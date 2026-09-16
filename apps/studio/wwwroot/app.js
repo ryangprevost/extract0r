@@ -954,6 +954,7 @@ async function runMaster() {
         reference_track_id: state.referenceLoaded ? state.trackId : null,
         match_strength: parseInt($("strength").value, 10) / 100,
         per_stem_match: $("per-stem-match").checked,
+        ...kitSettings(),
         brightness_db: parseFloat($("brightness").value),
         warmth_db: parseFloat($("warmth").value),
         bass_db: parseFloat($("bass").value),
@@ -1176,6 +1177,34 @@ function finding(f, index) {
               ${foot}
             </div>
           </div>`;
+}
+
+/** The drum kit panel. Off until asked for, because triggering samples over someone's
+drums is the most opinionated thing here and should never happen by default. */
+async function loadDrumKits() {
+  const select = $("kit-name");
+  if (select.options.length) return;
+  try {
+    const data = await api("/tracks/drum-kits");
+    select.innerHTML = data.kits
+      .map((k) => `<option value="${k.name}">${k.name} — ${k.description}</option>`)
+      .join("");
+  } catch {
+    // No kits listed means the panel simply stays unavailable.
+    $("kit-on").disabled = true;
+  }
+}
+
+function kitSettings() {
+  if (!$("kit-on").checked) return { drum_kit: null };
+  const drums = [...document.querySelectorAll("[data-kit-drum]")]
+    .filter((box) => box.checked)
+    .map((box) => box.dataset.kitDrum);
+  return {
+    drum_kit: drums.length ? $("kit-name").value : null,
+    drum_targets: drums,
+    drum_blend: parseInt($("kit-blend").value, 10) / 100,
+  };
 }
 
 // ───────────────────────────── finishing dials ──────────────────────────────
@@ -1906,6 +1935,18 @@ for (const id of ["brightness", "warmth", "bass", "stereo-width", "headroom"]) {
     document.querySelectorAll(".mode").forEach((b) => b.setAttribute("aria-pressed", "false"));
   });
 }
+$("kit-on").addEventListener("change", () => {
+  const on = $("kit-on").checked;
+  $("kit-options").hidden = !on;
+  $("kit-note").hidden = !on;
+  $("kit-note").textContent =
+    "Hi-hats are off by default: they are the densest part of a kit and the least " +
+    "forgiving, so a mistriggered hat is far more audible than a reinforced kick.";
+  if (on) loadDrumKits();
+});
+$("kit-blend").addEventListener("input", () => {
+  $("kit-blend-out").textContent = `${$("kit-blend").value}%`;
+});
 $("master-btn").addEventListener("click", runMaster);
 $("separate-ref-btn").addEventListener("click", separateReference);
 $("per-stem-match").addEventListener("change", () => {

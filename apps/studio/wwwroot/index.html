@@ -288,6 +288,34 @@
       reference; the master already stops short of over-driving its own limiter.
     </p>
 
+    <div class="drumkit" id="drumkit">
+      <label class="toggle">
+        <input type="checkbox" id="kit-on" />
+        <span><strong>Lay a kit over the drums</strong>
+          <em>Finds each kick, snare and hi-hat in the drum stem and triggers a sample on
+            it. The original drums stay underneath — this reinforces them rather than
+            replacing them, because taking a snare out of a drum track would mean
+            separating drums from drums.</em></span>
+      </label>
+      <div class="kit-options" id="kit-options" hidden>
+        <label class="control">
+          <span>Kit</span>
+          <select id="kit-name"></select>
+        </label>
+        <label class="control">
+          <span>Amount</span>
+          <input type="range" id="kit-blend" min="0" max="100" step="5" value="50" />
+          <output id="kit-blend-out">50%</output>
+        </label>
+        <span class="kit-drums">
+          <label><input type="checkbox" data-kit-drum="kick" checked /> kick</label>
+          <label><input type="checkbox" data-kit-drum="snare" checked /> snare</label>
+          <label><input type="checkbox" data-kit-drum="hihat" /> hi-hat</label>
+        </span>
+      </div>
+      <p class="muted small" id="kit-note" hidden></p>
+    </div>
+
     <div class="actions">
       <button class="primary" id="master-btn">Master and export MP3</button>
       <span class="muted small" id="master-summary"></span>

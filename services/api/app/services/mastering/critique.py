@@ -21,6 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from app.domain.notes import StemKind
 
 #: Under this, two numbers are the same number as far as anyone can hear.
@@ -321,21 +323,128 @@ def balance(
                        f"{'further back' if back else 'hotter'}",
             )
         )
+
+    # Width and space, for the instruments both sides actually contain.
+    for stem, (word, plural) in STEM_WORDS.items():
+        a, b = mine.get(stem), theirs.get(stem)
+        if a is None or b is None:
+            continue
+        if a.relative_lufs < ABSENT_BELOW_LU or b.relative_lufs < ABSENT_BELOW_LU:
+            continue
+        _space(stem, word, plural, a, b, source_stems[stem], reference_stems[stem], out)
+
     return out
 
 
-def headline(findings: list[Finding]) -> str:
-    """One or two sentences, leading with whatever is furthest off.
+def _space(
+    stem: StemKind,
+    word: str,
+    plural: bool,
+    mine,
+    theirs,
+    source_path: Path,
+    reference_path: Path,
+    out: list[Finding],
+) -> None:
+    """Width and decay for one instrument, against the same instrument in the reference.
 
-    Tone and balance need separate sentences. They do not share a grammatical frame, and
-    running them together produced "your mix is thinner through the low mids, your drums
-    sits higher" before the clauses were split out.
+    Both are comparisons rather than absolutes, and for different reasons. Width is exact
+    but only means something next to another mix of the same song's worth of material.
+    Decay is an estimate: reverb cannot be measured without the dry signal, so what is
+    actually measured is how fast a part stops after each hit, which is the space *and*
+    how the part was played. Comparing the same instrument on both sides cancels some of
+    that; it does not cancel all of it, and the wording says so.
+    """
+    from app.services.mastering.space import (
+        DECAY_IS_MEANINGFUL,
+        SAME_DECAY_RATIO,
+        SAME_WIDTH_RATIO,
+        decay_slope_db_per_s,
+        middle_slice,
+        width_ratio,
+    )
+
+    verb = "are" if plural else "is"
+    sits = "sit" if plural else "sits"
+
+    # --- width ---------------------------------------------------------------
+    ratio = width_ratio(mine.width, theirs.width)
+    if ratio is not None and abs(ratio - 1.0) > SAME_WIDTH_RATIO:
+        wider = ratio > 1.0
+        out.append(
+            Finding(
+                "space",
+                "slight" if abs(ratio - 1.0) < 0.4 else "notable",
+                f"Your {word} {verb} {'narrower' if wider else 'wider'} than the "
+                f"reference's",
+                f"Yours measures {mine.width:.2f} across against the reference's "
+                f"{theirs.width:.2f}. Per-instrument matching moves this when stereo "
+                f"width is ticked; the master width dial moves the whole mix instead.",
+                round(20.0 * float(np.log10(max(ratio, 1e-6))), 2),
+                clause=f"the {word} {'narrower' if wider else 'wider'}",
+            )
+        )
+
+    # --- decay ---------------------------------------------------------------
+    if stem.value not in DECAY_IS_MEANINGFUL:
+        return
+    try:
+        mine_audio, mine_rate = middle_slice(source_path)
+        their_audio, their_rate = middle_slice(reference_path)
+    except Exception:  # pragma: no cover - unreadable stem is not worth failing over
+        return
+
+    ours = decay_slope_db_per_s(mine_audio, mine_rate)
+    hers = decay_slope_db_per_s(their_audio, their_rate)
+    if ours is None or hers is None or ours == 0:
+        return
+
+    # Steeper is drier. A ratio, because the absolute rates depend on the instrument.
+    ratio = hers / ours
+    if 1 / SAME_DECAY_RATIO <= ratio <= SAME_DECAY_RATIO:
+        out.append(
+            Finding(
+                "space", "match", f"Your {word} {sits} in a similar amount of space",
+                "Both ring on at about the same rate after each hit.",
+            )
+        )
+        return
+
+    reference_drier = abs(hers) > abs(ours)
+    out.append(
+        Finding(
+            "space",
+            "slight",
+            f"Your {word} {verb} {'wetter' if reference_drier else 'drier'} than the "
+            f"reference's",
+            f"After each hit yours falls at {ours:.0f} dB per second against the "
+            f"reference's {hers:.0f}. "
+            + (
+                "Longer ringing usually means more room or reverb"
+                if reference_drier
+                else "Faster decay usually means a drier, closer sound"
+            )
+            + " — though a part played with more sustain measures the same way, and "
+            "Extract0r has no reverb of its own to change it with.",
+            0.0,
+            clause=f"a {'wetter' if reference_drier else 'drier'} {word}",
+        )
+    )
+
+
+def headline(findings: list[Finding]) -> str:
+    """Up to three sentences, leading with whatever is furthest off.
+
+    Tone, balance and space each need their own frame. They do not share one, and running
+    them together produced "your mix is the bass wider, the vocal wider and thinner
+    through the low mids" - which is why clauses are grouped by area rather than sorted
+    into one list.
     """
     real = [f for f in findings if f.severity != "match" and f.clause]
     if not real:
         return (
-            "Your mix already tracks the reference closely on tone, dynamics and stereo "
-            "image. There is not much for the finishing dials to do."
+            "Your mix already tracks the reference closely on tone, dynamics, stereo "
+            "image and space. There is not much for the finishing dials to do."
         )
     real.sort(key=lambda f: abs(f.delta_db), reverse=True)
 
@@ -344,15 +453,33 @@ def headline(findings: list[Finding]) -> str:
             return parts[0]
         return f"{', '.join(parts[:-1])} and {parts[-1]}"
 
+    def clauses(area: str | None, limit: int = 3) -> list[str]:
+        picked = [
+            f.clause for f in real
+            if (f.area == area if area else f.area not in ("balance", "space"))
+        ]
+        # The same instrument can be both wider and wetter; say it once.
+        seen, unique = set(), []
+        for clause in picked:
+            if clause not in seen:
+                seen.add(clause)
+                unique.append(clause)
+        return unique[:limit]
+
     sentences = []
-    character = [f.clause for f in real if f.area != "balance"][:3]
+    character = clauses(None)
     if character:
         sentences.append(f"Next to the reference, your mix is {join(character)}.")
 
-    carried = [f.clause for f in real if f.area == "balance"][:3]
+    carried = clauses("balance")
     if carried:
         lead = "It also carries" if sentences else "Next to the reference, your mix carries"
         sentences.append(f"{lead} {join(carried)}.")
+
+    placed = clauses("space", limit=2)
+    if placed:
+        lead = "It places" if sentences else "Next to the reference, your mix places"
+        sentences.append(f"{lead} {join(placed)}.")
 
     return " ".join(sentences)
 

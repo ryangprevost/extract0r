@@ -587,6 +587,12 @@ def master_peaks(
 @router.get("/{track_id}/master/suggest")
 def suggest_settings(
     track_id: str,
+    stems: bool = Query(
+        False,
+        description="Also compare instrument by instrument. Accurate but slow: it reads "
+        "every stem on both sides in full, so it is a second call rather than a "
+        "slower first one.",
+    ),
     registry: TrackRegistry = Depends(get_registry),
     storage: TrackStorage = Depends(get_storage),
 ) -> dict:
@@ -633,19 +639,27 @@ def suggest_settings(
 
     result = suggest(source.samples, target.samples, source.sample_rate)
 
-    # The mix-balance findings need both sides separated. They are the most useful part of
-    # the comparison, so they are included whenever they can be, and simply absent
-    # otherwise rather than gated behind a separate call.
+    # The per-instrument findings need both sides separated, and reading twelve stems in
+    # full costs around 25 seconds against 5 for everything else. Rather than make every
+    # analysis wait for them, or sample the stems and get them wrong, they are a second
+    # call: the page shows the whole-mix findings immediately and fills the rest in.
     source_stems = (
         {st.kind: st.path for st in record.separation.stems}
-        if record.separation is not None
+        if stems and record.separation is not None
         else None
     )
-    summary = critique(result, source_stems, record.reference_stems or None)
+    reference_stems = (record.reference_stems or None) if stems else None
+    summary = critique(result, source_stems, reference_stems)
 
     polish = result.polish
     return {
         "summary": {
+            # Whether the per-instrument half of the comparison is in this response, so
+            # the page knows there is more to ask for rather than guessing.
+            "includes_stems": bool(source_stems and reference_stems),
+            "stems_available": bool(
+                record.separation is not None and record.reference_stems
+            ),
             "verdict": summary.verdict,
             "findings": [
                 {

@@ -172,11 +172,38 @@ each with an `area` (tone, dynamics, width, loudness, balance), a `severity` (`m
 `slight`, `notable`), a headline and a sentence. Findings are sorted differences-first,
 largest-first.
 
-The `balance` findings are the most useful part and the part band energies cannot give
-you: how loud each instrument sits *relative to its own mix*, compared with the same
-instrument in the reference. "Your vocal sits 3.4 dB further back than that record's" is a
-mix note, not a mastering one. They need both sides separated, so they appear only once
-the reference has been split too, and are simply absent otherwise.
+Areas are `tone`, `dynamics`, `width`, `loudness`, `balance` and `space`. The last two
+compare instrument by instrument and need **both** sides separated.
+
+`balance` is how loud each instrument sits *relative to its own mix*, against the same
+instrument in the reference — "your vocal sits 3.4 dB further back than that record's" is
+a mix note, not a mastering one, and band energies cannot give you it.
+
+`space` is per-instrument stereo width and an estimate of how wet each part sounds. Width
+is exact. Wetness is not: reverb cannot be measured without the dry signal, so what is
+measured is how fast a part falls after each hit — a dry source stops, a reverberant one
+slides down at the room's rate. Comparing the same instrument on both sides cancels some
+of the confound, and the wording says what is left.
+
+Two limits are enforced in code rather than left to the reader. Bass is excluded from the
+wetness estimate: measured against a real reference its bass came out at −5.9 dB/s against
+the source's −41.3, which reads as enormous reverb and is nothing of the kind — a legato
+bass line never stops between notes, so there is no decay to measure. And a width ratio
+between two near-mono stems is refused, because dividing 0.02 by 0.00 produced "your bass
+is wider than the reference's" for two stems that are both centred on purpose.
+
+**There is no reverb processor.** `space` findings report a difference and offer no fix,
+which the detail text says plainly.
+
+### Two calls, not one slow one
+
+`?stems=true` adds the `balance` and `space` findings. It is a separate call because it
+reads every stem on both sides in full — about 25 seconds against 5 for everything else.
+
+Sampling a window from the middle of each stem was tried instead and abandoned on the
+numbers: against the full-track answer a 60-second window put `other` 6.8 dB out and
+`guitar` 3 dB out, which is enough to invent a finding that is not there. The response
+carries `includes_stems` and `stems_available` so the page knows whether to ask again.
 
 Findings describe the mix **before** the tonal match, because "your low mids are 7 dB
 lighter than that record" is a fact about your mix; where matching is about to close a gap

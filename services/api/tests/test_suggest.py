@@ -263,3 +263,33 @@ def test_without_a_reference_it_says_so_rather_than_failing(client, sample_wav):
 
 def test_an_unknown_track_is_a_404(client):
     assert client.get("/api/v1/tracks/nope/master/suggest").status_code == 404
+
+
+def test_the_fast_call_leaves_the_stem_comparison_out(client, sample_wav):
+    """Reading twelve stems in full is 25 seconds against 5 for everything else, so the
+    page gets the whole-mix findings first and asks for the rest separately."""
+    track = upload(client, sample_wav)
+    attach_reference(client, track, sample_wav)
+
+    summary = client.get(f"/api/v1/tracks/{track}/master/suggest").json()["summary"]
+    assert summary["includes_stems"] is False
+    assert {f["area"] for f in summary["findings"]}.isdisjoint({"balance", "space"})
+
+
+def test_the_page_is_told_whether_there_is_more_to_ask_for(client, sample_wav):
+    """Without both sides separated there is nothing extra to fetch, and the page needs
+    to know that rather than polling for something that will never arrive."""
+    track = upload(client, sample_wav)
+    attach_reference(client, track, sample_wav)
+
+    summary = client.get(f"/api/v1/tracks/{track}/master/suggest").json()["summary"]
+    assert summary["stems_available"] is False
+
+
+def test_asking_for_stems_without_them_is_not_an_error(client, sample_wav):
+    track = upload(client, sample_wav)
+    attach_reference(client, track, sample_wav)
+
+    response = client.get(f"/api/v1/tracks/{track}/master/suggest?stems=true")
+    assert response.status_code == 200
+    assert response.json()["summary"]["includes_stems"] is False

@@ -871,6 +871,15 @@ async function separateReference() {
     );
     goToPage("master");
     await refreshPerStemState();
+    // Separating the reference is what makes the instrument-by-instrument comparison
+    // possible, so it is the other moment worth going and getting it.
+    if (state.suggestion?.summary) {
+      state.suggestion.summary.stems_available = true;
+      state.suggestion.summary.includes_stems = false;
+      loadStemComparison();
+    } else {
+      await loadSuggestion();
+    }
   } catch (error) {
     goToPage("master");
     fail("master-error", error);
@@ -1294,6 +1303,32 @@ async function loadSuggestion() {
     if (!state.mode) selectMode("suggested");
   } catch {
     // A suggestion is a convenience; failing to get one changes nothing else.
+    return;
+  }
+
+  // The per-instrument half reads every stem on both sides and takes around half a
+  // minute. It arrives when it arrives; nothing above waits for it.
+  loadStemComparison();
+}
+
+/** Fill in the instrument-by-instrument findings, once they are computable. */
+async function loadStemComparison() {
+  const summary = state.suggestion?.summary;
+  if (!summary?.stems_available || summary.includes_stems) return;
+
+  $("stem-compare-note").hidden = false;
+  try {
+    const data = await api(`/tracks/${state.trackId}/master/suggest?stems=true`);
+    if (!data?.available) return;
+    // The dials may have been moved by hand in the meantime, so only the reading is
+    // replaced - selectMode is deliberately not called again.
+    state.suggestion = data;
+    renderCritique(data.summary);
+    describeDials(data.reasons);
+  } catch {
+    // The whole-mix findings are already on screen and still true.
+  } finally {
+    $("stem-compare-note").hidden = true;
   }
 }
 
@@ -1818,7 +1853,7 @@ $("apply-suggested").addEventListener("click", () => {
   $("modes").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 // Touching a slider means the preset no longer describes what is set.
-for (const id of ["brightness", "warmth", "stereo-width", "headroom"]) {
+for (const id of ["brightness", "warmth", "bass", "stereo-width", "headroom"]) {
   $(id).addEventListener("input", () => {
     if (settingDials || !state.mode) return;
     state.mode = null;

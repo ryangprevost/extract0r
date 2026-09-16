@@ -107,7 +107,14 @@ def has_counterpart(reference: StemProfile | None) -> bool:
 def profile_stems(
     paths: dict[StemKind, Path], settings: MatchSettings | None = None
 ) -> dict[StemKind, StemProfile]:
-    """Measure every stem, and each one's level relative to their sum."""
+    """Measure every stem, and each one's level relative to their sum.
+
+    Reads each stem in full. Sampling a window from the middle was tried to make the
+    comparison faster and abandoned on the numbers: relative level held for bass, drums
+    and vocals but not for the parts that come and go. Against the full-track answer a
+    60-second window put `other` 6.8 dB out and `guitar` 3 dB out, which is enough to
+    invent a finding. Eleven seconds is not worth a wrong one.
+    """
     settings = settings or MatchSettings()
     profiles: dict[StemKind, StemProfile] = {}
     buffers: list[np.ndarray] = []

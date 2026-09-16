@@ -565,6 +565,31 @@ def _place_vocal(
         except Exception:
             log.debug("could not measure through the match curve", exc_info=True)
 
+    # Hand the vocal back what the match takes out of its range, on its own stem. This
+    # runs before the measurement below so placement reads the vocal it will actually
+    # get, and before the sum so the compensation is really in the mix.
+    if match_curve is not None:
+        from app.services.mastering.vocals import match_compensation_curve
+
+        compensation = match_compensation_curve(match_curve, sample_rate)
+        if compensation is not None:
+            from app.services.mastering.dsp import MatchSettings, apply_curve
+
+            shaped = MatchSettings(strength=request.match_strength)
+            try:
+                buffers[index] = apply_curve(
+                    buffers[index], compensation, shaped.n_fft, shaped.hop
+                )
+                vocal = apply_curve(vocal, compensation, shaped.n_fft, shaped.hop)
+                peak_db = float(20 * np.log10(max(float(compensation.max()), 1e-9)))
+                out.notes.append(
+                    f"gave the vocal back up to {peak_db:.1f} dB the match cut from "
+                    "its range"
+                )
+                report(0.15, f"restoring {peak_db:.1f} dB of vocal range")
+            except Exception:
+                log.debug("could not compensate the vocal band", exc_info=True)
+
     mix_lufs, _ = integrated_loudness(provisional, sample_rate)
     vocal_lufs, _ = integrated_loudness(vocal, sample_rate)
     if not (np.isfinite(mix_lufs) and np.isfinite(vocal_lufs)):

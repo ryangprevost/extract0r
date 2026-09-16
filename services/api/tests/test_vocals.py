@@ -12,7 +12,10 @@ import pytest
 
 from app.domain.notes import StemKind
 from app.services.mastering.vocals import (
+    MAX_VOCAL_COMPENSATION_DB,
     MAX_VOCAL_LIFT_DB,
+    VOCAL_RANGE_HZ,
+    match_compensation_curve,
     PRESENCE_TARGETS,
     VOCAL_BAND_HZ,
     VocalPresence,
@@ -214,3 +217,77 @@ def test_predicting_the_match_curve_is_skipped_without_a_reference():
 
     request = MasterRequest(stems={}, settings=[], reference=None)
     assert _predicted_match_curve([], [], [], 44100, request) is None
+
+
+# --- giving the vocal back what the match takes ---------------------------------------
+
+
+def _curve_db(curve: np.ndarray, hz: float, sample_rate: int = 44100) -> float:
+    freqs = np.fft.rfftfreq((len(curve) - 1) * 2, 1 / sample_rate)
+    return float(20 * np.log10(curve[int(np.argmin(np.abs(freqs - hz)))]))
+
+
+def test_a_flat_match_asks_for_no_compensation():
+    """A reference balanced like your source takes nothing out, so nothing is owed."""
+    assert match_compensation_curve(np.ones(2049), 44100) is None
+
+
+def test_the_cut_in_the_vocal_range_is_handed_back():
+    rate = 44100
+    freqs = np.fft.rfftfreq(4096, 1 / rate)
+    match = np.where((freqs > 200) & (freqs < 3000), 10 ** (-3.0 / 20), 1.0)
+
+    compensation = match_compensation_curve(match, rate)
+    assert compensation is not None
+    # What the match took at 800 Hz comes back at 800 Hz.
+    assert _curve_db(compensation, 800.0, rate) == pytest.approx(3.0, abs=0.3)
+
+
+def test_compensation_stays_inside_the_vocal_range():
+    """Sub and air are not the vocal's business; handing those back would just undo
+    the tonal match the reference asked for."""
+    rate = 44100
+    freqs = np.fft.rfftfreq(4096, 1 / rate)
+    match = np.full(freqs.shape, 10 ** (-3.0 / 20))  # a cut everywhere
+
+    compensation = match_compensation_curve(match, rate)
+    assert compensation is not None
+    assert _curve_db(compensation, 40.0, rate) == pytest.approx(0.0, abs=0.2)
+    assert _curve_db(compensation, 12000.0, rate) == pytest.approx(0.0, abs=0.2)
+    assert _curve_db(compensation, 800.0, rate) > 2.5
+
+
+def test_compensation_is_capped():
+    """Past a few dB the two mixes disagree; that is not the vocal's problem to fix."""
+    rate = 44100
+    freqs = np.fft.rfftfreq(4096, 1 / rate)
+    match = np.where((freqs > 200) & (freqs < 3000), 10 ** (-18.0 / 20), 1.0)
+
+    compensation = match_compensation_curve(match, rate)
+    assert compensation is not None
+    assert _curve_db(compensation, 800.0, rate) <= MAX_VOCAL_COMPENSATION_DB + 0.1
+
+
+def test_a_match_that_lifts_the_vocal_range_is_left_alone():
+    """Only cuts are handed back. A match that favours the midrange needs no help, and
+    pulling it down would be this module overruling the reference."""
+    rate = 44100
+    freqs = np.fft.rfftfreq(4096, 1 / rate)
+    match = np.where((freqs > 200) & (freqs < 3000), 10 ** (3.0 / 20), 1.0)
+
+    assert match_compensation_curve(match, rate) is None
+
+
+def test_the_compensation_curve_has_no_hard_edges():
+    """A rectangular band in a magnitude curve rings, and the ringing lands on
+    consonants. Neighbouring bins must never jump."""
+    rate = 44100
+    freqs = np.fft.rfftfreq(4096, 1 / rate)
+    match = np.where((freqs > 200) & (freqs < 3000), 10 ** (-3.0 / 20), 1.0)
+
+    compensation = match_compensation_curve(match, rate)
+    db = 20 * np.log10(compensation)
+    # Ignore the match's own square edges; check the taper this module applies, below
+    # the lower corner of the vocal range.
+    inside = freqs < VOCAL_RANGE_HZ[0]
+    assert np.abs(np.diff(db[inside])).max() < 0.5

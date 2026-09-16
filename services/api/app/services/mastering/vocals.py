@@ -42,6 +42,73 @@ PRESENCE_TARGETS = {
     VocalPresence.FORWARD: -2.5,
 }
 
+#: The range a lead vocal actually occupies. Wider than the ducking band, because this
+#: is about the vocal's own body and diction rather than about what masks it.
+VOCAL_RANGE_HZ = (150.0, 4000.0)
+
+#: Ceiling on how much of the match's cut is handed back. A reference genuinely can be
+#: darker than your source, and past a few decibels the honest answer is that the two
+#: mixes disagree rather than that the vocal needs help.
+MAX_VOCAL_COMPENSATION_DB = 4.0
+
+
+def match_compensation_curve(
+    match_curve: np.ndarray,
+    sample_rate: int,
+    max_db: float = MAX_VOCAL_COMPENSATION_DB,
+) -> np.ndarray | None:
+    """Give the vocal back, on its own stem, what the match takes out of its range.
+
+    Matching a reference that is heavier at both ends than your source scoops the middle.
+    That is a correct reading of the reference and it should stay - the master is
+    supposed to match. What is not correct is the side effect: the vocal lives in the
+    scooped range, so it thins out and sits back while bass and air come up around it.
+
+    The fix goes on the vocal stem rather than on the master, which works because of what
+    the match guarantees. The match pins each band of the finished mix to the reference,
+    so lifting the vocal's body does not change the master's tone at all - the match
+    simply takes the same amount back out of the band. What changes is the vocal's
+    *share* of that band against the guitars and keys sharing it, which is what "the
+    vocal is low" actually describes. A commercial reference sounds the way it does
+    partly because its midrange is mostly vocal.
+
+    That self-correction also bounds the move: boost the vocal by X and the match removes
+    roughly X times the vocal's share of the band, so the net is smaller than asked and
+    cannot run away.
+
+    The curve is the match's own cut inverted, so exactly what was lost comes back, band
+    by band - no more, and nothing outside the vocal's range. Returns None when the match
+    does not cut anywhere in that range, which is the common case for a reference with a
+    similar balance to yours.
+    """
+    n_fft = (len(match_curve) - 1) * 2
+    freqs = np.fft.rfftfreq(n_fft, d=1.0 / sample_rate)
+    with np.errstate(divide="ignore"):
+        cut_db = -20.0 * np.log10(np.maximum(match_curve, 1e-9))
+
+    # `matching_curve` is centred on 0 dB, so a negative value already means "this band
+    # lost ground relative to the rest" rather than "the master got quieter".
+    give_back = np.clip(cut_db, 0.0, max_db) * _range_weight(freqs)
+    if float(give_back.max()) < 0.1:
+        return None
+    return 10.0 ** (give_back / 20.0)
+
+
+def _range_weight(freqs: np.ndarray) -> np.ndarray:
+    """1 across the vocal's range, tapering to 0 over half an octave at each edge.
+
+    Tapered rather than rectangular: a hard edge in a magnitude curve rings, and the
+    ringing lands on consonants.
+    """
+    low, high = VOCAL_RANGE_HZ
+    with np.errstate(divide="ignore"):
+        octaves = np.log2(np.maximum(freqs, 1e-6))
+    rise = np.clip((octaves - np.log2(low)) / 0.5 + 1.0, 0.0, 1.0)
+    fall = np.clip((np.log2(high) - octaves) / 0.5 + 1.0, 0.0, 1.0)
+    # Raised cosine, so the taper has no corner in it.
+    return 0.5 - 0.5 * np.cos(np.pi * np.minimum(rise, fall))
+
+
 #: The band where vocals and guitars/keys collide. Ducking outside it would just make the
 #: backing quieter, which is not the same thing as making the vocal clearer.
 VOCAL_BAND_HZ = (900.0, 5000.0)

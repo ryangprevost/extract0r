@@ -908,6 +908,10 @@ async function runMaster() {
         reference_track_id: state.referenceLoaded ? state.trackId : null,
         match_strength: parseInt($("strength").value, 10) / 100,
         per_stem_match: $("per-stem-match").checked,
+        brightness_db: parseFloat($("brightness").value),
+        brightness_from_hz: parseFloat($("brightness-hz").value),
+        width: parseInt($("stereo-width").value, 10) / 100,
+        headroom_db: parseFloat($("headroom").value),
         match_stem_levels: $("ms-levels").checked,
         match_stem_tone: $("ms-tone").checked,
         match_stem_width: $("ms-width").checked,
@@ -952,6 +956,7 @@ function renderMaster(result) {
 
   $("compare-note").innerHTML = compareNote(info);
   renderCompare();
+  renderFinishing(result.finishing);
 
   $("master-curve").innerHTML = info?.eq_curve_db?.length
     ? renderCurve(info.eq_curve_db)
@@ -1249,6 +1254,71 @@ function compareNote(info) {
   );
 }
 
+/** What the finishing stage did, and how hard the limiter had to work to get there.
+
+The limiter numbers are the point. "Sounds squashed" is not a matter of taste - it is
+gain reduction, and a master three dB down for a third of its length is measurably a
+different record from one that never touches the ceiling. */
+function renderFinishing(finishing) {
+  const node = $("master-finishing");
+  if (!finishing) {
+    node.hidden = true;
+    return;
+  }
+  node.hidden = false;
+
+  const bits = [];
+  if (finishing.brightness_db) {
+    bits.push(`<span class="tag up">brightness ${signed(finishing.brightness_db)} dB</span>`);
+  }
+  if (finishing.width_factor && finishing.width_factor !== 1) {
+    const from = finishing.width_before;
+    const to = finishing.width_after;
+    bits.push(
+      `<span class="tag">width x${finishing.width_factor.toFixed(2)}` +
+      (from && to ? ` (${from.toFixed(2)} → ${to.toFixed(2)})` : "") +
+      "</span>"
+    );
+  }
+  if (finishing.ceiling_headroom_db) {
+    bits.push(`<span class="tag">held -${finishing.ceiling_headroom_db} dB off the reference</span>`);
+  }
+  if (finishing.headroom_db) {
+    bits.push(`<span class="tag">your headroom -${finishing.headroom_db} dB</span>`);
+  }
+  if (!bits.length) bits.push('<span class="tag">nothing added</span>');
+
+  // How hard the limiter worked, said plainly.
+  const active = (finishing.limiter_active ?? 0) * 100;
+  const verdict =
+    active >= 25 ? ["down", "working hard — try more headroom"]
+      : active >= 8 ? ["", "busy but reasonable"]
+        : ["up", "barely touching it"];
+  const limiter =
+    finishing.limiter_max_db === undefined
+      ? ""
+      : `<div class="row" style="--lane: var(--stem-other)"><b>Limiter</b>
+           <span class="tag ${verdict[0]}">${verdict[1]}</span>
+           <span class="tag">on ${active.toFixed(0)}% of the track</span>
+           <span class="tag">up to -${finishing.limiter_max_db} dB</span>
+           ${finishing.result_crest_db
+             ? `<span class="tag">${finishing.result_crest_db} dB dynamic range` +
+               (finishing.reference_crest_db
+                 ? `, reference ${finishing.reference_crest_db} dB` : "") + "</span>"
+             : ""}
+         </div>`;
+
+  node.innerHTML =
+    `<h4 class="sub">Finishing</h4>
+     <div class="stem-report">
+       <div class="row" style="--lane: var(--accent)"><b>Applied</b>${bits.join("")}</div>
+       ${limiter}
+     </div>` +
+    (finishing.notes?.length
+      ? `<p class="muted small">${finishing.notes.join(" · ")}</p>`
+      : "");
+}
+
 function renderCurve(bands) {
   const largest = Math.max(3, ...bands.map(([, db]) => Math.abs(db)));
   const rows = bands.map(([hz, db]) => {
@@ -1425,6 +1495,20 @@ $("strength").addEventListener("input", () => {
 });
 $("vocal-duck").addEventListener("input", () => {
   $("vocal-duck-out").textContent = `${parseFloat($("vocal-duck").value).toFixed(1)} dB`;
+});
+// "off" rather than "0.0 dB" at centre: a dial doing nothing should say so.
+$("brightness").addEventListener("input", () => {
+  const value = parseFloat($("brightness").value);
+  $("brightness-out").textContent = value ? `${signed(value.toFixed(1))} dB` : "off";
+});
+$("stereo-width").addEventListener("input", () => {
+  const value = parseInt($("stereo-width").value, 10);
+  $("stereo-width-out").textContent =
+    value === 100 ? "100% (as mixed)" : `${value}%`;
+});
+$("headroom").addEventListener("input", () => {
+  const value = parseFloat($("headroom").value);
+  $("headroom-out").textContent = value ? `-${value.toFixed(1)} dB` : "off";
 });
 $("master-btn").addEventListener("click", runMaster);
 $("separate-ref-btn").addEventListener("click", separateReference);

@@ -30,6 +30,11 @@ class MasteringReport:
     gain_applied_db: float = 0.0
     eq_curve_db: list[tuple[float, float]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: What the finishing stage did on top of the match. Typed loosely to keep this
+    #: module free of a dependency on the engine that fills it in.
+    polish: object | None = None
+    #: How hard the limiter had to work to hold the ceiling.
+    limiter: object | None = None
 
 
 @runtime_checkable

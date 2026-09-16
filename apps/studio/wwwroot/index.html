@@ -182,6 +182,30 @@
         <output id="strength-out">100%</output>
       </label>
       <label class="control">
+        <span>Brightness</span>
+        <input type="range" id="brightness" min="-4" max="6" step="0.5" value="0" />
+        <output id="brightness-out">off</output>
+      </label>
+      <label class="control">
+        <span>Brightness from</span>
+        <select id="brightness-hz">
+          <option value="3000">3 kHz — clarity</option>
+          <option value="6000">6 kHz — presence</option>
+          <option value="8000" selected>8 kHz — air</option>
+          <option value="12000">12 kHz — sheen</option>
+        </select>
+      </label>
+      <label class="control">
+        <span>Stereo width</span>
+        <input type="range" id="stereo-width" min="70" max="160" step="5" value="100" />
+        <output id="stereo-width-out">100%</output>
+      </label>
+      <label class="control">
+        <span>Extra headroom</span>
+        <input type="range" id="headroom" min="0" max="4" step="0.5" value="0" />
+        <output id="headroom-out">off</output>
+      </label>
+      <label class="control">
         <span>Bitrate</span>
         <select id="bitrate">
           <option value="320">320 kbps</option>
@@ -191,6 +215,13 @@
         </select>
       </label>
     </div>
+
+    <p class="muted small" style="margin:14px 0 20px;max-width:72ch">
+      Brightness is a shelf on top of the matched tone — the match can only give you the
+      reference's top end, not more of it. Width spreads everything above 250 Hz and leaves
+      the bass centred, so it survives a mono system. Extra headroom sits further under the
+      reference; the master already stops short of over-driving its own limiter.
+    </p>
 
     <div class="actions">
       <button class="primary" id="master-btn">Master and export MP3</button>
@@ -234,6 +265,7 @@
           <p class="muted small" id="compare-note"></p>
         </div>
 
+        <div id="master-finishing" hidden></div>
         <div id="master-curve"></div>
         <p class="muted small" id="master-warnings"></p>
       </div>

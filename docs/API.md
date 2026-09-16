@@ -60,7 +60,7 @@ is the only way to tell a separation problem from a transcription one.
 | `POST` | `/tracks/{id}/reference` | Multipart. Store a reference to match against; same rights gate as an upload. Returns its measured loudness |
 | `POST` | `/tracks/{id}/reference/separate` | Split the reference into stems so matching can work per instrument. `202` + job |
 | `GET` | `/tracks/{id}/reference/stems` | Whether the reference has been separated, and into what |
-| `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/width/mute/solo, optional `reference_track_id`, `per_stem_match`, `vocal_presence`, `vocal_duck_db`, `match_strength`, `bitrate_kbps`. `202` + job |
+| `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/width/mute/solo, optional `reference_track_id`, `per_stem_match`, `vocal_presence`, `vocal_duck_db`, `match_strength`, `brightness_db`, `brightness_from_hz`, `width`, `headroom_db`, `protect_dynamics`, `bitrate_kbps`. `202` + job |
 | `GET` | `/tracks/{id}/master/download` | The rendered MP3 |
 | `GET` | `/tracks/{id}/master/peaks` | The mix and the master as two envelopes on one time axis, plus their per-bucket difference in dB |
 
@@ -88,6 +88,38 @@ the raised band as a tonal deviation and cut it out again — a +3 dB vocal land
 tonal correction is derived from a mix with the faders removed. Loudness is still measured
 on what is actually exported, so the master lands on the reference's level wherever the
 faders sit.
+
+### Finishing
+
+Matching answers "what does that record sound like?", not "what do I want this to sound
+like?". Three dials cover the gap, applied after the tonal match and **before** the level
+stage — widening and a brightness lift both add peak energy, so doing them after the
+limiter would push the master back over its ceiling.
+
+| Field | What it does |
+|---|---|
+| `brightness_db` | High shelf on top of the matched tone, ±6 dB. The match can only give you the reference's top end; this is how you ask for more |
+| `brightness_from_hz` | Where the shelf starts. ~3 kHz reads as clarity and presence, ~10 kHz as air |
+| `width` | Side-channel scale **above `width_floor_hz`** (default 250 Hz), 0.7–1.6. The low end is never widened |
+| `headroom_db` | Sit this far under the reference on purpose, 0–6 dB |
+| `protect_dynamics` | Aim at the reference's loudness *relative to its own peak* rather than absolutely. On by default |
+
+Widening is band-limited because side content cancels when channels sum to mono, and the
+low end carries most of a mix's energy — widen everything and the bass is huge on
+headphones and gone on a phone speaker.
+
+`protect_dynamics` is a peak-alignment correction, not a dynamics measurement. A
+commercial master typically peaks at or above 0 dBFS while this pipeline limits to −1;
+chasing its LUFS number from a lower ceiling means over-driving the limiter by exactly
+that difference. The back-off is `reference_peak − ceiling`, which as an identity leaves
+the master with the reference's own crest factor. Measured on a real pair: matching
+outright gave a 7.91 dB crest with the limiter working on 31% of the track; backing off
+1.31 dB gives 9.08 dB and 6%. It will not make a master *more* dynamic than its reference
+— that is what `headroom_db` is for.
+
+The job result reports all of it under `finishing`, including `limiter_max_db`,
+`limiter_mean_db` and `limiter_active`. Those three are the answer to "does this sound
+squashed": two masters can meter identically on loudness and peak and sound nothing alike.
 
 None of this needs ffmpeg. Processing is numpy/scipy, encoding is `lameenc`, metering is
 `pyloudnorm`.

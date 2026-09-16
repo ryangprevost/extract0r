@@ -23,11 +23,20 @@ from app.services.mastering.dsp import (
     apply_curve,
     apply_gain_db,
     average_spectrum,
-    limit,
+    limit_with_report,
     matching_curve,
     peak_db,
+    stereo_width,
 )
 from app.services.mastering.loudness_meter import gain_to_match, integrated_loudness
+from app.services.mastering.polish import (
+    Polish,
+    PolishReport,
+    add_air,
+    ceiling_headroom,
+    crest_db,
+    widen_above,
+)
 from app.services.mixdown.encode import read_audio, write_wav
 
 log = logging.getLogger(__name__)
@@ -57,6 +66,7 @@ class SpectralMatchEngine:
         reference: Path,
         out_path: Path,
         analysis: Path | None = None,
+        polish: Polish | None = None,
     ) -> MasteringReport:
         source = read_audio(target)
         ref = read_audio(reference)
@@ -91,10 +101,57 @@ class SpectralMatchEngine:
         processed = apply_curve(source.samples, curve, self.settings.n_fft, self.settings.hop)
         report.eq_curve_db = self._describe_curve(curve, source.sample_rate)
 
+        # --- finishing ------------------------------------------------------
+        #
+        # Before the level stage, not after: widening and an air lift both add peak
+        # energy, and doing them after the limiter would push the master back over its
+        # ceiling. Doing them before means the limiter sees what is actually being
+        # exported.
+        polish = polish or Polish()
+        finish = PolishReport(air_db=polish.air_db, width_factor=polish.width)
+
+        if polish.air_db:
+            processed = add_air(processed, source.sample_rate, polish.air_db, polish.air_hz)
+            finish.notes.append(
+                f"{polish.air_db:+.1f} dB shelf above {polish.air_hz / 1000:.0f} kHz"
+            )
+        if polish.width != 1.0:
+            finish.width_before = round(stereo_width(processed), 3)
+            processed = widen_above(
+                processed, source.sample_rate, polish.width, polish.width_floor_hz
+            )
+            finish.width_after = round(stereo_width(processed), 3)
+            finish.notes.append(
+                f"widened x{polish.width:.2f} above "
+                f"{polish.width_floor_hz:.0f} Hz, low end left centred"
+            )
+
         # --- level ----------------------------------------------------------
         gain, measurements = gain_to_match(processed, ref.samples, source.sample_rate)
+
+        # Aim at the reference's loudness relative to its own peak. Chasing the raw
+        # LUFS number from a lower ceiling just means driving harder into the limiter,
+        # and the difference comes out as gain reduction rather than as loudness.
+        if polish.protect_dynamics:
+            guard, reference_crest = ceiling_headroom(
+                ref.samples, source.sample_rate, self.ceiling_db
+            )
+            finish.ceiling_headroom_db = round(guard, 2)
+            finish.reference_crest_db = round(reference_crest, 2)
+            if guard > 0.1:
+                gain -= guard
+                finish.notes.append(
+                    f"held {guard:.1f} dB under the reference, which peaks above our "
+                    f"ceiling - this keeps its {reference_crest:.1f} dB of dynamic range"
+                )
+        if polish.headroom_db:
+            gain -= polish.headroom_db
+            finish.headroom_db = round(polish.headroom_db, 2)
+            finish.notes.append(f"{polish.headroom_db:.1f} dB of extra headroom")
+
         processed = apply_gain_db(processed, gain)
         report.gain_applied_db = round(gain, 2)
+        report.polish = finish
 
         if measurements.get("clamped"):
             report.warnings.append(
@@ -109,7 +166,9 @@ class SpectralMatchEngine:
 
         # --- ceiling --------------------------------------------------------
         before_limit = peak_db(processed)
-        processed = limit(processed, source.sample_rate, self.ceiling_db)
+        processed, limiter = limit_with_report(processed, source.sample_rate, self.ceiling_db)
+        report.limiter = limiter
+        finish.result_crest_db = round(crest_db(processed, source.sample_rate), 2)
         if before_limit > self.ceiling_db + 3:
             report.warnings.append(
                 f"Peaks reached {before_limit:.1f} dBFS before limiting; the limiter is "

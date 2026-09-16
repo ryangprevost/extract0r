@@ -315,6 +315,18 @@ def normalise_peak(samples: np.ndarray, ceiling_db: float = -1.0) -> np.ndarray:
     return audio * (ceiling / peak)
 
 
+@dataclass(slots=True)
+class LimiterReport:
+    """How hard the limiter worked - the number behind "it sounds squashed"."""
+
+    #: The deepest single moment of gain reduction, in dB.
+    max_reduction_db: float = 0.0
+    #: Mean reduction over the moments it was actually doing something.
+    mean_reduction_db: float = 0.0
+    #: Fraction of the track where it was doing anything at all.
+    active_fraction: float = 0.0
+
+
 def limit(
     samples: np.ndarray,
     sample_rate: int,
@@ -361,6 +373,39 @@ def limit(
     out = audio * (smoothed[:, None] if audio.ndim > 1 else smoothed)
     # The envelope lags by design, so a sample or two can still exceed the ceiling.
     return np.clip(out, -ceiling, ceiling)
+
+
+def limit_with_report(
+    samples: np.ndarray,
+    sample_rate: int,
+    ceiling_db: float = -1.0,
+    attack_ms: float = 2.0,
+    release_ms: float = 80.0,
+) -> tuple[np.ndarray, LimiterReport]:
+    """`limit`, plus a measurement of what it had to do to get there.
+
+    Worth reporting rather than inferring from the output: a master three dB into the
+    limiter for a third of its length and one that never touches it can meter identically
+    on loudness and peak, and sound nothing alike.
+    """
+    out = limit(samples, sample_rate, ceiling_db, attack_ms, release_ms)
+
+    audio = np.asarray(samples, dtype=np.float64)
+    before = np.abs(audio).max(axis=1) if audio.ndim > 1 else np.abs(audio)
+    after = np.abs(out).max(axis=1) if out.ndim > 1 else np.abs(out)
+    if before.size == 0:
+        return out, LimiterReport()
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(before > 1e-9, after / np.maximum(before, 1e-12), 1.0)
+    reduction = -20.0 * np.log10(np.clip(ratio, 1e-6, None))
+
+    active = reduction > 0.1
+    return out, LimiterReport(
+        max_reduction_db=round(float(reduction.max()), 2),
+        mean_reduction_db=round(float(reduction[active].mean()), 2) if active.any() else 0.0,
+        active_fraction=round(float(active.mean()), 4),
+    )
 
 
 def _one_pole_coefficient(time_ms: float, sample_rate: int) -> float:

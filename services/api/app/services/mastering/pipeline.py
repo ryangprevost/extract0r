@@ -28,7 +28,13 @@ import numpy as np
 
 from app.domain.notes import StemKind
 from app.services.mastering.base import MasteringReport
-from app.services.mastering.dsp import MatchSettings, apply_gain_db, set_width
+from app.services.mastering.dsp import (
+    MatchSettings,
+    apply_gain_db,
+    normalise_peak,
+    set_width,
+)
+from app.services.mastering.polish import Polish, add_air, widen_above
 from app.services.mastering.spectral import SpectralMatchEngine
 from app.services.mastering.stem_match import (
     StemAdjustment,
@@ -91,6 +97,8 @@ class MasterRequest:
     vocal_presence: VocalPresence | None = VocalPresence.NATURAL
     #: How far competing stems duck inside the vocal band while the vocal is singing.
     vocal_duck_db: float = 3.0
+    #: Air, width and headroom - the finishing moves a reference match cannot make.
+    polish: Polish = field(default_factory=Polish)
     export_wav: bool = False
 
 
@@ -277,9 +285,30 @@ def run(
         engine = SpectralMatchEngine(MatchSettings(strength=request.match_strength))
         mastered_wav = work_dir / "mastered.wav"
         master_report = engine.match(
-            mix_wav, request.reference, mastered_wav, analysis=analysis_wav
+            mix_wav,
+            request.reference,
+            mastered_wav,
+            analysis=analysis_wav,
+            polish=request.polish,
         )
         report(0.8, f"matched, {master_report.gain_applied_db:+.1f} dB")
+
+    elif request.polish.wanted():
+        # No reference means no match stage to hang the finishing moves off, but the
+        # dials still have to work: without this branch air and width would silently do
+        # nothing whenever matching is off.
+        report(0.5, "finishing")
+        shaped = mixed
+        if request.polish.air_db:
+            shaped = add_air(
+                shaped, sample_rate, request.polish.air_db, request.polish.air_hz
+            )
+        if request.polish.width != 1.0:
+            shaped = widen_above(
+                shaped, sample_rate, request.polish.width, request.polish.width_floor_hz
+            )
+        mastered_wav = work_dir / "mastered.wav"
+        write_wav(mastered_wav, normalise_peak(shaped), sample_rate)
 
     # --- encode -------------------------------------------------------------
     report(0.85, "encoding mp3")

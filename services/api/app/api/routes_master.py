@@ -21,6 +21,14 @@ from app.domain.notes import StemKind
 from app.jobs.store import JobHandle, JobState, JobStore
 from app.services.mastering import pipeline as master_pipeline
 from app.services.mastering.pipeline import MasterRequest, StemSetting
+from app.services.mastering.polish import (
+    DEFAULT_AIR_HZ,
+    DEFAULT_WIDTH_FLOOR_HZ,
+    MAX_AIR_DB,
+    MAX_WIDTH,
+    MIN_WIDTH,
+    Polish,
+)
 from app.services.mastering.vocals import VocalPresence
 from app.services.registry import TrackRegistry
 from app.services.storage import TrackStorage, UnsupportedAudioError
@@ -63,6 +71,20 @@ class MasterJobRequest(BaseModel):
     vocal_presence: str | None = "natural"
     #: How far competing stems duck inside the vocal band while the vocal sings.
     vocal_duck_db: float = Field(default=3.0, ge=0.0, le=8.0)
+
+    # --- finishing: what the reference cannot decide for you -------------------
+    #: High-shelf lift. Set `brightness_from_hz` low (~3 kHz) for clarity and presence,
+    #: high (~10 kHz) for air.
+    brightness_db: float = Field(default=0.0, ge=-MAX_AIR_DB, le=MAX_AIR_DB)
+    brightness_from_hz: float = Field(default=DEFAULT_AIR_HZ, ge=1500.0, le=14000.0)
+    #: Side-channel scale above `width_floor_hz`; the low end is never widened.
+    width: float = Field(default=1.0, ge=MIN_WIDTH, le=MAX_WIDTH)
+    width_floor_hz: float = Field(default=DEFAULT_WIDTH_FLOOR_HZ, ge=80.0, le=600.0)
+    #: Extra dB to sit under the reference, on top of whatever the guard decides.
+    headroom_db: float = Field(default=0.0, ge=0.0, le=6.0)
+    #: Refuse to squash the master past the reference's own dynamic range.
+    protect_dynamics: bool = True
+
     bitrate_kbps: int = Field(default=320)
     export_wav: bool = False
 
@@ -293,6 +315,14 @@ def start_master(
         match_stem_width=body.match_stem_width,
         vocal_presence=presence,
         vocal_duck_db=body.vocal_duck_db,
+        polish=Polish(
+            air_db=body.brightness_db,
+            air_hz=body.brightness_from_hz,
+            width=body.width,
+            width_floor_hz=body.width_floor_hz,
+            headroom_db=body.headroom_db,
+            protect_dynamics=body.protect_dynamics,
+        ),
         export_wav=body.export_wav,
     )
     work_dir = storage.exports_dir(track_id)
@@ -321,6 +351,7 @@ def start_master(
                 if result.vocals
                 else None
             ),
+            "finishing": _finishing(result.report),
             "per_stem": [
                 {
                     "stem": a.stem.value,
@@ -348,6 +379,35 @@ def start_master(
         return payload
 
     return to_response(jobs.submit("master", track_id, work))
+
+
+def _finishing(report) -> dict | None:
+    """The finishing stage and the limiter, flattened for the browser."""
+    if report is None:
+        return None
+    polish, limiter = report.polish, report.limiter
+    if polish is None and limiter is None:
+        return None
+    payload: dict = {}
+    if polish is not None:
+        payload |= {
+            "brightness_db": polish.air_db,
+            "width_factor": polish.width_factor,
+            "width_before": polish.width_before,
+            "width_after": polish.width_after,
+            "headroom_db": polish.headroom_db,
+            "ceiling_headroom_db": polish.ceiling_headroom_db,
+            "reference_crest_db": polish.reference_crest_db,
+            "result_crest_db": polish.result_crest_db,
+            "notes": polish.notes,
+        }
+    if limiter is not None:
+        payload |= {
+            "limiter_max_db": limiter.max_reduction_db,
+            "limiter_mean_db": limiter.mean_reduction_db,
+            "limiter_active": limiter.active_fraction,
+        }
+    return payload
 
 
 def _stats(stats) -> dict | None:

@@ -206,6 +206,34 @@
         </div>
         <audio id="master-audio" controls preload="metadata"></audio>
         <div class="meters" id="master-meters"></div>
+
+        <div id="master-compare" hidden>
+          <h4 class="sub">Before and after</h4>
+          <div class="compare">
+            <div class="compare-lane" data-when="before">
+              <span class="compare-tag">Your mix</span>
+              <canvas></canvas>
+            </div>
+            <div class="compare-lane" data-when="after">
+              <span class="compare-tag">Mastered</span>
+              <canvas></canvas>
+            </div>
+            <div class="compare-lane" data-when="delta">
+              <span class="compare-tag">What changed</span>
+              <canvas></canvas>
+            </div>
+          </div>
+          <div class="compare-scale">
+            <span id="compare-start">0:00</span>
+            <span class="compare-key">
+              <i class="swatch up"></i>louder
+              <i class="swatch down"></i>quieter
+            </span>
+            <span id="compare-end"></span>
+          </div>
+          <p class="muted small" id="compare-note"></p>
+        </div>
+
         <div id="master-curve"></div>
         <p class="muted small" id="master-warnings"></p>
       </div>

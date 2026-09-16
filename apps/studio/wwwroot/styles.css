@@ -428,3 +428,39 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   .lane { grid-template-columns: 150px 1fr; }
   .lane-sub { display: none; }
 }
+
+/* ── before/after comparison ─────────────────────────────────────────────────
+   Three lanes on one time axis. The canvases are absolutely positioned inside a
+   fixed-height lane for the same reason the stem lanes are: a canvas in normal
+   flow feeds its height back into the layout and the ResizeObserver never
+   settles. */
+.sub { margin: 26px 0 0; font-size: 14px; }
+
+.compare { margin-top: 12px; display: grid; gap: 6px; }
+
+.compare-lane {
+  position: relative; height: 68px;
+  border: 1px solid var(--edge); border-radius: 8px;
+  background: var(--panel-2); overflow: hidden;
+}
+.compare-lane[data-when="delta"] { height: 46px; }
+.compare-lane canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.compare-tag {
+  position: absolute; top: 6px; left: 9px; z-index: 1;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+  background: color-mix(in srgb, var(--panel-2) 82%, transparent);
+  padding: 1px 5px; border-radius: 4px;
+}
+
+.compare-scale {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 7px; font-family: var(--mono); font-size: 11px; color: var(--muted);
+}
+.compare-key { display: flex; align-items: center; gap: 6px; }
+.compare-key .swatch {
+  width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-left: 8px;
+}
+.compare-key .swatch.up { background: var(--accent); }
+.compare-key .swatch.down { background: var(--warn); }

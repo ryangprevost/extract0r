@@ -62,6 +62,7 @@ is the only way to tell a separation problem from a transcription one.
 | `GET` | `/tracks/{id}/reference/stems` | Whether the reference has been separated, and into what |
 | `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/width/mute/solo, optional `reference_track_id`, `per_stem_match`, `vocal_presence`, `vocal_duck_db`, `match_strength`, `bitrate_kbps`. `202` + job |
 | `GET` | `/tracks/{id}/master/download` | The rendered MP3 |
+| `GET` | `/tracks/{id}/master/peaks` | The mix and the master as two envelopes on one time axis, plus their per-bucket difference in dB |
 
 Stems are mixed **first** and matched **second**. Tonal balance is a property of a whole
 mix — matching each stem separately against a full-mix reference would push every stem
@@ -92,6 +93,17 @@ None of this needs ffmpeg. Processing is numpy/scipy, encoding is `lameenc`, met
 `pyloudnorm`.
 
 Solo overrides mute; a mix with nothing audible is a validation error, not silence.
+
+`master/peaks` exists because the numbers in the report say what mastering *decided*, not
+what it *did*. `before` is the mix as you balanced it and `after` is that mix once the
+reference has been matched; `delta_db` is the difference bucket by bucket, which is the
+part a waveform alone will not show — a couple of dB on a 55 dB scale is a few pixels, so
+the moments where the limiter worked hardest only become visible on their own axis. The
+response is `{"matched": false}` when no reference was used, because then there is no
+"before". Envelopes are RMS in dBFS against a fixed floor, so the two are directly
+comparable; the shared implementation is `app/services/waveform.py`, which the stem lanes
+use too. Results are cached under a key containing both files' mtime and size, so a
+re-render can never serve the previous run's picture.
 
 ## Jobs
 

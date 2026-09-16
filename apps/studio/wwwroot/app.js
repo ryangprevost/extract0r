@@ -33,6 +33,7 @@ const state = {
   trackId: null,
   duration: 0,
   lanes: new Map(),   // stem -> { audio, canvas, peaks, muted, solo }
+  compare: null,      // { before, after, delta_db } for the mastering before/after
   picked: new Set(),
   tunings: {},
   chosenTuning: {},
@@ -428,6 +429,10 @@ const laneSizes = new ResizeObserver((entries) => {
     if (stem) drawWave(stem);
   }
 });
+
+// The before/after lanes have a fixed height, so only width changes matter - but the
+// 0 -> N transition when the mastering page is first shown is exactly one of those.
+const compareSizes = new ResizeObserver(() => drawCompare());
 
 function drawWave(stem) {
   const lane = state.lanes.get(stem);
@@ -945,6 +950,9 @@ function renderMaster(result) {
     : `<div class="meter">exported<b>${size} MB</b></div>` +
       `<div class="meter">stems<b>${result.stems.length}</b></div>`;
 
+  $("compare-note").innerHTML = compareNote(info);
+  renderCompare();
+
   $("master-curve").innerHTML = info?.eq_curve_db?.length
     ? renderCurve(info.eq_curve_db)
     : "";
@@ -1041,6 +1049,206 @@ function meter(label, stats, against = null) {
 }
 
 /** The applied EQ as bars above and below a centre line - readable without a chart library. */
+/** Fetch the mix and the master as envelopes and draw them on one time axis.
+
+Failing to draw a picture is not a reason to hide a finished master, so every failure
+path here leaves the rest of the result card alone. */
+async function renderCompare() {
+  const panel = $("master-compare");
+  panel.hidden = true;
+  state.compare = null;
+
+  let data;
+  try {
+    data = await api(`/tracks/${state.trackId}/master/peaks`);
+  } catch {
+    return; // no picture; the numbers above still stand
+  }
+  if (!data?.matched) return; // nothing was matched, so there is no "before"
+
+  state.compare = data;
+  panel.hidden = false;
+  for (const lane of panel.querySelectorAll(".compare-lane")) compareSizes.observe(lane);
+
+  const seconds = data.after?.duration_s ?? 0;
+  $("compare-end").textContent =
+    `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
+
+  drawCompare();
+}
+
+/** One vertical bar per pixel column, mirrored about the centre line - the same shape
+the stem lanes use, so the two pages read as the same instrument. */
+function drawCompare() {
+  const data = state.compare;
+  if (!data) return;
+
+  for (const lane of document.querySelectorAll(".compare-lane")) {
+    const canvas = lane.querySelector("canvas");
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    // No size yet - page hidden, window minimised. The observer redraws on the 0 -> N
+    // transition, so giving up here is safe.
+    if (!width || !height) continue;
+
+    const ratio = window.devicePixelRatio || 1;
+    const wantW = Math.round(width * ratio);
+    const wantH = Math.round(height * ratio);
+    if (canvas.width !== wantW) canvas.width = wantW;
+    if (canvas.height !== wantH) canvas.height = wantH;
+
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    const style = getComputedStyle(document.documentElement);
+    const accent = style.getPropertyValue("--accent").trim() || "#35e08a";
+    const warn = style.getPropertyValue("--warn").trim() || "#ffb454";
+    const grey = style.getPropertyValue("--stem-other").trim() || "#9aa7b8";
+
+    const scale = envelopeScale(data.before, data.after);
+
+    if (lane.dataset.when === "delta") {
+      drawDelta(ctx, width, height, data.delta_db, accent, warn);
+    } else if (lane.dataset.when === "after") {
+      // The master filled, with the mix traced over the top of it as a line. A ghost
+      // underneath would be the obvious choice and is the wrong one: mastering makes
+      // almost every moment louder, so the mix sits entirely inside the master's shape
+      // and the ghost never shows. An outline is visible either way, and the gap between
+      // the line and the edge of the fill is exactly what mastering added.
+      drawEnvelope(ctx, width, height, data.after.db, scale, accent, 0.9);
+      traceEnvelope(ctx, width, height, data.before.db, scale, grey);
+    } else {
+      drawEnvelope(ctx, width, height, data.before.db, scale, grey, 0.75);
+    }
+  }
+}
+
+/** A drawing scale fitted to these two files, and shared between them.
+
+The stem lanes draw against a fixed -55 dB floor, which is right for a stem: it has real
+silence in it and a rest has to look like a rest. A finished mix has no silence. This song
+sits between -25 and -7 dB, so on the stem scale the entire arrangement is squeezed into
+the top third of the lane and both renders read as solid blocks.
+
+Fitting the scale to the content spreads it out. Both lanes get the *same* floor and
+ceiling, so a taller shape still means a louder moment - which is the one property the
+comparison cannot lose. */
+function envelopeScale(before, after) {
+  const sorted = [...before.db, ...after.db].sort((a, b) => a - b);
+  const ceiling = sorted[sorted.length - 1];
+  // The 2nd percentile rather than the minimum: a single silent moment should not
+  // flatten the whole song back out again.
+  let floor = sorted[Math.floor(sorted.length * 0.02)];
+  if (ceiling - floor < 6) floor = ceiling - 6; // near-constant level, e.g. a drone
+  floor = Math.max(floor - 3, ceiling - 60);    // a little air under the quietest part
+  const range = ceiling - floor;
+  return (db) => Math.max(0, Math.min(1, (db - floor) / range));
+}
+
+function columnHeights(db, scale, width, height) {
+  const step = db.length / width;
+  const heights = [];
+  for (let x = 0; x < width; x++) {
+    let loudest = -Infinity;
+    const from = Math.floor(x * step);
+    const to = Math.min(db.length, Math.floor((x + 1) * step) + 1);
+    for (let i = from; i < to; i++) loudest = Math.max(loudest, db[i]);
+    heights.push(Math.max(1, scale(loudest) * (height - 10)));
+  }
+  return heights;
+}
+
+function drawEnvelope(ctx, width, height, db, scale, colour, alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = colour;
+  const middle = height / 2;
+  columnHeights(db, scale, width, height).forEach((h, x) => {
+    ctx.fillRect(x, middle - h / 2, 1, h);
+  });
+  ctx.globalAlpha = 1;
+}
+
+/** The top edge of an envelope as a line, mirrored, for laying one shape over another. */
+function traceEnvelope(ctx, width, height, db, scale, colour) {
+  const middle = height / 2;
+  const heights = columnHeights(db, scale, width, height);
+
+  ctx.strokeStyle = colour;
+  ctx.globalAlpha = 0.85;
+  ctx.lineWidth = 1;
+  for (const sign of [-1, 1]) {
+    ctx.beginPath();
+    heights.forEach((h, x) => {
+      const y = middle + (sign * h) / 2;
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x + 0.5, y);
+    });
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** Level change per moment, around a zero line. A couple of dB on a 55 dB waveform is a
+few pixels; on its own axis it is the clearest thing on the page. */
+function drawDelta(ctx, width, height, delta, accent, warn) {
+  const low = Math.min(...delta);
+  const high = Math.max(...delta);
+
+  // Mastering usually makes every moment louder, so the values nearly always share a
+  // sign. Anchoring to the middle regardless would throw away half the height and leave
+  // a 3 dB spread squeezed into 18 pixels; the baseline moves to the edge instead and
+  // the strip uses all of itself.
+  const zero = low >= 0 ? height - 4 : high <= 0 ? 4 : height / 2;
+  const reach = low >= 0 || high <= 0 ? height - 8 : height / 2 - 4;
+  const span = Math.max(1.5, Math.abs(low), Math.abs(high));
+  const step = delta.length / width;
+
+  ctx.strokeStyle = getComputedStyle(document.documentElement)
+    .getPropertyValue("--edge").trim() || "#232a32";
+  ctx.beginPath();
+  ctx.moveTo(0, zero + 0.5);
+  ctx.lineTo(width, zero + 0.5);
+  ctx.stroke();
+
+  for (let x = 0; x < width; x++) {
+    const from = Math.floor(x * step);
+    const to = Math.min(delta.length, Math.floor((x + 1) * step) + 1);
+    // Mean, not max: this is a trend, and a single loud bucket should not spike it.
+    let sum = 0;
+    let count = 0;
+    for (let i = from; i < to; i++) { sum += delta[i]; count++; }
+    if (!count) continue;
+    const value = sum / count;
+    const h = Math.max(1, (Math.abs(value) / span) * reach);
+    ctx.fillStyle = value >= 0 ? accent : warn;
+    ctx.fillRect(x, value >= 0 ? zero - h : zero, 1, h);
+  }
+}
+
+/** The same story as the picture, in numbers, for anyone who would rather read it. */
+function compareNote(info) {
+  if (!info?.source || !info?.result) return "";
+  const louder = info.result.integrated_lufs - info.source.integrated_lufs;
+  const before = info.source.true_peak_dbfs - info.source.integrated_lufs;
+  const after = info.result.true_peak_dbfs - info.result.integrated_lufs;
+  const squash = before - after;
+
+  // Only claim the limiter did something when the numbers say it did.
+  const verdict =
+    squash > 0.5
+      ? `<b>${squash.toFixed(1)} dB</b> more tightly controlled — the limiter held the ` +
+        "loud moments while the quiet ones came up"
+      : squash < -0.5
+        ? `<b>${Math.abs(squash).toFixed(1)} dB</b> more dynamic`
+        : "about as dynamic as before";
+
+  return (
+    `Overall the master is <b>${signed(+louder.toFixed(1))} dB</b> louder than your mix. ` +
+    `Its peaks sit <b>${before.toFixed(1)} dB</b> → <b>${after.toFixed(1)} dB</b> above ` +
+    `the average level, so it is ${verdict}.`
+  );
+}
+
 function renderCurve(bands) {
   const largest = Math.max(3, ...bands.map(([, db]) => Math.abs(db)));
   const rows = bands.map(([hz, db]) => {

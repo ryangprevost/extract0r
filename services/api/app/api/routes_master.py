@@ -5,10 +5,11 @@ Runs on numpy and lameenc rather than ffmpeg, so it works wherever Phase 1 does.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -23,6 +24,12 @@ from app.services.mastering.pipeline import MasterRequest, StemSetting
 from app.services.mastering.vocals import VocalPresence
 from app.services.registry import TrackRegistry
 from app.services.storage import TrackStorage, UnsupportedAudioError
+from app.services.waveform import (
+    DEFAULT_PEAK_BUCKETS,
+    MAX_PEAK_BUCKETS,
+    difference_db,
+    measure,
+)
 
 log = logging.getLogger(__name__)
 
@@ -360,3 +367,68 @@ def download_master(
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No master rendered for this track.")
     return FileResponse(path, media_type="audio/mpeg", filename="extract0r-master.mp3")
+
+
+@router.get("/{track_id}/master/peaks")
+def master_peaks(
+    track_id: str,
+    buckets: int = Query(DEFAULT_PEAK_BUCKETS, ge=50, le=MAX_PEAK_BUCKETS),
+    storage: TrackStorage = Depends(get_storage),
+) -> dict:
+    """The mix and the master as two envelopes on one time axis, plus their difference.
+
+    Numbers in a report say what mastering decided. Seeing the same four minutes twice is
+    what makes it land: where the limiter shaved a chorus, where a quiet verse was pulled
+    up, whether the whole thing simply got louder.
+
+    `mix.wav` is the mix as you balanced it - stems matched, vocal placed, faders applied -
+    and `mastered.wav` is that mix after the reference match. Without a reference the
+    pipeline never writes the second file, and there is nothing to compare.
+    """
+    exports = storage.exports_dir(track_id)
+    before_path = exports / "mix.wav"
+    after_path = exports / "mastered.wav"
+
+    if not before_path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No master rendered for this track.")
+    if not after_path.exists():
+        return {"matched": False, "buckets": buckets}
+
+    # The files are overwritten on every render, so the cache key has to change when they
+    # do. Naming it after the buckets alone would serve the previous run's picture next to
+    # the current run's numbers.
+    stamp = "-".join(
+        f"{p.stat().st_mtime_ns}x{p.stat().st_size}" for p in (before_path, after_path)
+    )
+    cache = exports / f"peaks-{buckets}-{stamp}.json"
+    if cache.exists():
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            log.debug("discarding unreadable master peak cache %s", cache.name)
+
+    try:
+        before = measure(before_path, buckets)
+        after = measure(after_path, buckets)
+    except ImportError as exc:  # pragma: no cover - numpy/soundfile are hard requirements
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED, "numpy/soundfile are required for waveforms."
+        ) from exc
+
+    payload = {
+        "matched": True,
+        "buckets": buckets,
+        "before": before.as_payload(),
+        "after": after.as_payload(),
+        "delta_db": difference_db(before, after),
+    }
+
+    for stale in exports.glob(f"peaks-{buckets}-*.json"):
+        if stale != cache:
+            stale.unlink(missing_ok=True)
+    try:
+        cache.write_text(json.dumps(payload), encoding="utf-8")
+    except OSError:
+        log.debug("could not cache master peaks for %s", track_id)
+
+    return payload

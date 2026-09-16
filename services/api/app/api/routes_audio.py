@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -18,24 +17,19 @@ from app.api.deps import get_registry, get_storage
 from app.domain.notes import StemKind
 from app.services.registry import TrackRegistry
 from app.services.storage import TrackStorage
+from app.services.waveform import (
+    DEFAULT_PEAK_BUCKETS,
+    MAX_PEAK_BUCKETS,
+    measure,
+)
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/tracks", tags=["audio"])
 
-# Enough buckets for a detailed waveform at typical widths without shipping a huge array.
-DEFAULT_PEAK_BUCKETS = 1200
-MAX_PEAK_BUCKETS = 4000
-
 # Bump whenever the envelope maths changes, so cached files from an older scaling are
 # ignored rather than silently served.
-PEAKS_CACHE_VERSION = 3
-
-# Anything quieter than this reads as silence. Separation always leaves low-level
-# artefacts behind in the parts a stem is not playing, and on a linear scale those get
-# drawn as visible "peaks in the silence". A dB floor is what makes a rest look like a
-# rest.
-SILENCE_FLOOR_DB = -55.0
+PEAKS_CACHE_VERSION = 4
 
 
 def _stem_path(track_id: str, stem: str, registry: TrackRegistry):
@@ -154,8 +148,9 @@ def stem_peaks(
 ) -> dict:
     """Amplitude envelope for drawing a waveform, computed server-side and cached.
 
-    The alternative is shipping the whole WAV to the browser and decoding it there, which
-    for six stems of a five-minute song is hundreds of megabytes.
+    The maths lives in app.services.waveform because the mastering page compares two of
+    these against each other, and a waveform that means one thing on one page and
+    something else on another is worse than no waveform.
     """
     path = _stem_path(track_id, stem, registry)
     cache = path.with_suffix(f".peaks-v{PEAKS_CACHE_VERSION}-{buckets}.json")
@@ -167,54 +162,13 @@ def stem_peaks(
             log.debug("discarding unreadable peak cache %s", cache.name)
 
     try:
-        import numpy as np
-        import soundfile as sf
+        envelope = measure(path, buckets)
     except ImportError as exc:  # pragma: no cover - numpy/soundfile are hard requirements
         raise HTTPException(
             status.HTTP_501_NOT_IMPLEMENTED, "numpy/soundfile are required for waveforms."
         ) from exc
 
-    with sf.SoundFile(str(path)) as handle:
-        total_frames = len(handle)
-        sample_rate = handle.samplerate
-        # RMS per bucket, not peak. Peak is dominated by isolated samples, so a stem that
-        # is essentially silent but carries a few separation artefacts draws as a row of
-        # spikes. RMS reflects how loud a slice actually is.
-        rms = np.zeros(buckets, dtype="float32")
-        peak_linear = 0.0
-        frames_per_bucket = max(1, total_frames // buckets)
-
-        blocks = handle.blocks(blocksize=frames_per_bucket, dtype="float32", always_2d=True)
-        for index, block in enumerate(blocks):
-            if index >= buckets:
-                break
-            if block.size:
-                mono = block.mean(axis=1)
-                rms[index] = float(np.sqrt(np.mean(mono**2)))
-                peak_linear = max(peak_linear, float(np.abs(block).max()))
-
-    # Map to decibels and floor. Loudness is logarithmic, so a linear envelope makes
-    # quiet passages invisible and near-silence look busy; dB is what a DAW draws.
-    with np.errstate(divide="ignore"):
-        db = 20.0 * np.log10(np.maximum(rms, 1e-9))
-    envelope = np.clip((db - SILENCE_FLOOR_DB) / (0.0 - SILENCE_FLOOR_DB), 0.0, 1.0)
-
-    peak = peak_linear
-    loudest_db = float(db.max()) if rms.size else SILENCE_FLOOR_DB
-
-    payload = {
-        "stem": stem,
-        "buckets": buckets,
-        "duration_s": round(total_frames / sample_rate, 3) if sample_rate else 0.0,
-        "sample_rate": sample_rate,
-        # Rounded: two decimals is well under one pixel of error at any sane height.
-        "peaks": [round(float(v), 3) for v in envelope],
-        # "Silent" now means "never rises above the floor", which covers a stem holding
-        # nothing but separation artefacts as well as one holding literal zeros.
-        "silent": bool(loudest_db <= SILENCE_FLOOR_DB),
-        "peak_dbfs": round(20.0 * math.log10(peak), 1) if peak > 0 else None,
-        "floor_dbfs": SILENCE_FLOOR_DB,
-    }
+    payload = {"stem": stem, **envelope.as_payload()}
 
     try:
         cache.write_text(json.dumps(payload), encoding="utf-8")

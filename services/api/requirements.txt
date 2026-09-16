@@ -7,6 +7,10 @@ python-multipart>=0.0.12
 numpy>=1.26
 soundfile>=0.12
 soxr>=0.5
+# m4a/aac ingest. libsndfile has never read AAC, so before this the upload form
+# advertised m4a and then failed at decode unless a system ffmpeg happened to be on
+# PATH. PyAV carries the ffmpeg libraries inside the wheel, so it needs no install.
+av>=13
 # Phase 2 mastering and export, none of which needs ffmpeg:
 #   scipy      - spectral maths
 #   lameenc    - MP3 encoding, a LAME binding rather than a subprocess

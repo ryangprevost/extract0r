@@ -44,9 +44,29 @@ class AudioBuffer:
 
 
 def read_audio(path: Path) -> AudioBuffer:
+    """Read any accepted format to float64 at its own sample rate.
+
+    A reference can be an m4a, which libsndfile will not open, so this falls through to
+    the same PyAV decoder that ingest uses. Without that the file probes cleanly on
+    upload and then fails later, when it is read to master against - the confusing
+    version of the bug.
+
+    Note this does not resample: callers that need a canonical rate go through
+    `probe.normalize` instead.
+    """
     import soundfile as sf
 
-    samples, sample_rate = sf.read(str(path), dtype="float64", always_2d=True)
+    try:
+        samples, sample_rate = sf.read(str(path), dtype="float64", always_2d=True)
+    except Exception:
+        from app.services.audio.probe import decode_with_av
+
+        decoded = decode_with_av(path)
+        if decoded is None:
+            raise
+        samples, sample_rate = decoded
+        samples = samples.astype("float64")
+
     return AudioBuffer(samples=samples, sample_rate=int(sample_rate))
 
 

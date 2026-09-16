@@ -1695,7 +1695,8 @@ const CAPABILITY_NOTES = {
   spectral_master: ["Reference mastering", "Tonal and loudness matching."],
   mp3_export: ["MP3 export", "LAME encoding, no external process."],
   lufs_metering: ["LUFS metering", "EBU R128. Falls back to RMS without it."],
-  ffmpeg: ["ffmpeg", "Optional - only needed for m4a/aac input."],
+  aac_decode: ["m4a / AAC input", "Decoded by bundled libraries, no install needed."],
+  ffmpeg: ["ffmpeg", "Optional - a fallback for unusual containers."],
 };
 
 async function renderCapabilities() {

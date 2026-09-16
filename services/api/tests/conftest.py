@@ -40,6 +40,47 @@ def write_tone_wav(
     return path
 
 
+def write_tone_m4a(
+    path: Path,
+    seconds: float = 2.0,
+    sample_rate: int = 48000,
+    left_hz: float = 440.0,
+    right_hz: float = 1000.0,
+) -> Path:
+    """A real AAC-in-MP4 file, with a different tone in each channel.
+
+    The channels differ so that a decoder which mishandles planar-to-packed conversion
+    is caught: that failure interleaves the two channels rather than degrading quality,
+    so it is invisible to a mono fixture but obvious to this one.
+
+    Written at 48 kHz because that is what phones and iTunes produce, which also
+    exercises the resampling path.
+    """
+    import av
+    import numpy as np
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    t = np.arange(int(sample_rate * seconds)) / sample_rate
+    signal = np.stack(
+        [0.5 * np.sin(2 * np.pi * left_hz * t), 0.5 * np.sin(2 * np.pi * right_hz * t)],
+        axis=1,
+    ).astype("float32")
+
+    with av.open(str(path), "w") as container:
+        stream = container.add_stream("aac", rate=sample_rate)
+        stream.layout = "stereo"
+        # "flt" is packed, so (frames, channels) reshapes straight to interleaved.
+        frame = av.AudioFrame.from_ndarray(
+            np.ascontiguousarray(signal.reshape(1, -1)), format="flt", layout="stereo"
+        )
+        frame.rate = sample_rate
+        for packet in stream.encode(frame):
+            container.mux(packet)
+        for packet in stream.encode(None):
+            container.mux(packet)
+    return path
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     """Isolated settings pointed at a temp storage root, with all backends stubbed."""

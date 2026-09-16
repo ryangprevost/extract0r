@@ -28,6 +28,15 @@ def health(settings: Settings = Depends(get_config)) -> dict:
     return {"status": "ok", "version": settings.app_version, "env": settings.environment}
 
 
+def _av_available() -> bool:
+    """PyAV, which is what reads m4a/aac. Bundled in the wheel, so normally present."""
+    try:
+        import av  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 @router.get("/capabilities")
 def capabilities(settings: Settings = Depends(get_config)) -> dict:
     from app.services.mastering.loudness import LoudnessMatchEngine
@@ -55,6 +64,7 @@ def capabilities(settings: Settings = Depends(get_config)) -> dict:
             "spectral_master": SpectralMatchEngine().available(),
             "mp3_export": _lameenc_available(),
             "lufs_metering": loudness_backend() == "bs1770",
+            "aac_decode": _av_available(),
             "ffmpeg": LoudnessMatchEngine().available(),
         },
         "limits": {

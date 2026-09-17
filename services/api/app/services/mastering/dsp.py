@@ -325,6 +325,44 @@ def peak_db(samples: np.ndarray) -> float:
     return 20.0 * np.log10(peak) if peak > 0 else -np.inf
 
 
+#: BS.1770-4 asks for at least 4x oversampling at 44.1 and 48 kHz.
+TRUE_PEAK_OVERSAMPLE = 4
+
+
+def true_peak_db(samples: np.ndarray, sample_rate: int) -> float:
+    """Peak of the reconstructed waveform, in dBTP - not the peak of the samples.
+
+    The two are different and the difference is the whole point. Samples are points on a
+    curve; a converter, and every lossy codec, reproduces the curve *between* them, which
+    can ride higher than any stored sample. A master sitting at exactly 0 dBFS by sample
+    peak routinely hits +1 dBTP once Spotify or Apple Music re-encodes it, and that is
+    audible as distortion on transients.
+
+    This measured the sample peak before and reported it as dBTP, which flattered every
+    master by roughly half a decibel to one and a half - the amount of headroom the
+    number existed to protect.
+
+    Oversampled by 4, per BS.1770-4. Falls back to the sample peak if scipy is missing,
+    which under-reports rather than overstating safety.
+    """
+    audio = np.asarray(samples, dtype=np.float64)
+    if audio.size == 0:
+        return -np.inf
+    try:
+        from scipy.signal import resample_poly
+    except ImportError:  # pragma: no cover - scipy is a hard requirement
+        # This module stays free of logging on purpose, so the fallback is silent. It
+        # under-reports rather than overstating safety, which is the right way to fail.
+        return peak_db(audio)
+
+    axis = 0 if audio.ndim > 1 else -1
+    upsampled = resample_poly(audio, TRUE_PEAK_OVERSAMPLE, 1, axis=axis)
+    peak = float(np.max(np.abs(upsampled)))
+    # Reconstruction can only add peaks, never remove them; a filter that says otherwise
+    # is a filter artefact, so never report less than the samples themselves show.
+    return max(20.0 * np.log10(peak) if peak > 0 else -np.inf, peak_db(audio))
+
+
 def apply_gain_db(samples: np.ndarray, gain_db: float) -> np.ndarray:
     return np.asarray(samples, dtype=np.float64) * (10.0 ** (gain_db / 20.0))
 

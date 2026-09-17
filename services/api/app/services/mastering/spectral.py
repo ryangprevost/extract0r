@@ -27,6 +27,7 @@ from app.services.mastering.dsp import (
     matching_curve,
     peak_db,
     stereo_width,
+    true_peak_db,
 )
 from app.services.mastering.loudness_meter import gain_to_match, integrated_loudness
 from app.services.mastering.polish import (
@@ -229,7 +230,7 @@ class SpectralMatchEngine:
         loudness, _ = integrated_loudness(samples, sample_rate)
         return LoudnessStats(
             integrated_lufs=round(float(loudness), 2) if np.isfinite(loudness) else -70.0,
-            true_peak_dbtp=round(peak_db(samples), 2),
+            true_peak_dbtp=round(true_peak_db(samples, sample_rate), 2),
             loudness_range_lu=0.0,  # LRA needs gated short-term blocks; not measured yet
         )
 

@@ -389,3 +389,56 @@ def test_it_can_be_turned_off():
         matching_curve(mix, reference, SR, MatchSettings(max_low_cut_db=12.0))
     )
     assert db[int(np.searchsorted(freqs, 45))] < -2.0
+
+
+# --- true peak ------------------------------------------------------------------------
+
+
+def test_true_peak_finds_what_sits_between_the_samples():
+    """A signal can ride above every stored sample. This is the case that proves it: a
+    sine at a quarter of the sample rate, phased so no sample lands on a crest."""
+    import numpy as np
+
+    from app.services.mastering.dsp import peak_db, true_peak_db
+
+    rate = 44100
+    t = np.arange(rate) / rate
+    # Sampled at exactly the zero crossings either side of each peak.
+    signal = 0.9 * np.sin(2 * np.pi * (rate / 4) * t + np.pi / 4)
+
+    assert true_peak_db(signal, rate) > peak_db(signal) + 1.0
+
+
+def test_true_peak_never_reports_less_than_the_samples_show():
+    """Reconstruction can only add peaks. Anything lower is a filter artefact, and
+    reporting it would overstate how much headroom a master has."""
+    import numpy as np
+
+    from app.services.mastering.dsp import peak_db, true_peak_db
+
+    rng = np.random.default_rng(0)
+    for _ in range(5):
+        noise = rng.normal(0, 0.3, (44100, 2))
+        assert true_peak_db(noise, 44100) >= peak_db(noise) - 1e-9
+
+
+def test_a_gentle_signal_has_almost_nothing_hidden():
+    """A low tone is well described by its samples, so the two measures should agree."""
+    import numpy as np
+
+    from app.services.mastering.dsp import peak_db, true_peak_db
+
+    rate = 44100
+    t = np.arange(rate) / rate
+    tone = 0.5 * np.sin(2 * np.pi * 100 * t)
+    assert true_peak_db(tone, rate) == pytest.approx(peak_db(tone), abs=0.1)
+
+
+def test_true_peak_handles_stereo_and_silence():
+    import numpy as np
+
+    from app.services.mastering.dsp import true_peak_db
+
+    stereo = np.zeros((1000, 2))
+    assert true_peak_db(stereo, 44100) == float("-inf")
+    assert np.isfinite(true_peak_db(np.ones((1000, 2)) * 0.5, 44100))

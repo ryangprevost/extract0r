@@ -155,3 +155,30 @@ def test_an_identical_pair_is_reported_as_matching():
     result = critique(suggest(audio, audio, SR))
     assert all(f.severity == "match" for f in result.findings)
     assert "tracks the reference closely" in result.verdict
+
+
+def test_the_width_offer_is_in_the_units_the_slider_reads():
+    """This shipped broken. The offer carried a factor like 1.15 while the width slider
+    reads 70-160, so applying it clamped the control to its minimum: the button marked
+    "Widen" narrowed the mix, and never lit up as applied because the value it asked for
+    could not be represented."""
+    from app.services.mastering.critique import critique
+
+    class _Polish:
+        bass_db = warmth_db = air_db = headroom_db = 0.0
+        air_hz = 8000.0
+        width = 1.15
+
+    class _Result:
+        polish = _Polish()
+        raw_bands: dict = {}
+        bands: dict = {}
+        source_crest_db = reference_crest_db = 0.0
+        source_width = 0.30
+        reference_width = 0.55
+        source_lufs = reference_lufs = -10.0
+
+    findings = critique(_Result()).findings
+    offers = [f.action for f in findings if f.action and "width" in f.action["dials"]]
+    assert offers, "a narrower mix should be offered the width dial"
+    assert offers[0]["dials"]["width"] == 115

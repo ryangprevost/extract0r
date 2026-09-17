@@ -275,6 +275,11 @@
         <input type="range" id="subsonic" min="0" max="60" step="5" value="0" />
         <output id="subsonic-out">off</output>
       </label>
+      <label class="control" title="A short room across the whole mix, so the parts sit in one space instead of sounding like separate things playing at once. Small numbers — this is glue, not an effect. Some of a commercial record's cohesion is heavy limiting rather than reverb, so this closes part of that gap, not all of it.">
+        <span>Cohesion</span>
+        <input type="range" id="ambience" min="0" max="18" step="1" value="0" />
+        <output id="ambience-out">off</output>
+      </label>
       <label class="control" title="Records are usually tighter than a home mix below 250 Hz and much wider above it. This matches your reference band by band, and eases back if it would cost more in mono than the reference itself gives up.">
         <span>Match reference image</span>
         <input type="range" id="width-profile" min="0" max="100" step="10" value="100" />

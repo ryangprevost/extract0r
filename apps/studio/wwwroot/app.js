@@ -1002,6 +1002,7 @@ async function runMaster() {
         sparkle_db: parseFloat($("sparkle").value),
         centre_bass_hz: parseFloat($("centre-bass").value),
         subsonic_hz: parseFloat($("subsonic").value),
+        ambience_mix: parseInt($("ambience").value, 10) / 100,
         headroom_db: parseFloat($("headroom").value),
         match_stem_levels: $("ms-levels").checked,
         match_stem_tone: $("ms-tone").checked,
@@ -1308,6 +1309,10 @@ const DIAL_IDS = {
   bass: "bass",
   width: "stereo-width",
   headroom: "headroom",
+  sparkle: "sparkle",
+  centreBass: "centre-bass",
+  subsonic: "subsonic",
+  ambience: "ambience",
 };
 
 /** Are the controls already sitting where this finding wants them?
@@ -1321,7 +1326,15 @@ function dialsMatch(dials) {
   if (!dials) return false;
   for (const [key, id] of Object.entries(DIAL_IDS)) {
     if (dials[key] === undefined) continue;
-    if (Math.abs(parseFloat($(id).value) - Number(dials[key])) > 0.001) return false;
+    const el = $(id);
+    // Compared against the slider's own step, not exactly. A range input snaps whatever
+    // it is given to the nearest step, so asking for 2.3 dB on a half-decibel control
+    // leaves the slider reading 2.5 — and an exact comparison then decides, forever,
+    // that the suggestion was never applied.
+    const step = parseFloat(el.step) || 0.001;
+    if (Math.abs(parseFloat(el.value) - Number(dials[key])) > step / 2 + 1e-9) {
+      return false;
+    }
   }
   if (dials.brightnessHz !== undefined) {
     const want = nearestBrightnessOption(dials.brightnessHz);
@@ -1365,11 +1378,10 @@ function applyDials(dials) {
     if (slider) slider.value = String(Math.round(lane.reverbMix * 100));
     showReverb(stem);
   }
-  const map = {
-    brightness: "brightness", warmth: "warmth", bass: "bass",
-    width: "stereo-width", headroom: "headroom",
-  };
-  for (const [key, id] of Object.entries(map)) {
+  // The same table `dialsMatch` reads. It used to be a second copy living here, and the
+  // copies drifted: four controls could be suggested but not applied, because only one
+  // of the two lists had heard of them.
+  for (const [key, id] of Object.entries(DIAL_IDS)) {
     if (dials[key] === undefined) continue;
     const el = $(id);
     el.value = dials[key];
@@ -1995,6 +2007,10 @@ $("brightness").addEventListener("input", () => {
   const value = parseFloat($("brightness").value);
   $("brightness-out").textContent = value ? `${signed(value.toFixed(1))} dB` : "off";
 });
+$("ambience").addEventListener("input", () => {
+  const value = parseInt($("ambience").value, 10);
+  $("ambience-out").textContent = value ? `${value}% room` : "off";
+});
 $("sparkle").addEventListener("input", () => {
   const value = parseFloat($("sparkle").value);
   $("sparkle-out").textContent = value ? `+${value.toFixed(1)} dB` : "off";
@@ -2040,7 +2056,7 @@ $("apply-suggested").addEventListener("click", () => {
 });
 // Touching a slider means the preset no longer describes what is set.
 for (const id of ["brightness", "warmth", "bass", "stereo-width", "width-profile",
-                  "sparkle", "centre-bass", "subsonic", "headroom"]) {
+                  "sparkle", "centre-bass", "subsonic", "ambience", "headroom"]) {
   $(id).addEventListener("input", () => {
     if (settingDials) return;
     // Before the preset check, and outside it: moving a dial away from what a finding

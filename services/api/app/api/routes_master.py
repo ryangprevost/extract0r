@@ -852,7 +852,21 @@ def suggest_settings(
 
         clarity = compare(source_file, reference, source_stems, reference_stems)
 
-    summary = critique(result, source_stems, reference_stems, clarity=clarity)
+    # These need only the two summed files, so they run whether or not stems were asked
+    # for - the finishing advice arrives with the first, fast half of the comparison.
+    finishing: list[dict] = []
+    try:
+        from app.services.mastering.finishing import suggest as suggest_finishing
+
+        finishing = suggest_finishing(
+            source.samples, target.samples, source.sample_rate, target.sample_rate
+        )
+    except Exception:
+        log.debug("could not measure the finishing moves", exc_info=True)
+
+    summary = critique(
+        result, source_stems, reference_stems, clarity=clarity, finishing=finishing
+    )
 
     polish = result.polish
     return {

@@ -251,7 +251,14 @@ def _width(result, out: list[Finding]) -> None:
                     f"Yours measures {mine:.2f} against the reference's {theirs:.2f}. "
                     f"The width dial spreads everything above 250 Hz and leaves the bass "
                     f"centred.",
-                    action={"label": "Widen", "dials": {"width": result.polish.width}}
+                    # Percent, because that is what the width slider reads in. Sent as a
+                    # factor this silently set the slider to its minimum - so the button
+                    # marked "Widen" narrowed the mix to 70%, and never lit up as applied
+                    # because the value it asked for could not be represented.
+                    action={
+                        "label": "Widen",
+                        "dials": {"width": round(result.polish.width * 100)},
+                    }
                     if result.polish.width != 1.0
                     else None,
                     clause="narrower")
@@ -498,6 +505,7 @@ def critique(
     source_stems: dict[StemKind, Path] | None = None,
     reference_stems: dict[StemKind, Path] | None = None,
     clarity: list[dict] | None = None,
+    finishing: list[dict] | None = None,
 ) -> Critique:
     """Turn a measured comparison into something worth reading.
 
@@ -515,15 +523,29 @@ def critique(
     for item in clarity or []:
         findings.append(
             Finding(
-                area=item['area'],
-                severity=item['severity'],
-                headline=item['headline'],
-                detail=item['detail'],
-                delta_db=item.get('delta_db', 0.0),
-                clause=item.get('clause', ''),
+                area=item["area"],
+                severity=item["severity"],
+                headline=item["headline"],
+                detail=item["detail"],
+                delta_db=item.get("delta_db", 0.0),
+                clause=item.get("clause", ""),
                 # There is no dial for an arrangement, and pretending otherwise is how a
                 # tool loses trust.
                 handled_by_match=False,
+            )
+        )
+    # These do have dials, and carry them, so "fix this" moves the same control the
+    # person would have reached for themselves.
+    for item in finishing or []:
+        findings.append(
+            Finding(
+                area=item["area"],
+                severity=item["severity"],
+                headline=item["headline"],
+                detail=item["detail"],
+                delta_db=item.get("delta_db", 0.0),
+                action=item.get("action"),
+                clause=item.get("clause", ""),
             )
         )
 

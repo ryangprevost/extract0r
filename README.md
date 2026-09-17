@@ -18,21 +18,22 @@ upload ──► separate ──► pick stems ──► transcribe ──► ex
 
 ## Status
 
-Phase 1 runs for real. Demucs separates, basic-pitch and pYIN transcribe, librosa reads
-the drums — all verified on this machine, not just written.
+Both phases run for real. Demucs separates, basic-pitch and pYIN transcribe, librosa reads
+the drums, and a mix can be mastered against a commercial reference and exported — all
+verified on this machine, not just written.
 
 | | |
 |---|---|
-| Backend tests | **66 passing**, 6 skipped without the ML extras |
-| ML smoke tests | **12 passing** against real Demucs / basic-pitch / librosa |
+| Backend tests | **521 passing**, 6 skipped without the ML extras |
 | Domain layer | Pure Python, no third-party dependencies |
-| Separation | Demucs 4.1.0 + torch 2.13 CPU — 6-stem, 0.72× realtime measured on a real track |
+| Ingest | libsndfile for everything it reads, PyAV for m4a/AAC — no system ffmpeg |
+| Separation | Demucs 4.1.0 + torch CPU — 6-stem, 0.72× realtime measured on a real track |
 | Transcription | pYIN for bass/vocals, basic-pitch (ONNX) for guitar/piano, onsets for drums |
+| Mastering | Tone, loudness and per-band stereo image matched to a reference, in numpy/scipy |
 | Studio front end | ASP.NET Core + vanilla JS — **runs**; hamburger nav over Mastering, Tablature, Capabilities and Legal |
-| Mastering | Spectral reference matching + LUFS + MP3 export, **no ffmpeg needed** |
 | Next.js front end | Written, **never built** — Node is not installed here |
-| CI | Written, **never executed** — no git remote yet |
-| Accuracy | **Unmeasured.** Needs a licensed eval set (X0R-306) |
+| Transcription accuracy | **Unmeasured.** Needs a licensed eval set (X0R-306) |
+| Mastering accuracy | Measured per change — see below |
 
 Two install traps cost most of a sprint and are now documented in
 [docs/RUNBOOK.md](docs/RUNBOOK.md) and automated in `scripts/install-ml.ps1`:
@@ -66,11 +67,51 @@ through the lattice.
 
 ---
 
+## What the mastering chain actually does
+
+Upload a mix and a commercial reference, and it matches the mix to the reference. Every
+number below was measured on real tracks; where a thing could not be made to work, that
+is recorded too, because a tool that only reports its wins is not a useful one.
+
+**Tone.** A smoothed, clamped correction curve in log frequency, centred before clamping
+so a loud reference cannot drag the whole mix up. Deep bass is guarded separately: an
+early version let the match scoop 12 dB out of a kick's fundamental and the drums came
+back flat.
+
+**Stereo image, band by band.** A single width control is the wrong shape for this. A
+home mix measured against the record it was aimed at was *twice as wide* at 120–250 Hz
+and *a third as wide* above 8 kHz — records are tight at the bottom and open at the top,
+and one factor over a crossover cannot do both. Matching per band took the error from
+5.09 dB to 1.49 dB while leaving tonal balance untouched within 0.05 dB. Widening is
+guarded: side content cancels when a phone sums to mono, so the result may never give up
+more in mono than the reference itself does.
+
+**Vocal placement.** Measured through the match curve rather than before it, because the
+match is applied afterwards and a reference heavier at both ends scoops the midrange the
+vocal lives in. The vocal's own range gets back what the match takes out of it — on its
+own stem, so the master's tone is unchanged and only the vocal's share of the band moves.
+
+**Artefacts.** The master is built as a correction to the original file rather than by
+summing the stems, because separation is not lossless: six stems reconstructed one track
+only to within −25.6 dB, worst in the presence range, which is exactly what a sizzle is.
+Applying the *difference* instead reproduces the original bit for bit when nothing is
+changed — −188 dB — and costs artefacts only in proportion to what you actually change.
+
+**What it will not do.** Clarity is not in the summed spectrum, so no master EQ can add
+it. The comparison measures how crowded each band is and how much structure is left in
+it, names the instruments competing for the range, and says plainly that the fix is an
+arrangement change. Four automated fixes were built for it and all four failed to move
+the numbers; the failures are written up in `services/api/app/services/mastering/clarity.py`
+rather than quietly deleted.
+
+---
+
 ## Running it
 
 **Prerequisites:** Python 3.11+ and the .NET 9 SDK. Node 20+ only for the Next.js front
-end. ffmpeg only for Phase 2 mixdown and loudness matching — ingest does not need it,
-because the bundled libsndfile reads MP3 directly.
+end. **No ffmpeg anywhere** — ingest reads MP3 through libsndfile and m4a/AAC through
+PyAV's bundled libraries, and the whole mastering chain runs on numpy, scipy, `lameenc`
+and `pyloudnorm`.
 
 ### One command
 
@@ -175,11 +216,11 @@ services/api          FastAPI · Python 3.12
     audio/            probing and canonical decode at ingest
     separation/       demucs · stub
     transcription/    pyin (mono) · basic_pitch (poly) · drums (onsets) · stub
-    mastering/        matchering · loudness (ffmpeg)
-    mixdown/          mix spec and ffmpeg filter graph
+    mastering/        reference match, stereo image, vocals, clarity, library
+    mixdown/          reading and writing audio, LAME encoding, ID3
   app/jobs/           thread-pool job store with progress
   app/api/            routes and wire schemas
-  tests/              66 tests + 12 ML smoke tests that skip without the extras
+  tests/              521 tests, 6 of them skipped without the ML extras
 docs/                 architecture, runbook, backlog, roadmap, ADRs, legal
 scripts/              PowerShell dev loop
 storage/              uploads and artifacts — gitignored, auto-purged
@@ -206,10 +247,21 @@ storage/              uploads and artifacts — gitignored, auto-purged
 **Phase 1 — transcription.** Upload, separate, select stems, transcribe to tab, export as
 `.txt` and `.x0r`. Epics 01–07.
 
-**Phase 2 — mastering and mixing.** Reference-track mastering and export, working today:
-upload a song, split it, upload a commercial reference, and the mix is matched to that
-reference's tonal balance and loudness and exported as an MP3.
+**Phase 2 — mastering and mixing.** Working today: upload a song, split it, upload a
+commercial reference, and the mix is matched to that reference's tonal balance, loudness
+and stereo image, then exported as an MP3 named after the song with the reference
+recorded in its ID3 tag. Along the way it will place the vocal, lay a synthesised kit over
+the drums, add convolution reverb per stem, and tell you in plain language where your mix
+still differs — see [what the mastering chain actually does](#what-the-mastering-chain-actually-does).
+
+It can also go looking for a reference. Point `library_dir` at a folder of music and it
+measures every track and ranks which would make a useful reference for the one you are
+working on — close in tonal balance, further along in loudness and width. The obvious
+version of that feature reads a streaming link instead; it cannot be built, because
+Spotify withdrew the audio-features and recommendations endpoints for new applications in
+November 2024 and metadata alone says nothing about how a record was mastered.
 
 Runs entirely on numpy, scipy, `lameenc` and `pyloudnorm` — **no ffmpeg**, so Phase 2
-works anywhere Phase 1 does. Still to come: a per-stem EQ and effects editor (X0R-904/905)
-and a real-time Web Audio preview (X0R-903).
+works anywhere Phase 1 does. Still to come: a level-matched A/B, platform loudness targets
+(streaming normalises to −14 LUFS, so chasing a −4 LUFS reference is a losing trade), and
+mastering without separating first, which would save four minutes a track.

@@ -260,6 +260,11 @@
           <option value="12000">12 kHz — sheen</option>
         </select>
       </label>
+      <label class="control" title="Records are usually tighter than a home mix below 250 Hz and much wider above it. This matches your reference band by band, and eases back if it would cost more in mono than the reference itself gives up.">
+        <span>Match reference image</span>
+        <input type="range" id="width-profile" min="0" max="100" step="10" value="100" />
+        <output id="width-profile-out">100%</output>
+      </label>
       <label class="control">
         <span>Stereo width</span>
         <input type="range" id="stereo-width" min="70" max="160" step="5" value="100" />

@@ -961,6 +961,7 @@ async function runMaster() {
         bass_db: parseFloat($("bass").value),
         brightness_from_hz: parseFloat($("brightness-hz").value),
         width: parseInt($("stereo-width").value, 10) / 100,
+        width_profile: parseInt($("width-profile").value, 10) / 100,
         headroom_db: parseFloat($("headroom").value),
         match_stem_levels: $("ms-levels").checked,
         match_stem_tone: $("ms-tone").checked,
@@ -1903,6 +1904,11 @@ $("brightness").addEventListener("input", () => {
   const value = parseFloat($("brightness").value);
   $("brightness-out").textContent = value ? `${signed(value.toFixed(1))} dB` : "off";
 });
+$("width-profile").addEventListener("input", () => {
+  const value = parseInt($("width-profile").value, 10);
+  $("width-profile-out").textContent =
+    value === 0 ? "off" : value === 100 ? "100% (full match)" : `${value}%`;
+});
 $("stereo-width").addEventListener("input", () => {
   const value = parseInt($("stereo-width").value, 10);
   $("stereo-width-out").textContent =
@@ -1930,7 +1936,7 @@ $("apply-suggested").addEventListener("click", () => {
   $("modes").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 // Touching a slider means the preset no longer describes what is set.
-for (const id of ["brightness", "warmth", "bass", "stereo-width", "headroom"]) {
+for (const id of ["brightness", "warmth", "bass", "stereo-width", "width-profile", "headroom"]) {
   $(id).addEventListener("input", () => {
     if (settingDials || !state.mode) return;
     state.mode = null;

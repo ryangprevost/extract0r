@@ -75,6 +75,11 @@ class Polish:
     #: Side-channel scale above `width_floor_hz`. 1.0 is untouched.
     width: float = 1.0
     width_floor_hz: float = DEFAULT_WIDTH_FLOOR_HZ
+    #: Match the reference's stereo image band by band, rather than scaling one factor
+    #: above a crossover. Records are usually tighter than a home mix at the bottom and
+    #: much wider above it, and a single factor cannot do both - see `mastering.width`.
+    #: 0 disables it, 1 matches fully, values between make part of the move.
+    width_profile: float = 1.0
     #: Extra dB to stay under the reference, on top of whatever the guard decides.
     headroom_db: float = 0.0
     #: Aim at the reference's loudness relative to its peak rather than absolutely,
@@ -101,6 +106,10 @@ class PolishReport:
     width_factor: float = 1.0
     width_before: float = 0.0
     width_after: float = 0.0
+    #: Per-band side-channel factors used to match the reference's image, by band name.
+    width_bands: dict[str, float] = field(default_factory=dict)
+    #: Level the result gives up when summed to mono. Negative; nearer 0 is safer.
+    mono_loss_db: float = 0.0
     headroom_db: float = 0.0
     #: Back-off applied because the reference peaks above our ceiling.
     ceiling_headroom_db: float = 0.0

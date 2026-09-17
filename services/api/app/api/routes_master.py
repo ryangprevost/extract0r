@@ -93,6 +93,10 @@ class MasterJobRequest(BaseModel):
     #: Side-channel scale above `width_floor_hz`; the low end is never widened.
     width: float = Field(default=1.0, ge=MIN_WIDTH, le=MAX_WIDTH)
     width_floor_hz: float = Field(default=DEFAULT_WIDTH_FLOOR_HZ, ge=80.0, le=600.0)
+    #: How much of the reference stereo image to take, band by band. Records are usually
+    #: tighter than a home mix below 250 Hz and much wider above it, which one factor
+    #: over a crossover cannot express. 0 turns it off.
+    width_profile: float = Field(default=1.0, ge=0.0, le=1.0)
     #: Extra dB to sit under the reference, on top of whatever the guard decides.
     headroom_db: float = Field(default=0.0, ge=0.0, le=6.0)
     #: Refuse to squash the master past the reference's own dynamic range.
@@ -432,6 +436,7 @@ def start_master(
             bass_hz=body.bass_from_hz,
             width=body.width,
             width_floor_hz=body.width_floor_hz,
+            width_profile=body.width_profile,
             headroom_db=body.headroom_db,
             protect_dynamics=body.protect_dynamics,
         ),
@@ -469,6 +474,8 @@ def start_master(
                     "stem": a.stem.value,
                     "gain_db": a.gain_db,
                     "width_factor": a.width_factor,
+                    "width_bands": a.width_bands,
+                    "mono_loss_db": a.mono_loss_db,
                     "eq_bands": a.eq_bands,
                     "notes": a.notes,
                     "matched": a.matched,

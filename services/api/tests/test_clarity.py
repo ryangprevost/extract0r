@@ -175,3 +175,38 @@ def test_thresholds_are_the_ones_the_findings_claim():
     """Guards the numbers in the docstrings against quiet drift."""
     assert CROWDED == 2.0
     assert CONTRAST_GAP_DB == 1.5
+
+
+def test_a_codec_cutoff_is_not_mistaken_for_structure():
+    """An MP3 stops dead above 16 kHz, so the 8-16 kHz band falls off a cliff inside
+    itself. Measured without removing the band's slope that read as 60 dB of contrast on
+    a track whose top octave was simply missing. A steep ramp is a trend, not structure.
+    """
+    freqs = np.fft.rfftfreq(8192, 1 / SR)
+    band = (freqs >= 8000) & (freqs < 16000)
+
+    # A clean rolloff: no peaks, no dips, just a cliff 60 dB deep.
+    ramp = np.ones_like(freqs) * 1e-6
+    ramp[band] = 10 ** (-np.linspace(0, 6, int(band.sum())))
+
+    # Against what the measure would say without detrending, which is what it used to say.
+    raw = 10 * np.log10(ramp[band] + 1e-30)
+    undetrended = float(np.percentile(raw, 85) - np.percentile(raw, 15))
+
+    assert undetrended > 30.0, "the fixture should look dramatic before detrending"
+    assert contrast_db(ramp, freqs, 8000, 16000) < undetrended * 0.15
+
+
+def test_real_structure_still_registers_on_top_of_a_slope():
+    """Removing the trend must not remove the signal: peaks riding on a rolloff are
+    still peaks."""
+    freqs = np.fft.rfftfreq(8192, 1 / SR)
+    band = (freqs >= 8000) & (freqs < 16000)
+
+    ramp = np.ones_like(freqs) * 1e-6
+    sloped = 10 ** (-np.linspace(0, 6, int(band.sum())))
+    # Comb the rolloff with alternating peaks and dips.
+    sloped = sloped * np.where(np.arange(sloped.size) % 8 < 4, 4.0, 0.25)
+    ramp[band] = sloped
+
+    assert contrast_db(ramp, freqs, 8000, 16000) > 6.0

@@ -136,8 +136,32 @@ class SpectralMatchEngine:
             finish.notes.append(
                 f"{polish.air_db:+.1f} dB shelf above {polish.air_hz / 1000:.0f} kHz"
             )
-        if polish.width != 1.0:
+        # Matching the reference's image comes first, so the manual dial rides on top of
+        # a mix that is already the right shape rather than fighting it.
+        if polish.width_profile > 0.0:
+            from app.services.mastering.width import match_profile
+
             finish.width_before = round(stereo_width(processed), 3)
+            processed, width_report = match_profile(
+                processed, ref.samples, source.sample_rate, polish.width_profile
+            )
+            finish.width_after = round(stereo_width(processed), 3)
+            finish.width_bands = width_report.factors
+            finish.mono_loss_db = width_report.mono_loss_db
+            moved = {
+                name: factor
+                for name, factor in width_report.factors.items()
+                if abs(factor - 1.0) >= 0.1
+            }
+            if moved:
+                finish.notes.append(
+                    "matched the reference's stereo image: "
+                    + ", ".join(f"{n} x{f:.2f}" for n, f in moved.items())
+                )
+            finish.notes.extend(width_report.notes)
+
+        if polish.width != 1.0:
+            finish.width_before = finish.width_before or round(stereo_width(processed), 3)
             processed = widen_above(
                 processed, source.sample_rate, polish.width, polish.width_floor_hz
             )

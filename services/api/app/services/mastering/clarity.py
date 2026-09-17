@@ -126,12 +126,25 @@ def contrast_db(
     is exactly why it is the thing to measure.
 
     Percentiles rather than max and min, because one bin of either is noise.
+
+    The band's own slope is removed first, and that is not a detail. An MP3 stops dead
+    somewhere above 16 kHz, so the 8-16 kHz band of a lossy file falls off a cliff inside
+    itself; measured raw it read 60 dB of "contrast" on a track whose top octave was
+    simply missing, against 8 dB for the CD-quality reference it was being compared to.
+    That is the codec's cutoff, not structure. Fitting and subtracting a line through the
+    band leaves only the peaks and dips around the trend, which is what was wanted.
     """
-    band = spectrum[(freqs >= low) & (freqs < high)]
+    selection = (freqs >= low) & (freqs < high)
+    band = spectrum[selection]
     if band.size < 8:
         return 0.0
+
     db = 10 * np.log10(band + 1e-30)
-    return float(np.percentile(db, 85) - np.percentile(db, 15))
+    with np.errstate(divide="ignore"):
+        octaves = np.log2(np.maximum(freqs[selection], 1e-6))
+    slope, intercept = np.polyfit(octaves, db, 1)
+    flattened = db - (slope * octaves + intercept)
+    return float(np.percentile(flattened, 85) - np.percentile(flattened, 15))
 
 
 def crest_db(samples: np.ndarray, sample_rate: int, low: float, high: float) -> float:

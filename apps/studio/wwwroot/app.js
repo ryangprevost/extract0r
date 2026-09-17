@@ -1000,9 +1000,9 @@ async function runMaster() {
         width: parseInt($("stereo-width").value, 10) / 100,
         width_profile: parseInt($("width-profile").value, 10) / 100,
         sparkle_db: parseFloat($("sparkle").value),
+        sparkle_from_hz: parseFloat($("sparkle-hz").value),
         centre_bass_hz: parseFloat($("centre-bass").value),
         subsonic_hz: parseFloat($("subsonic").value),
-        ambience_mix: parseInt($("ambience").value, 10) / 100,
         headroom_db: parseFloat($("headroom").value),
         match_stem_levels: $("ms-levels").checked,
         match_stem_tone: $("ms-tone").checked,
@@ -1312,7 +1312,6 @@ const DIAL_IDS = {
   sparkle: "sparkle",
   centreBass: "centre-bass",
   subsonic: "subsonic",
-  ambience: "ambience",
 };
 
 /** Are the controls already sitting where this finding wants them?
@@ -2007,10 +2006,6 @@ $("brightness").addEventListener("input", () => {
   const value = parseFloat($("brightness").value);
   $("brightness-out").textContent = value ? `${signed(value.toFixed(1))} dB` : "off";
 });
-$("ambience").addEventListener("input", () => {
-  const value = parseInt($("ambience").value, 10);
-  $("ambience-out").textContent = value ? `${value}% room` : "off";
-});
 $("sparkle").addEventListener("input", () => {
   const value = parseFloat($("sparkle").value);
   $("sparkle-out").textContent = value ? `+${value.toFixed(1)} dB` : "off";
@@ -2056,7 +2051,7 @@ $("apply-suggested").addEventListener("click", () => {
 });
 // Touching a slider means the preset no longer describes what is set.
 for (const id of ["brightness", "warmth", "bass", "stereo-width", "width-profile",
-                  "sparkle", "centre-bass", "subsonic", "ambience", "headroom"]) {
+                  "sparkle", "centre-bass", "subsonic", "headroom"]) {
   $(id).addEventListener("input", () => {
     if (settingDials) return;
     // Before the preset check, and outside it: moving a dial away from what a finding

@@ -12,7 +12,9 @@ import numpy as np
 import pytest
 
 from app.services.mastering.exciter import (
+    MAX_FROM_HZ,
     MAX_SPARKLE_DB,
+    MIN_FROM_HZ,
     SparkleReport,
     add_sparkle,
 )
@@ -132,3 +134,31 @@ def test_mono_input_comes_back_stereo_and_finite():
     out = add_sparkle(mono, SR, 3.0)
     assert out.ndim == 2 and out.shape[1] == 2
     assert np.all(np.isfinite(out))
+
+
+def test_the_focus_decides_between_presence_and_air():
+    """An exciter is sold on three words - brighter, clearer, more present - and which one
+    it delivers is entirely where the harmonics land. Low is definition; high is sheen."""
+    audio = _music()
+
+    low = add_sparkle(audio, SR, 4.0, 3500.0)
+    high = add_sparkle(audio, SR, 4.0, 9000.0)
+
+    def presence(x):
+        return _band(x, 3000, 6000)
+
+    assert presence(low) > presence(high) * 1.5
+    # Both still reach the top; it is the presence range that separates them.
+    assert _air(low) > _air(audio) and _air(high) > _air(audio)
+
+
+def test_the_focus_is_clamped_to_a_usable_range():
+    """Below about 3 kHz it stops adding definition and starts adding grit."""
+    audio = _music()
+    report = SparkleReport()
+    add_sparkle(audio, SR, 3.0, 100.0, report)
+    assert report.from_hz >= MIN_FROM_HZ
+
+    report = SparkleReport()
+    add_sparkle(audio, SR, 3.0, 40000.0, report)
+    assert report.from_hz <= MAX_FROM_HZ

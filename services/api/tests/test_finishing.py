@@ -1,8 +1,8 @@
 """Suggesting the finishing moves from measurements of both files.
 
 Each of these asks something the tonal match cannot, because none of them is a level:
-whether there is any top end to lift, whether the bass is spread, whether there is
-rumble under the music, and whether the parts hang together.
+whether there is any top end to lift, whether the bass is spread, and whether there
+is rumble under the music.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.services.mastering.finishing import MAX_AMBIENCE_MIX, suggest
+from app.services.mastering.finishing import suggest
 
 SR = 44100
 
@@ -89,11 +89,15 @@ def test_no_rumble_no_offer():
     assert "finish:subsonic" not in _areas(suggest(_mix(), _mix(), SR))
 
 
-def test_a_gappy_mix_is_offered_room():
-    found = _find(suggest(_mix(gaps=True), _mix(gaps=False), SR), "finish:ambience")
-    assert 0 < found["action"]["dials"]["ambience"] <= MAX_AMBIENCE_MIX * 100
-    # It must not oversell itself: limiting is part of why a record sounds continuous.
-    assert "limiting" in found["detail"]
+def test_room_is_no_longer_offered():
+    """A short room across the mix was offered here and has been removed. The measure said
+    it was closing the gaps between hits; the ear said there was obvious reverb on the
+    drums, which is audible long before it shows up as reduced crest. An exciter gives the
+    brightness and presence that "cohesion" turned out to mean, without filling the gaps.
+    """
+    findings = suggest(_mix(gaps=True), _mix(gaps=False), SR)
+    assert not any(f["area"] == "finish:ambience" for f in findings)
+    assert not any("ambience" in f["action"]["dials"] for f in findings)
 
 
 def test_a_mix_that_already_matches_gets_no_advice_at_all():
@@ -105,9 +109,10 @@ def test_a_mix_that_already_matches_gets_no_advice_at_all():
 
 
 def test_every_offer_is_in_the_units_its_slider_reads():
-    """The bug this guards against shipped twice. A width offer sent as a factor set the
-    slider to its minimum, so the button marked "Widen" narrowed the mix; ambience as a
-    fraction would have done the same thing. Both sliders read in whole units."""
+    """The bug this guards against shipped once and was caught a second time before it
+    could. A width offer sent as a factor set the slider to its minimum, so the button
+    marked "Widen" narrowed the mix. Every offer here reads in the units of its own
+    control."""
     findings = suggest(
         _mix(air=0.001, bass_width=0.30, rumble=0.25, gaps=True),
         _mix(air=0.08, bass_width=0.05, rumble=0.0, gaps=False),
@@ -117,7 +122,6 @@ def test_every_offer_is_in_the_units_its_slider_reads():
         "sparkle": (0.0, 6.0),
         "centreBass": (60.0, 300.0),
         "subsonic": (15.0, 60.0),
-        "ambience": (1.0, 18.0),
     }
     seen = 0
     for finding in findings:

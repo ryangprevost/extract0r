@@ -236,11 +236,10 @@ def test_every_finishing_control_is_reachable_through_the_api():
         "width": "width",
         "width_profile": "width_profile",
         "sparkle_db": "sparkle_db",
+        "sparkle_from_hz": "sparkle_from_hz",
         "centre_bass_hz": "centre_bass_hz",
         "centre_bass_amount": "centre_bass_amount",
         "subsonic_hz": "subsonic_hz",
-        "ambience_mix": "ambience_mix",
-        "ambience_s": "ambience_s",
         "headroom_db": "headroom_db",
         "protect_dynamics": "protect_dynamics",
     }

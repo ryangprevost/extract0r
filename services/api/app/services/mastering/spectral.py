@@ -154,9 +154,14 @@ class SpectralMatchEngine:
 
             sparkle_report = SparkleReport()
             processed = add_sparkle(
-                processed, source.sample_rate, polish.sparkle_db, sparkle_report
+                processed,
+                source.sample_rate,
+                polish.sparkle_db,
+                polish.sparkle_from_hz,
+                sparkle_report,
             )
             finish.sparkle_db = sparkle_report.sparkle_db
+            finish.sparkle_from_hz = sparkle_report.from_hz
             finish.air_added_db = sparkle_report.air_added_db
             finish.notes.extend(sparkle_report.notes)
 
@@ -193,29 +198,6 @@ class SpectralMatchEngine:
             finish.notes.append(
                 f"widened x{polish.width:.2f} above "
                 f"{polish.width_floor_hz:.0f} Hz, low end left centred"
-            )
-
-        # Ambience before centring, so the tail it adds is centred too rather than being
-        # the one wide thing left in the low end.
-        if polish.ambience_mix:
-            from app.services.mastering.reverb import apply_reverb
-            from app.services.mastering.space import gap_depth_db
-
-            finish.gap_depth_before_db = round(
-                float(gap_depth_db(processed, source.sample_rate) or 0.0), 2
-            )
-            processed = apply_reverb(
-                processed, source.sample_rate, polish.ambience_s, polish.ambience_mix
-            )
-            finish.gap_depth_after_db = round(
-                float(gap_depth_db(processed, source.sample_rate) or 0.0), 2
-            )
-            finish.ambience_mix = round(polish.ambience_mix, 3)
-            finish.ambience_s = round(polish.ambience_s, 2)
-            finish.notes.append(
-                f"{polish.ambience_mix:.0%} of a {polish.ambience_s:.1f}s room, closing "
-                f"the gaps between hits from {finish.gap_depth_before_db:.2f} to "
-                f"{finish.gap_depth_after_db:.2f} dB"
             )
 
         # Centring the bass goes after every width move, so nothing widens it again

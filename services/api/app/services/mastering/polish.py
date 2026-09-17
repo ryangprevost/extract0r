@@ -29,6 +29,7 @@ from app.services.mastering.dsp import (
     peak_db,
     set_width,
 )
+from app.services.mastering.exciter import DEFAULT_FROM_HZ as DEFAULT_SPARKLE_FROM_HZ
 from app.services.mastering.loudness_meter import integrated_loudness
 
 #: Where the air shelf starts to lift. Above the presence range, so it adds sheen rather
@@ -84,17 +85,14 @@ class Polish:
     #: `air_db`, which can only lift what is there, this makes top end that was never
     #: recorded - the difference that matters for DI'd and synthesised parts.
     sparkle_db: float = 0.0
+    #: Where the generated harmonics start. Low is presence and clarity, high is air.
+    sparkle_from_hz: float = DEFAULT_SPARKLE_FROM_HZ
     #: Pull everything below this towards the centre; 0 disables it. Spread bass is the
     #: usual cause of a low end that sounds big on headphones and thin everywhere else.
     centre_bass_hz: float = 0.0
     centre_bass_amount: float = 1.0
     #: Cut below this, where there are no notes - only rumble and handling noise. 0 off.
     subsonic_hz: float = 0.0
-    #: A short room across the whole mix, to sit the parts in one space. Small numbers:
-    #: this is glue, not an effect, and past about 0.2 it stops sounding like a room and
-    #: starts sounding like a reverb someone left on.
-    ambience_mix: float = 0.0
-    ambience_s: float = 0.6
     #: Extra dB to stay under the reference, on top of whatever the guard decides.
     headroom_db: float = 0.0
     #: Aim at the reference's loudness relative to its peak rather than absolutely,
@@ -111,7 +109,6 @@ class Polish:
             or self.sparkle_db
             or self.centre_bass_hz
             or self.subsonic_hz
-            or self.ambience_mix
         )
 
 
@@ -128,14 +125,9 @@ class PolishReport:
     #: Per-band side-channel factors used to match the reference's image, by band name.
     width_bands: dict[str, float] = field(default_factory=dict)
     sparkle_db: float = 0.0
+    sparkle_from_hz: float = 0.0
     #: What the exciter actually added above 8 kHz, which is not always what was asked.
     air_added_db: float = 0.0
-    ambience_mix: float = 0.0
-    ambience_s: float = 0.0
-    #: How far the level falls between hits, before and after. A mix whose gaps are
-    #: shallower hangs together; one with deep gaps sounds like separate parts.
-    gap_depth_before_db: float = 0.0
-    gap_depth_after_db: float = 0.0
     centred_below_hz: float = 0.0
     bass_width_before: float = 0.0
     bass_width_after: float = 0.0

@@ -25,13 +25,23 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-#: Drive band, and where its harmonics are kept. The first pass feeds the brilliance
+#: Drive bands: where the harmonics are made from. The first pass feeds the brilliance
 #: range, the second feeds the air above it - which one stage cannot reach, since
 #: distortion multiplies frequency rather than adding to it.
-STAGES: tuple[tuple[float, float, float], ...] = (
-    (1500.0, 4000.0, 6000.0),
-    (4000.0, 8000.0, 9000.0),
-)
+DRIVE_BANDS: tuple[tuple[float, float], ...] = ((1500.0, 4000.0), (4000.0, 8000.0))
+
+#: Where the harmonics are kept from, by default. Everything below this is filtered back
+#: out, so the drive band is a source of harmonics rather than a thing being distorted.
+DEFAULT_FROM_HZ = 6000.0
+#: The usable span for that corner. Low is presence - consonants, pick attack, the part
+#: of "clearer" that is not brightness. High is air, which is sheen and nothing else.
+#: Below about 3 kHz it stops adding definition and starts adding grit.
+MIN_FROM_HZ = 3000.0
+MAX_FROM_HZ = 10000.0
+
+#: The second stage's corner, relative to the first. Its harmonics come from an octave
+#: higher, so keeping them at the same frequency would just double the first stage.
+SECOND_STAGE_RATIO = 1.5
 
 #: Ceiling on the control. Past this it stops being air and starts being distortion, and
 #: the harmonics pile up faster than the ear reads them as brightness.
@@ -64,6 +74,7 @@ SPIKE_CEILING = 2.5
 @dataclass
 class SparkleReport:
     sparkle_db: float = 0.0
+    from_hz: float = DEFAULT_FROM_HZ
     #: Energy added above 8 kHz, in dB relative to what was there.
     air_added_db: float = 0.0
     #: How closely the added content follows the material it was made from. Near 1 means
@@ -87,13 +98,20 @@ def add_sparkle(
     samples: np.ndarray,
     sample_rate: int,
     sparkle_db: float,
+    from_hz: float = DEFAULT_FROM_HZ,
     report: SparkleReport | None = None,
 ) -> np.ndarray:
-    """Generate harmonics from the mix's own upper mids and add them on top.
+    """Generate harmonics from the mix's own upper mids and add them above `from_hz`.
 
     The generated content is high-passed before it is mixed in, so nothing is added back
     into the range it was made from - otherwise this would be a midrange distortion
     control wearing a brighter name.
+
+    `from_hz` decides which of the three words an exciter is sold on it delivers. Low, at
+    3-5 kHz, the harmonics land on consonants, pick attack and stick, and the result reads
+    as *clearer* and more present. High, at 8-10 kHz, they land above everything and the
+    result is *brighter* - sheen, and nothing that helps a part cut through. The default
+    sits between the two.
     """
     from scipy.signal import butter, sosfilt
 
@@ -104,10 +122,12 @@ def add_sparkle(
         return audio
 
     sparkle_db = float(np.clip(sparkle_db, 0.0, MAX_SPARKLE_DB))
+    from_hz = float(np.clip(from_hz, MIN_FROM_HZ, MAX_FROM_HZ))
     nyquist = sample_rate / 2.0
     generated = np.zeros_like(audio)
 
-    for low, high, keep_above in STAGES:
+    corners = (from_hz, from_hz * SECOND_STAGE_RATIO)
+    for (low, high), keep_above in zip(DRIVE_BANDS, corners, strict=True):
         if keep_above >= nyquist * 0.95:
             continue
         drive_sos = butter(
@@ -175,6 +195,7 @@ def add_sparkle(
 
     if report is not None:
         report.sparkle_db = round(sparkle_db, 2)
+        report.from_hz = round(from_hz)
         air_sos = butter(4, 8000.0 / nyquist, btype="high", output="sos")
         before = float(np.sqrt(np.mean(sosfilt(air_sos, audio.mean(axis=1)) ** 2)))
         after = float(np.sqrt(np.mean(sosfilt(air_sos, out.mean(axis=1)) ** 2)))
@@ -197,8 +218,9 @@ def add_sparkle(
                 report.tracks_source = round(float(np.corrcoef(a, b)[0, 1]), 3)
         report.capped = capped
         report.notes.append(
-            f"sparkle +{sparkle_db:.1f} dB: {report.air_added_db:+.1f} dB above 8 kHz, "
-            "generated from the mix's own upper mids"
+            f"sparkle +{sparkle_db:.1f} dB from {from_hz / 1000:.1f} kHz up: "
+            f"{report.air_added_db:+.1f} dB above 8 kHz, generated from the mix's own "
+            "upper mids"
             + (", eased back to protect the peaks" if capped else "")
         )
     return out

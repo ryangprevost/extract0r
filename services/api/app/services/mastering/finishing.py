@@ -1,16 +1,21 @@
 """Suggesting the finishing moves, from the same measurements that justify them.
 
-The tonal match already answers "is this band too loud". These four questions it cannot
+The tonal match already answers "is this band too loud". These three questions it cannot
 ask, because none of them is a level:
 
   - Is there anything up top to lift at all, or does it have to be made?
   - Is the bass spread across the image instead of sitting in the middle?
   - Is there rumble under the music, eating headroom nobody hears?
-  - Do the parts sound like one record or like several things playing at once?
 
-All four are measured on the summed mix and the summed reference, so this runs in the
+All three are measured on the summed mix and the summed reference, so this runs in the
 fast half of the comparison - no separation needed - and every suggestion arrives with
 the number that produced it.
+
+A fourth once lived here, offering a short room to close the gaps between hits. The
+measurement said it was working and the ear said otherwise - a reverb tail on drums is
+obvious long before it shows up as reduced crest - so it was removed rather than tuned.
+Brightness and presence are what "cohesion" turned out to mean, and an exciter provides
+those without putting anything in the gaps.
 """
 
 from __future__ import annotations
@@ -35,12 +40,6 @@ BASS_SPREAD_RATIO = 1.35
 RUMBLE_BAND = (18.0, 38.0)
 #: More rumble than the reference by this much is worth removing.
 RUMBLE_EXCESS_DB = 1.5
-
-#: Gaps this much deeper than the reference's read as parts rather than as a record.
-GAP_EXCESS_DB = 0.35
-#: Ambience is glue, not an effect. Past this it stops sounding like a room.
-MAX_AMBIENCE_MIX = 0.18
-
 
 def _band_rms(samples: np.ndarray, sample_rate: int, low: float, high: float) -> float:
     from scipy.signal import butter, sosfiltfilt
@@ -80,7 +79,7 @@ def suggest(
     sample_rate: int,
     reference_rate: int | None = None,
 ) -> list[dict]:
-    """Findings for the four finishing moves, each with the dial that answers it."""
+    """Findings for each finishing move, carrying the dial that answers it."""
     reference_rate = reference_rate or sample_rate
     mine = _middle(source, sample_rate)
     theirs = _middle(reference, reference_rate)
@@ -178,41 +177,6 @@ def suggest(
                     "clause": "rumble under the music",
                 }
             )
-
-    # --- does it hang together? -------------------------------------------------------
-    from app.services.mastering.space import gap_depth_db
-
-    my_gap = gap_depth_db(mine, sample_rate)
-    their_gap = gap_depth_db(theirs, reference_rate)
-    if my_gap and their_gap and (my_gap - their_gap) >= GAP_EXCESS_DB:
-        gap = float(my_gap - their_gap)
-        wanted = float(np.clip(gap * 0.12, 0.04, MAX_AMBIENCE_MIX))
-        out.append(
-            {
-                "area": "finish:ambience",
-                "severity": "slight",
-                "delta_db": round(gap, 2),
-                "headline": "The parts sit further apart than they do on the reference",
-                "detail": (
-                    f"The level falls {my_gap:.2f} dB between hits in your mix against "
-                    f"{their_gap:.2f} dB on the reference. Deeper gaps are heard as "
-                    f"separate parts playing at once rather than as one record - the "
-                    f"things that normally fill them are a shared room and the tails of "
-                    f"whatever came before. A little ambience across the whole mix puts "
-                    f"the parts in the same space, which is what cohesion mostly is. "
-                    f"Some of the reference's continuity is heavy limiting rather than "
-                    f"reverb, so this closes part of the gap, not all of it."
-                ),
-                # Percent, because the cohesion slider reads in percent. Sent as the
-                # fraction it is computed as, it would land on the slider's minimum and
-                # do nothing - the same mistake the width offer made.
-                "action": {
-                    "label": "Add a little room",
-                    "dials": {"ambience": round(wanted * 100)},
-                },
-                "clause": "parts that sit apart",
-            }
-        )
 
     out.sort(key=lambda f: -abs(f["delta_db"]))
     return out

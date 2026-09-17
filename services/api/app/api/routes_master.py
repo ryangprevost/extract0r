@@ -34,7 +34,12 @@ from app.services.mastering.polish import (
     MIN_WIDTH,
     Polish,
 )
-from app.services.mastering.exciter import MAX_SPARKLE_DB
+from app.services.mastering.exciter import (
+    DEFAULT_FROM_HZ as DEFAULT_SPARKLE_FROM_HZ,
+    MAX_FROM_HZ as MAX_SPARKLE_FROM_HZ,
+    MAX_SPARKLE_DB,
+    MIN_FROM_HZ as MIN_SPARKLE_FROM_HZ,
+)
 from app.services.mastering.lowend import MAX_CENTRE_HZ, MAX_SUBSONIC_HZ
 from app.services.mastering.vocals import VocalPresence
 from app.services.registry import TrackRegistry
@@ -104,15 +109,16 @@ class MasterJobRequest(BaseModel):
     #: only lift what is there; this makes top end that was never recorded, which is the
     #: case for anything DI'd or played from a synth patch.
     sparkle_db: float = Field(default=0.0, ge=0.0, le=MAX_SPARKLE_DB)
+    #: Where the harmonics start. Low (3-5 kHz) reads as clearer and more present; high
+    #: (8-10 kHz) reads as brighter, and is sheen rather than definition.
+    sparkle_from_hz: float = Field(
+        default=DEFAULT_SPARKLE_FROM_HZ, ge=MIN_SPARKLE_FROM_HZ, le=MAX_SPARKLE_FROM_HZ
+    )
     #: Pull the low end towards the centre. 0 leaves it alone.
     centre_bass_hz: float = Field(default=0.0, ge=0.0, le=MAX_CENTRE_HZ)
     centre_bass_amount: float = Field(default=1.0, ge=0.0, le=1.0)
     #: Cut below this, where there are no notes - only rumble. 0 leaves it alone.
     subsonic_hz: float = Field(default=0.0, ge=0.0, le=MAX_SUBSONIC_HZ)
-    #: A short room over the whole mix, so the parts sit in one space. Glue, not an
-    #: effect: past about 0.2 it stops sounding like a room.
-    ambience_mix: float = Field(default=0.0, ge=0.0, le=0.3)
-    ambience_s: float = Field(default=0.6, ge=0.2, le=2.0)
     #: Extra dB to sit under the reference, on top of whatever the guard decides.
     headroom_db: float = Field(default=0.0, ge=0.0, le=6.0)
     #: Refuse to squash the master past the reference's own dynamic range.
@@ -466,11 +472,10 @@ def start_master(
             width_floor_hz=body.width_floor_hz,
             width_profile=body.width_profile,
             sparkle_db=body.sparkle_db,
+            sparkle_from_hz=body.sparkle_from_hz,
             centre_bass_hz=body.centre_bass_hz,
             centre_bass_amount=body.centre_bass_amount,
             subsonic_hz=body.subsonic_hz,
-            ambience_mix=body.ambience_mix,
-            ambience_s=body.ambience_s,
             headroom_db=body.headroom_db,
             protect_dynamics=body.protect_dynamics,
         ),
@@ -511,15 +516,12 @@ def start_master(
                     "width_bands": a.width_bands,
                     "mono_loss_db": a.mono_loss_db,
                     "sparkle_db": a.sparkle_db,
+                    "sparkle_from_hz": a.sparkle_from_hz,
                     "air_added_db": a.air_added_db,
                     "centred_below_hz": a.centred_below_hz,
                     "bass_width_before": a.bass_width_before,
                     "bass_width_after": a.bass_width_after,
                     "subsonic_hz": a.subsonic_hz,
-                    "ambience_mix": a.ambience_mix,
-                    "ambience_s": a.ambience_s,
-                    "gap_depth_before_db": a.gap_depth_before_db,
-                    "gap_depth_after_db": a.gap_depth_after_db,
                     "eq_bands": a.eq_bands,
                     "notes": a.notes,
                     "matched": a.matched,

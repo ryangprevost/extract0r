@@ -215,3 +215,43 @@ def test_an_out_of_range_tempo_override_is_rejected(client, sample_wav):
         json={"stems": ["bass"], "tempo_bpm": 5000},
     )
     assert response.status_code == 422
+
+
+def test_every_finishing_control_is_reachable_through_the_api():
+    """A control that exists in Polish but has no request field is invisible: the page can
+    send it, pydantic drops it, and the dial silently does nothing. That shipped once -
+    the cohesion slider was wired end to end except for this, so it moved and changed
+    nothing at all."""
+    from app.api.routes_master import MasterJobRequest
+    from app.services.mastering.polish import Polish
+
+    # Polish field -> the request field that feeds it. Both names are listed on purpose:
+    # they differ often enough that inferring the mapping would hide the very mistake
+    # this is here to catch.
+    wiring = {
+        "air_db": "brightness_db",
+        "air_hz": "brightness_from_hz",
+        "warmth_db": "warmth_db",
+        "bass_db": "bass_db",
+        "width": "width",
+        "width_profile": "width_profile",
+        "sparkle_db": "sparkle_db",
+        "centre_bass_hz": "centre_bass_hz",
+        "centre_bass_amount": "centre_bass_amount",
+        "subsonic_hz": "subsonic_hz",
+        "ambience_mix": "ambience_mix",
+        "ambience_s": "ambience_s",
+        "headroom_db": "headroom_db",
+        "protect_dynamics": "protect_dynamics",
+    }
+    request_fields = set(MasterJobRequest.model_fields)
+    for polish_field, request_field in wiring.items():
+        assert hasattr(Polish(), polish_field), f"Polish lost {polish_field}"
+        assert request_field in request_fields, (
+            f"Polish.{polish_field} has no way in: {request_field} is not a request field"
+        )
+
+    # And nothing in Polish was added without being listed here.
+    known = set(wiring) | {"warmth_hz", "bass_hz", "width_floor_hz"}
+    unmapped = {f for f in Polish.__dataclass_fields__ if f not in known}
+    assert not unmapped, f"new Polish controls with no API wiring or exemption: {unmapped}"

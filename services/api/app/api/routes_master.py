@@ -109,6 +109,10 @@ class MasterJobRequest(BaseModel):
     centre_bass_amount: float = Field(default=1.0, ge=0.0, le=1.0)
     #: Cut below this, where there are no notes - only rumble. 0 leaves it alone.
     subsonic_hz: float = Field(default=0.0, ge=0.0, le=MAX_SUBSONIC_HZ)
+    #: A short room over the whole mix, so the parts sit in one space. Glue, not an
+    #: effect: past about 0.2 it stops sounding like a room.
+    ambience_mix: float = Field(default=0.0, ge=0.0, le=0.3)
+    ambience_s: float = Field(default=0.6, ge=0.2, le=2.0)
     #: Extra dB to sit under the reference, on top of whatever the guard decides.
     headroom_db: float = Field(default=0.0, ge=0.0, le=6.0)
     #: Refuse to squash the master past the reference's own dynamic range.
@@ -465,6 +469,8 @@ def start_master(
             centre_bass_hz=body.centre_bass_hz,
             centre_bass_amount=body.centre_bass_amount,
             subsonic_hz=body.subsonic_hz,
+            ambience_mix=body.ambience_mix,
+            ambience_s=body.ambience_s,
             headroom_db=body.headroom_db,
             protect_dynamics=body.protect_dynamics,
         ),
@@ -510,6 +516,10 @@ def start_master(
                     "bass_width_before": a.bass_width_before,
                     "bass_width_after": a.bass_width_after,
                     "subsonic_hz": a.subsonic_hz,
+                    "ambience_mix": a.ambience_mix,
+                    "ambience_s": a.ambience_s,
+                    "gap_depth_before_db": a.gap_depth_before_db,
+                    "gap_depth_after_db": a.gap_depth_after_db,
                     "eq_bands": a.eq_bands,
                     "notes": a.notes,
                     "matched": a.matched,

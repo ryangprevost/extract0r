@@ -34,6 +34,8 @@ from app.services.mastering.polish import (
     MIN_WIDTH,
     Polish,
 )
+from app.services.mastering.exciter import MAX_SPARKLE_DB
+from app.services.mastering.lowend import MAX_CENTRE_HZ, MAX_SUBSONIC_HZ
 from app.services.mastering.vocals import VocalPresence
 from app.services.registry import TrackRegistry
 from app.services.storage import TrackStorage, UnsupportedAudioError
@@ -98,6 +100,15 @@ class MasterJobRequest(BaseModel):
     #: tighter than a home mix below 250 Hz and much wider above it, which one factor
     #: over a crossover cannot express. 0 turns it off.
     width_profile: float = Field(default=1.0, ge=0.0, le=1.0)
+    #: Harmonics made from the mix's own upper mids and added above them. A shelf can
+    #: only lift what is there; this makes top end that was never recorded, which is the
+    #: case for anything DI'd or played from a synth patch.
+    sparkle_db: float = Field(default=0.0, ge=0.0, le=MAX_SPARKLE_DB)
+    #: Pull the low end towards the centre. 0 leaves it alone.
+    centre_bass_hz: float = Field(default=0.0, ge=0.0, le=MAX_CENTRE_HZ)
+    centre_bass_amount: float = Field(default=1.0, ge=0.0, le=1.0)
+    #: Cut below this, where there are no notes - only rumble. 0 leaves it alone.
+    subsonic_hz: float = Field(default=0.0, ge=0.0, le=MAX_SUBSONIC_HZ)
     #: Extra dB to sit under the reference, on top of whatever the guard decides.
     headroom_db: float = Field(default=0.0, ge=0.0, le=6.0)
     #: Refuse to squash the master past the reference's own dynamic range.
@@ -450,6 +461,10 @@ def start_master(
             width=body.width,
             width_floor_hz=body.width_floor_hz,
             width_profile=body.width_profile,
+            sparkle_db=body.sparkle_db,
+            centre_bass_hz=body.centre_bass_hz,
+            centre_bass_amount=body.centre_bass_amount,
+            subsonic_hz=body.subsonic_hz,
             headroom_db=body.headroom_db,
             protect_dynamics=body.protect_dynamics,
         ),
@@ -489,6 +504,12 @@ def start_master(
                     "width_factor": a.width_factor,
                     "width_bands": a.width_bands,
                     "mono_loss_db": a.mono_loss_db,
+                    "sparkle_db": a.sparkle_db,
+                    "air_added_db": a.air_added_db,
+                    "centred_below_hz": a.centred_below_hz,
+                    "bass_width_before": a.bass_width_before,
+                    "bass_width_after": a.bass_width_after,
+                    "subsonic_hz": a.subsonic_hz,
                     "eq_bands": a.eq_bands,
                     "notes": a.notes,
                     "matched": a.matched,

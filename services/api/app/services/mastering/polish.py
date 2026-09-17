@@ -80,6 +80,16 @@ class Polish:
     #: much wider above it, and a single factor cannot do both - see `mastering.width`.
     #: 0 disables it, 1 matches fully, values between make part of the move.
     width_profile: float = 1.0
+    #: Harmonics generated from the mix's own upper mids and added above them. Unlike
+    #: `air_db`, which can only lift what is there, this makes top end that was never
+    #: recorded - the difference that matters for DI'd and synthesised parts.
+    sparkle_db: float = 0.0
+    #: Pull everything below this towards the centre; 0 disables it. Spread bass is the
+    #: usual cause of a low end that sounds big on headphones and thin everywhere else.
+    centre_bass_hz: float = 0.0
+    centre_bass_amount: float = 1.0
+    #: Cut below this, where there are no notes - only rumble and handling noise. 0 off.
+    subsonic_hz: float = 0.0
     #: Extra dB to stay under the reference, on top of whatever the guard decides.
     headroom_db: float = 0.0
     #: Aim at the reference's loudness relative to its peak rather than absolutely,
@@ -93,6 +103,9 @@ class Polish:
             or self.bass_db
             or self.width != 1.0
             or self.headroom_db
+            or self.sparkle_db
+            or self.centre_bass_hz
+            or self.subsonic_hz
         )
 
 
@@ -108,6 +121,13 @@ class PolishReport:
     width_after: float = 0.0
     #: Per-band side-channel factors used to match the reference's image, by band name.
     width_bands: dict[str, float] = field(default_factory=dict)
+    sparkle_db: float = 0.0
+    #: What the exciter actually added above 8 kHz, which is not always what was asked.
+    air_added_db: float = 0.0
+    centred_below_hz: float = 0.0
+    bass_width_before: float = 0.0
+    bass_width_after: float = 0.0
+    subsonic_hz: float = 0.0
     #: Level the result gives up when summed to mono. Negative; nearer 0 is safer.
     mono_loss_db: float = 0.0
     headroom_db: float = 0.0

@@ -260,6 +260,21 @@
           <option value="12000">12 kHz — sheen</option>
         </select>
       </label>
+      <label class="control" title="Makes top end that was never recorded, by generating harmonics from the mix's own upper mids. Different from Brightness, which can only lift what is already there — and that is why a shelf does nothing for parts played from a synth patch or taken direct off a DI.">
+        <span>Sparkle</span>
+        <input type="range" id="sparkle" min="0" max="6" step="0.5" value="0" />
+        <output id="sparkle-out">off</output>
+      </label>
+      <label class="control" title="Pulls the low end towards the centre. Spread bass is the usual cause of a mix that sounds big on headphones and thin on a phone, because side content cancels when the channels are summed. No EQ is applied — nothing gets louder, more of it just survives.">
+        <span>Centre the bass</span>
+        <input type="range" id="centre-bass" min="0" max="300" step="10" value="0" />
+        <output id="centre-bass-out">off</output>
+      </label>
+      <label class="control" title="Cuts below the lowest note anything plays — a bass guitar's E is 41 Hz. What lives down there is rumble and handling noise: inaudible on most systems, but the limiter hears it and spends headroom on it.">
+        <span>Cut subsonics</span>
+        <input type="range" id="subsonic" min="0" max="60" step="5" value="0" />
+        <output id="subsonic-out">off</output>
+      </label>
       <label class="control" title="Records are usually tighter than a home mix below 250 Hz and much wider above it. This matches your reference band by band, and eases back if it would cost more in mono than the reference itself gives up.">
         <span>Match reference image</span>
         <input type="range" id="width-profile" min="0" max="100" step="10" value="100" />

@@ -999,6 +999,9 @@ async function runMaster() {
         brightness_from_hz: parseFloat($("brightness-hz").value),
         width: parseInt($("stereo-width").value, 10) / 100,
         width_profile: parseInt($("width-profile").value, 10) / 100,
+        sparkle_db: parseFloat($("sparkle").value),
+        centre_bass_hz: parseFloat($("centre-bass").value),
+        subsonic_hz: parseFloat($("subsonic").value),
         headroom_db: parseFloat($("headroom").value),
         match_stem_levels: $("ms-levels").checked,
         match_stem_tone: $("ms-tone").checked,
@@ -1992,6 +1995,18 @@ $("brightness").addEventListener("input", () => {
   const value = parseFloat($("brightness").value);
   $("brightness-out").textContent = value ? `${signed(value.toFixed(1))} dB` : "off";
 });
+$("sparkle").addEventListener("input", () => {
+  const value = parseFloat($("sparkle").value);
+  $("sparkle-out").textContent = value ? `+${value.toFixed(1)} dB` : "off";
+});
+$("centre-bass").addEventListener("input", () => {
+  const value = parseInt($("centre-bass").value, 10);
+  $("centre-bass-out").textContent = value ? `below ${value} Hz` : "off";
+});
+$("subsonic").addEventListener("input", () => {
+  const value = parseInt($("subsonic").value, 10);
+  $("subsonic-out").textContent = value ? `below ${value} Hz` : "off";
+});
 $("width-profile").addEventListener("input", () => {
   const value = parseInt($("width-profile").value, 10);
   $("width-profile-out").textContent =
@@ -2024,7 +2039,8 @@ $("apply-suggested").addEventListener("click", () => {
   $("modes").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 // Touching a slider means the preset no longer describes what is set.
-for (const id of ["brightness", "warmth", "bass", "stereo-width", "width-profile", "headroom"]) {
+for (const id of ["brightness", "warmth", "bass", "stereo-width", "width-profile",
+                  "sparkle", "centre-bass", "subsonic", "headroom"]) {
   $(id).addEventListener("input", () => {
     if (settingDials) return;
     // Before the preset check, and outside it: moving a dial away from what a finding

@@ -118,6 +118,18 @@ class SpectralMatchEngine:
             width_factor=polish.width,
         )
 
+        # Cleanup first: there is no point shaping, widening or limiting rumble that is
+        # about to be thrown away, and removing it frees headroom for everything after.
+        if polish.subsonic_hz:
+            from app.services.mastering.lowend import LowEndReport, remove_subsonics
+
+            low_report = LowEndReport()
+            processed = remove_subsonics(
+                processed, source.sample_rate, polish.subsonic_hz, low_report
+            )
+            finish.subsonic_hz = low_report.subsonic_hz
+            finish.notes.extend(low_report.notes)
+
         if polish.bass_db:
             processed = add_bass(
                 processed, source.sample_rate, polish.bass_db, polish.bass_hz
@@ -137,6 +149,17 @@ class SpectralMatchEngine:
             finish.notes.append(
                 f"{polish.air_db:+.1f} dB shelf above {polish.air_hz / 1000:.0f} kHz"
             )
+        if polish.sparkle_db:
+            from app.services.mastering.exciter import SparkleReport, add_sparkle
+
+            sparkle_report = SparkleReport()
+            processed = add_sparkle(
+                processed, source.sample_rate, polish.sparkle_db, sparkle_report
+            )
+            finish.sparkle_db = sparkle_report.sparkle_db
+            finish.air_added_db = sparkle_report.air_added_db
+            finish.notes.extend(sparkle_report.notes)
+
         # Matching the reference's image comes first, so the manual dial rides on top of
         # a mix that is already the right shape rather than fighting it.
         if polish.width_profile > 0.0:
@@ -171,6 +194,24 @@ class SpectralMatchEngine:
                 f"widened x{polish.width:.2f} above "
                 f"{polish.width_floor_hz:.0f} Hz, low end left centred"
             )
+
+        # Centring the bass goes after every width move, so nothing widens it again
+        # afterwards, and before the limiter, which then sees the tighter signal.
+        if polish.centre_bass_hz:
+            from app.services.mastering.lowend import LowEndReport, centre_bass
+
+            centre_report = LowEndReport()
+            processed = centre_bass(
+                processed,
+                source.sample_rate,
+                polish.centre_bass_hz,
+                polish.centre_bass_amount,
+                centre_report,
+            )
+            finish.centred_below_hz = centre_report.centred_below_hz
+            finish.bass_width_before = centre_report.width_before
+            finish.bass_width_after = centre_report.width_after
+            finish.notes.extend(centre_report.notes)
 
         # --- level ----------------------------------------------------------
         gain, measurements = gain_to_match(processed, ref.samples, source.sample_rate)

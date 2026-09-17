@@ -113,6 +113,9 @@ class MasterRequest:
     source: Path | None = None
     #: Whether to do that. Off means summing the stems, artefacts and all.
     preserve_source: bool = True
+    #: ID3 fields for the exported MP3, so the file itself records what it came from and
+    #: what it was matched against.
+    tags: dict[str, str] = field(default_factory=dict)
     #: Name of a kit to lay over the drums, or None to leave them as recorded.
     drum_kit: str | None = None
     #: Which drums to trigger, and how far to lean on the samples against the originals.
@@ -397,7 +400,9 @@ def run(
     report(0.85, "encoding mp3")
     final = read_audio(mastered_wav)
     mp3_path = work_dir / "master.mp3"
-    write_mp3(mp3_path, final.samples, final.sample_rate, request.bitrate_kbps)
+    write_mp3(
+        mp3_path, final.samples, final.sample_rate, request.bitrate_kbps, request.tags
+    )
 
     wav_path = None
     if request.export_wav:

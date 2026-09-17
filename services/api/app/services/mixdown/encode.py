@@ -78,8 +78,55 @@ def write_wav(path: Path, samples: np.ndarray, sample_rate: int) -> Path:
     return path
 
 
+def id3v2_tag(fields: dict[str, str]) -> bytes:
+    """A minimal ID3v2.3 tag, built by hand.
+
+    Hand-built because the alternative is another dependency for perhaps sixty lines, and
+    because the tag matters: an export needs to say which reference it was matched
+    against. A filename holds one name comfortably, and a master is the product of two.
+    Six months later "which reference was this?" is otherwise unanswerable.
+
+    Text is UTF-16LE with a byte-order mark, which is what v2.3 specifies for anything
+    beyond Latin-1 - song titles collect accents and typographic apostrophes.
+
+    Known frames: TIT2 title, TPE1 artist, TALB album, TENC encoder, COMM comment.
+    """
+    def frame(name: str, payload: bytes) -> bytes:
+        # v2.3 sizes are plain big-endian, unlike the synchsafe header size below.
+        return name.encode("ascii") + len(payload).to_bytes(4, "big") + b"\x00\x00" + payload
+
+    def text(value: str) -> bytes:
+        return b"\x01" + b"\xff\xfe" + value.encode("utf-16-le")
+
+    body = b""
+    for name, value in fields.items():
+        if not value:
+            continue
+        if name == "COMM":
+            # encoding, language, short description (empty, terminated), then the text.
+            payload = b"\x01eng" + b"\xff\xfe" + b"\x00\x00" + b"\xff\xfe" + value.encode(
+                "utf-16-le"
+            )
+            body += frame("COMM", payload)
+        else:
+            body += frame(name, text(value))
+
+    if not body:
+        return b""
+
+    # The header size is synchsafe: seven bits per byte, so a size byte can never look
+    # like an MPEG frame sync and confuse a decoder scanning for one.
+    size = len(body)
+    synchsafe = bytes(((size >> shift) & 0x7F) for shift in (21, 14, 7, 0))
+    return b"ID3" + b"\x03\x00" + b"\x00" + synchsafe + body
+
+
 def write_mp3(
-    path: Path, samples: np.ndarray, sample_rate: int, bitrate_kbps: int = 320
+    path: Path,
+    samples: np.ndarray,
+    sample_rate: int,
+    bitrate_kbps: int = 320,
+    tags: dict[str, str] | None = None,
 ) -> Path:
     """Encode to MP3 with LAME directly, no external process."""
     try:
@@ -108,7 +155,8 @@ def write_mp3(
     data += encoder.flush()
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(bytes(data))
+    # The tag goes in front of the audio, which is where a decoder expects to find it.
+    path.write_bytes(id3v2_tag(tags or {}) + bytes(data))
     return path
 
 

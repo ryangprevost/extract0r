@@ -26,6 +26,9 @@ class TrackRecord:
     timing: TimingEstimate | None = None
     #: Separated stems of the mastering reference, if it has been split.
     reference_stems: dict = field(default_factory=dict)
+    #: What the reference was called when it arrived. On disk it becomes "reference.mp3"
+    #: like every other, but an export should be able to say what it was matched against.
+    reference_name: str = ""
     uploaded_at: str = field(
         default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds")
     )

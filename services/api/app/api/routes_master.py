@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -155,7 +156,7 @@ async def upload_reference(
     gate applies here too — uploading a commercial master is still an upload.
     """
     try:
-        registry.require(track_id)
+        record = registry.require(track_id)
     except KeyError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
 
@@ -176,11 +177,17 @@ async def upload_reference(
             f"Reference exceeds the {settings.max_upload_mb} MB limit.",
         )
 
-    return _store_reference(track_id, file.filename or "reference.wav", data, storage)
+    return _store_reference(
+        track_id, file.filename or "reference.wav", data, storage, record
+    )
 
 
 def _store_reference(
-    track_id: str, filename: str, data: bytes, storage: TrackStorage
+    track_id: str,
+    filename: str,
+    data: bytes,
+    storage: TrackStorage,
+    record=None,
 ) -> ReferenceResponse:
     """Save, probe and meter a reference, however the bytes arrived.
 
@@ -191,6 +198,9 @@ def _store_reference(
         stored = storage.save_reference(track_id, filename, data)
     except UnsupportedAudioError as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
+
+    if record is not None:
+        record.reference_name = filename
 
     from app.services.audio.probe import UnreadableAudioError, probe
 
@@ -270,7 +280,9 @@ async def reference_from_url(
     except FetchError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
-    response = _store_reference(track_id, fetched.filename, fetched.data, storage)
+    response = _store_reference(
+        track_id, fetched.filename, fetched.data, storage, registry.get(track_id)
+    )
     response.source_url = fetched.source_url
     return response
 
@@ -417,6 +429,7 @@ def start_master(
             else storage.source_path(track_id)
         ),
         preserve_source=body.preserve_source,
+        tags=_export_tags(record),
         bitrate_kbps=body.bitrate_kbps,
         match_strength=body.match_strength,
         match_stem_levels=body.match_stem_levels,
@@ -540,14 +553,51 @@ def _stats(stats) -> dict | None:
     }
 
 
+def _export_name(record) -> str:
+    """What the download should be called: the song's own name, marked as ours.
+
+    Everything downloaded from here used to arrive as "extract0r-master.mp3", so a
+    folder of masters was a folder of identical names, each overwriting the last.
+    """
+    original = getattr(getattr(record, "stored", None), "original_filename", "") or ""
+    stem = Path(original).stem.strip() or "master"
+    # Windows and macOS both object to these, and a download that cannot be saved is
+    # worse than one with a dull name.
+    cleaned = "".join(" " if c in r'<>:"/\|?*' else c for c in stem).strip()
+    return f"{cleaned or 'master'} [extract0r].mp3"
+
+
+def _export_tags(record) -> dict[str, str]:
+    """ID3 fields for the export, including which reference it was matched against.
+
+    The reference belongs in the tag rather than the filename. A master is the product of
+    two recordings but only one of them is the song, and putting both names in the
+    filename makes it unreadable at exactly the moment it should be scannable.
+    """
+    original = getattr(getattr(record, "stored", None), "original_filename", "") or ""
+    reference = getattr(record, "reference_name", "") or ""
+    comment = "Mastered with extract0r"
+    if reference:
+        comment += f" against {Path(reference).stem}"
+    return {
+        "TIT2": Path(original).stem or "master",
+        "TENC": "extract0r",
+        "COMM": comment,
+    }
+
+
 @router.get("/{track_id}/master/download")
 def download_master(
-    track_id: str, storage: TrackStorage = Depends(get_storage)
+    track_id: str,
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
 ) -> FileResponse:
     path = storage.exports_dir(track_id) / "master.mp3"
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No master rendered for this track.")
-    return FileResponse(path, media_type="audio/mpeg", filename="extract0r-master.mp3")
+    return FileResponse(
+        path, media_type="audio/mpeg", filename=_export_name(registry.get(track_id))
+    )
 
 
 @router.get("/{track_id}/master/peaks")

@@ -60,24 +60,61 @@ async function api(path, options = {}) {
   return body;
 }
 
+/** Seconds left, estimated from how fast the bar has actually been moving.
+ *
+ * Derived rather than predicted from track length, because the same estimator then works
+ * for separation and for mastering without either being told how long it usually takes,
+ * and it self-corrects on a slow machine instead of lying twice as fast.
+ *
+ * It stays quiet until there is something to go on: at 1% complete the arithmetic is
+ * real but the answer is noise, and a countdown that opens at "22:30" and collapses to
+ * two minutes is worse than no countdown. Smoothed for the same reason - the raw figure
+ * jumps at every stage boundary, and a number that leaps around reads as a fault. */
+function remainingSeconds(progress, elapsed, previous) {
+  if (!(progress > 0.04) || elapsed < 4) return null;
+  const raw = (elapsed * (1 - progress)) / progress;
+  if (!Number.isFinite(raw) || raw < 0) return null;
+  // Weighted towards the previous estimate, so it settles rather than flickers.
+  return previous == null ? raw : previous * 0.7 + raw * 0.3;
+}
+
+/** A countdown in words. Rounded, because a to-the-second estimate claims a precision
+ *  this does not have, and "0:07" ticking to zero while work continues is a broken
+ *  promise where "under a minute" never is. */
+function countdownLabel(seconds) {
+  if (seconds == null) return "";
+  if (seconds < 15) return "  ·  almost done";
+  if (seconds < 60) return "  ·  under a minute left";
+  const rounded = Math.round(seconds / 15) * 15;
+  return `  ·  about ${clock(rounded)} left`;
+}
+
 async function runJob(jobId, title, hint = "") {
   showOnly("step-progress");
   $("progress-title").textContent = title;
   $("progress-hint").textContent = hint;
 
   const started = Date.now();
+  let eta = null;
   for (;;) {
     const job = await api(`/jobs/${jobId}`);
     $("progress-fill").style.width = `${Math.round(job.progress * 100)}%`;
 
-    // "queued" on its own reads as a hang. Say what it is waiting for, and show the
-    // clock so a long job is visibly progressing even between stage updates.
+    // "queued" on its own reads as a hang. Say what it is waiting for, and count down so
+    // a long job is visibly progressing between stage updates.
     const elapsed = Math.floor((Date.now() - started) / 1000);
-    const clockLabel = elapsed >= 3 ? `  ·  ${clock(elapsed)}` : "";
+    eta = remainingSeconds(job.progress, elapsed, eta);
+    // Nothing has started while queued, so there is nothing to estimate from; the clock
+    // reverts to counting up, which is honest about not knowing.
+    const label =
+      job.state === "queued"
+        ? elapsed >= 3 ? `  ·  ${clock(elapsed)}` : ""
+        : countdownLabel(eta) || (elapsed >= 3 ? `  ·  ${clock(elapsed)}` : "");
+
     $("progress-message").textContent =
       job.state === "queued"
-        ? `waiting for a free worker — another job is running${clockLabel}`
-        : `${job.message}${clockLabel}`;
+        ? `waiting for a free worker — another job is running${label}`
+        : `${job.message}${label}`;
 
     if (job.state === "succeeded") return job;
     if (job.state === "failed") throw new Error(job.error ?? "The job failed.");
@@ -1126,6 +1163,9 @@ function renderCritique(summary) {
 
   const draw = () => {
     const shown = state.showAllFindings ? [...differences, ...matching] : differences;
+    // Kept on state so the buttons can be re-read whenever the dials move, from
+    // wherever they moved.
+    state.shownFindings = shown;
     $("compare-findings").innerHTML = shown.map((f, i) => finding(f, i)).join("");
 
     // Applying one finding moves only its own dials, so the rest of the mix stays where
@@ -1133,13 +1173,12 @@ function renderCritique(summary) {
     for (const button of $("compare-findings").querySelectorAll(".fix")) {
       button.addEventListener("click", () => {
         applyDials(shown[Number(button.dataset.fix)].action.dials);
-        button.dataset.done = "true";
-        button.textContent = "Applied";
         state.mode = null;
         document.querySelectorAll(".mode")
           .forEach((b) => b.setAttribute("aria-pressed", "false"));
       });
     }
+    refreshFixButtons();
     const toggle = $("findings-toggle");
     toggle.hidden = matching.length === 0;
     toggle.textContent = state.showAllFindings
@@ -1259,6 +1298,52 @@ const MODES = {
 
 Guarded, because those listeners include the one that clears the preset badge when a
 person moves a slider. Without the flag a preset wipes its own highlight on the way in. */
+/** The dial ids each suggestion key controls, shared by setting and reading them back. */
+const DIAL_IDS = {
+  brightness: "brightness",
+  warmth: "warmth",
+  bass: "bass",
+  width: "stereo-width",
+  headroom: "headroom",
+};
+
+/** Are the controls already sitting where this finding wants them?
+ *
+ * Asking the dials is what makes "Applied" honest. The button used to be marked only by
+ * its own click, so "Apply suggestions" - which moves the very same dials - left every
+ * finding still offering to do what had just been done. Reading the state back means the
+ * label is right however the dials got there, and goes back to offering when they move
+ * away again. */
+function dialsMatch(dials) {
+  if (!dials) return false;
+  for (const [key, id] of Object.entries(DIAL_IDS)) {
+    if (dials[key] === undefined) continue;
+    if (Math.abs(parseFloat($(id).value) - Number(dials[key])) > 0.001) return false;
+  }
+  if (dials.brightnessHz !== undefined) {
+    const want = nearestBrightnessOption(dials.brightnessHz);
+    if (parseFloat($("brightness-hz").value) !== want) return false;
+  }
+  for (const [stem, want] of Object.entries(dials.stemReverb ?? {})) {
+    const lane = state.lanes.get(stem);
+    if (!lane) continue;
+    if (Math.abs(lane.reverbMix - Math.round(want.mix * 20) / 20) > 0.001) return false;
+  }
+  return true;
+}
+
+/** Re-label every fix button from the dials rather than from what was clicked. */
+function refreshFixButtons() {
+  const shown = state.shownFindings ?? [];
+  for (const button of document.querySelectorAll("#compare-findings .fix")) {
+    const item = shown[Number(button.dataset.fix)];
+    if (!item?.action) continue;
+    const done = dialsMatch(item.action.dials);
+    button.dataset.done = done ? "true" : "false";
+    button.textContent = done ? "Applied" : item.action.label;
+  }
+}
+
 let settingDials = false;
 
 function applyDials(dials) {
@@ -1291,6 +1376,9 @@ function applyDials(dials) {
     $("brightness-hz").value = String(nearestBrightnessOption(dials.brightnessHz));
   }
   settingDials = false;
+  // Whatever moved the dials - a mode, the suggestion, or one finding's own button -
+  // every finding's label is now re-read from where they actually sit.
+  refreshFixButtons();
 }
 
 function selectMode(name) {
@@ -1938,7 +2026,11 @@ $("apply-suggested").addEventListener("click", () => {
 // Touching a slider means the preset no longer describes what is set.
 for (const id of ["brightness", "warmth", "bass", "stereo-width", "width-profile", "headroom"]) {
   $(id).addEventListener("input", () => {
-    if (settingDials || !state.mode) return;
+    if (settingDials) return;
+    // Before the preset check, and outside it: moving a dial away from what a finding
+    // asked for has to put that finding back on offer whether or not a preset was set.
+    refreshFixButtons();
+    if (!state.mode) return;
     state.mode = null;
     document.querySelectorAll(".mode").forEach((b) => b.setAttribute("aria-pressed", "false"));
   });

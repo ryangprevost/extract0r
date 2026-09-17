@@ -586,6 +586,97 @@ def _export_tags(record) -> dict[str, str]:
     }
 
 
+@router.post("/{track_id}/reference/suggestions", response_model=JobResponse)
+def suggest_references(
+    track_id: str,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """Find tracks in your own library that would make good references for this one.
+
+    The version of this feature everybody asks for reads a streaming link and suggests
+    similar songs. It cannot be built: Spotify withdrew the audio-features, analysis and
+    recommendations endpoints for any application created after 27 November 2024, with no
+    replacement, and metadata alone says nothing about how a record was mastered.
+
+    Measuring a local folder is better anyway. These files are already owned, and they can
+    be compared on tonal balance, loudness and stereo image rather than on a genre tag.
+    Nothing is copied: only measurements leave the folder, and no audio from a candidate
+    can reach a master - the same guarantee the reference upload makes.
+
+    A job rather than a plain response because the first scan of a large library is
+    minutes of decoding. After that it is cached against size and modification time, and
+    returns immediately.
+    """
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    root = settings.library_dir
+    if root is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "No reference library is configured. Set library_dir (or EXTRACT0R_LIBRARY_DIR) "
+            "to a folder of music to search.",
+        )
+    if not Path(root).is_dir():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"The configured reference library {root} is not a folder."
+        )
+
+    normalised = storage.normalized_path(track_id)
+    source_file = normalised if normalised.exists() else storage.source_path(track_id)
+    if source_file is None or not source_file.exists():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "The source audio for this track is gone."
+        )
+
+    def work(handle: JobHandle) -> dict:
+        from dataclasses import asdict
+
+        from app.services.mastering.library import profile_of, rank, scan
+
+        handle.update(JobState.RUNNING, 0.02, "measuring your track")
+        source = profile_of(source_file)
+        if source is None:
+            return {"available": False, "why": "Could not measure this track."}
+
+        def progress(fraction: float, message: str) -> None:
+            # Scanning is nearly all of the work, so it owns nearly all of the bar.
+            handle.update(JobState.RUNNING, 0.05 + fraction * 0.9, message)
+
+        profiles = scan(
+            Path(root), limit=settings.library_max_tracks, progress=progress
+        )
+        handle.update(JobState.RUNNING, 0.97, "ranking candidates")
+        candidates = rank(source, profiles)
+        return {
+            "available": True,
+            "library": str(root),
+            "scanned": len(profiles),
+            "source": {"name": source.name, "lufs": source.lufs},
+            "candidates": [
+                {
+                    "name": c.profile.name,
+                    "path": c.profile.path,
+                    "lufs": c.profile.lufs,
+                    "tonal_distance_db": c.tonal_distance_db,
+                    "louder_by_db": c.louder_by_db,
+                    "wider_above_1k_by_db": c.wider_above_1k_by_db,
+                    "tighter_below_250_by_db": c.tighter_below_250_by_db,
+                    "mono": c.mono,
+                    "why": c.why,
+                }
+                for c in candidates
+            ],
+        }
+
+    return to_response(jobs.submit("suggest-references", track_id, work))
+
+
 @router.get("/{track_id}/master/download")
 def download_master(
     track_id: str,

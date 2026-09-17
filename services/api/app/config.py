@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     # How often the background sweep runs. 0 disables it (boot sweep still happens).
     retention_sweep_minutes: int = 30
 
+    # --- reference library -------------------------------------------------
+    # A folder of music to search for reference candidates. Measured, never copied: only
+    # numbers about these files leave the folder, and nothing from them reaches a master.
+    # Unset means the feature is off, which is why there is no default guess at a Music
+    # folder - scanning somebody's library should be something they asked for.
+    library_dir: Path | None = None
+    # Ceiling on one scan, so pointing this at a 40,000-track collection reports a
+    # sensible refusal instead of running for a day.
+    library_max_tracks: int = 2000
+
     # --- backends ----------------------------------------------------------
     separation_backend: str = "stub"        # stub | demucs
     demucs_model: str = "htdemucs_6s"

@@ -1,4 +1,4 @@
-// Extract0r Studio front end. Vanilla JS on purpose: no build step, no node_modules,
+// extract0r studio front end. Vanilla JS on purpose: no build step, no node_modules,
 // open the .sln and press F5. Requests go to /api on this origin and the ASP.NET host
 // proxies them to the Python service, so there is no CORS to think about.
 
@@ -133,9 +133,11 @@ const ALL_SECTIONS = [
 const PAGES = {
   master: {
     name: "Mastering",
-    title: "Master a track against a reference.",
-    lede: "Upload a song, split it into stems, then match its tone and loudness to a " +
-          "commercial reference and export a new MP3.",
+    title: "Move your mix toward a song you love.",
+    lede: "Give it your song and a song you wish yours sounded like. Both get split " +
+          "into their separate instruments, then your bass is compared with theirs, " +
+          "your drums with theirs — and you get told what that song does differently, " +
+          "one difference at a time, with a control for each.",
     loaded: ["step-stems", "step-master"],
   },
   tab: {
@@ -228,7 +230,7 @@ async function loadCapabilities({ quiet = false } = {}) {
     $("backends").innerHTML = '<span class="chip off">API unreachable ✕</span>';
     if (!quiet) {
       fail("upload-error",
-        "Cannot reach the Extract0r API yet — it may still be starting up. " +
+        "Cannot reach the extract0r API yet — it may still be starting up. " +
         "Retrying automatically; no need to reload.");
     }
     if (!apiRetry) apiRetry = setInterval(() => loadCapabilities({ quiet: true }), 3000);
@@ -282,11 +284,42 @@ async function loadLegal() {
 
 function refreshUploadButton() {
   $("upload-btn").disabled = !(state.file && $("owns").checked && $("personal").checked);
+
+  // The plan only means anything once there is a reference to plan around.
+  const hasReference = !!state.upfrontReference;
+  $("plan").hidden = !hasReference;
+
+  const matching = hasReference && $("plan-match").checked;
+  $("upload-btn").textContent = matching
+    ? "Split both and compare"
+    : hasReference
+      ? "Split and match the overall tone"
+      : "Split into stems";
+  $("upload-plan-note").textContent = matching
+    ? "Two splits, back to back — roughly the length of both songs. Done once."
+    : hasReference
+      ? "One split. The reference is used for overall tone only; you can compare "
+        + "instrument by instrument later."
+      : "One split. Add a reference later if you want something to aim at.";
+}
+
+/** The reference chosen on the first screen, before there is a track to attach it to. */
+function pickUpfrontReference(file) {
+  if (!file) return;
+  state.upfrontReference = file;
+  $("upfront-ref-dropzone").classList.add("has-file");
+  $("upfront-ref-name").textContent = file.name;
+  $("upfront-ref-hint").textContent =
+    `${(file.size / 1024 / 1024).toFixed(1)} MB — click to choose a different one`;
+  refreshUploadButton();
 }
 
 function pickFile(file) {
   if (!file) return;
   state.file = file;
+  // Without the extension, for the comparison summaries: "Guitars in my-song could use
+  // more body" reads better than the same sentence with ".mp3" in the middle of it.
+  state.songName = file.name.replace(/\.[^.]+$/, "");
   // Set text on existing nodes rather than rewriting the container's innerHTML. The
   // previous version replaced the whole label, which destroyed #limits - and then any
   // later code touching #limits threw on null. That is not a hypothetical: it made the
@@ -305,7 +338,7 @@ async function upload() {
 
   if (!(await loadCapabilities({ quiet: true }))) {
     fail("upload-error",
-      "The Extract0r API is not responding, so the upload would fail. It may be " +
+      "The extract0r API is not responding, so the upload would fail. It may be " +
       "restarting — this page retries every few seconds and will clear this message " +
       "on its own. If it persists, run scripts/start.ps1.");
     return;
@@ -334,8 +367,55 @@ async function upload() {
       "run also downloads the model, which takes a few minutes more.",
     );
 
+    // The reference, if one was given, goes up and gets split in the same run. Doing
+    // this as one uninterrupted pass is the whole point: it used to be upload, split,
+    // find the master page, upload a reference, split that too, then find the compare
+    // button - five deliberate steps to reach the thing the app is for.
+    if (state.upfrontReference) {
+      $("progress-title").textContent = "Uploading the reference…";
+      const referenceForm = new FormData();
+      referenceForm.append("file", state.upfrontReference);
+      referenceForm.append("owns_or_licensed", "true");
+      await api(`/tracks/${track.track_id}/reference`, {
+        method: "POST",
+        body: referenceForm,
+      });
+      state.referenceLoaded = true;
+
+      if ($("plan-match").checked) {
+        const split = await api(`/tracks/${track.track_id}/reference/separate`, {
+          method: "POST",
+        });
+        await runJob(
+          split.job_id,
+          "Splitting the reference…",
+          "The second half of the wait, and the last of it. Everything after this is " +
+          "instant.",
+        );
+      }
+    }
+
     const separation = await api(`/tracks/${track.track_id}/stems`);
     await buildMixer(separation, track);
+
+    // Land on the comparison rather than on the mixer when there is one to show. The
+    // user did not upload two songs to look at six faders.
+    if (state.referenceLoaded) {
+      // Still on the progress screen: the comparison reads every stem on both sides and
+      // takes about half a minute, and making the user wait for it *again* on arrival -
+      // after they have already waited out two separations - is one wait too many. It is
+      // part of loading, so it happens during loading.
+      $("progress-title").textContent = "Comparing the instruments…";
+      $("progress-message").textContent =
+        "Your bass against theirs, your drums against theirs.";
+      $("progress-fill").style.width = "92%";
+
+      await afterReferenceUpload();
+      if (state.referenceSeparated) {
+        await loadInstrumentComparison();
+      }
+      goToPage("master");
+    }
   } catch (error) {
     showOnly("step-upload");
     fail("upload-error", error);
@@ -409,6 +489,10 @@ The tail length comes from the reference when the comparison can measure it.">re
           <input type="range" data-reverb="${stem.stem}" min="0" max="60" step="5" value="0" />
           <output data-reverb-out="${stem.stem}">dry</output>
         </span>
+        <span class="fader" title="Harmonics generated from this instrument's own upper mids, added above them. Per stem rather than on the master, because driving the whole mix makes harmonics from everything at once and nothing gains on anything. On the drums this is what makes hats and cymbals splashier; on a DI'd guitar or a synth patch it puts back a top end that was never recorded.">sparkle
+          <input type="range" data-sparkle="${stem.stem}" min="0" max="6" step="0.5" value="0" />
+          <output data-sparkle-out="${stem.stem}">off</output>
+        </span>
         <button class="link reset" data-reset="${stem.stem}">reset</button>
       </div>`;
     container.appendChild(lane);
@@ -416,6 +500,7 @@ The tail length comes from the reference when the comparison can measure it.">re
     const audio = new Audio(`${API}/tracks/${state.trackId}/stems/${stem.stem}/audio`);
     audio.preload = "metadata";
     state.lanes.set(stem.stem, {
+      sparkleDb: 0,
       audio,
       canvas: lane.querySelector("canvas"),
       wave: lane.querySelector(".lane-wave"),
@@ -428,7 +513,22 @@ The tail length comes from the reference when the comparison can measure it.">re
       reverbMix: 0,
       reverbS: 1.2,
       width: 1,
+      // The per-instrument moves. Written by the comparison when a suggestion is taken,
+      // by the advanced sliders when one is dragged, and read by both the monitor and the
+      // export - one place, so what you hear is what gets rendered.
+      tone: { low: 0, low_mid: 0, high_mid: 0, presence: 0, air: 0 },
+      compressDb: 0,
+      saturationDb: 0,
+      // The band-to-filter solve for this stem, sent by the comparison. Until it arrives
+      // the monitor falls back to setting each filter to its band's own number, which is
+      // close enough to be useful and wrong enough to be worth replacing.
+      toneSolver: null,
     });
+
+    // Route the stem through the monitoring chain so the settings are audible without a
+    // render. Best effort: if Web Audio is unavailable the page falls back to plain
+    // <audio> playback and everything except real-time preview still works.
+    if (Monitor.available()) Monitor.attach(stem.stem, audio);
     laneSizes.observe(lane.querySelector(".lane-wave"));
 
     if (canTranscribe && stem.stem !== "drums") {
@@ -582,6 +682,7 @@ function wireLanes() {
       state.lanes.get(stem).pan = pan;
       const label = pan === 0 ? "C" : `${pan < 0 ? "L" : "R"}${Math.abs(pan * 100).toFixed(0)}`;
       document.querySelector(`[data-pan-out="${stem}"]`).textContent = label;
+      Monitor.setPan(stem, pan);
     });
   });
 
@@ -592,9 +693,20 @@ function wireLanes() {
       state.lanes.get(stem).width = width;
       document.querySelector(`[data-width-out="${stem}"]`).textContent =
         width === 0 ? "mono" : `${(width * 100).toFixed(0)}%`;
+      Monitor.setWidth(stem, width);
     });
   });
 
+  document.querySelectorAll("[data-sparkle]").forEach((slider) => {
+    slider.addEventListener("input", () => {
+      const stem = slider.dataset.sparkle;
+      const lane = state.lanes.get(stem);
+      if (!lane) return;
+      lane.sparkleDb = parseFloat(slider.value);
+      const out = document.querySelector(`[data-sparkle-out="${stem}"]`);
+      if (out) out.textContent = lane.sparkleDb ? `+${lane.sparkleDb.toFixed(1)} dB` : "off";
+    });
+  });
   document.querySelectorAll("[data-reverb]").forEach((slider) => {
     slider.addEventListener("input", () => {
       const stem = slider.dataset.reverb;
@@ -614,6 +726,11 @@ function wireLanes() {
       lane.reverbMix = 0;
       lane.reverbS = 1.2;
       button.closest(".fader-row").querySelector(`[data-reverb="${stem}"]`).value = 0;
+      const sparkle = button.closest(".fader-row").querySelector(`[data-sparkle="${stem}"]`);
+      if (sparkle) {
+        sparkle.value = 0;
+        sparkle.dispatchEvent(new Event("input"));
+      }
       button.closest(".fader-row").querySelector(`[data-gain="${stem}"]`).value = 0;
       button.closest(".fader-row").querySelector(`[data-pan="${stem}"]`).value = 0;
       button.closest(".fader-row").querySelector(`[data-width="${stem}"]`).value = 100;
@@ -688,10 +805,19 @@ function applyGains() {
   const soloed = anySolo();
   for (const [stem, lane] of state.lanes) {
     const audible = soloed ? lane.solo : !lane.muted;
-    lane.audio.muted = !audible;
-    // HTMLMediaElement volume is linear 0..1, so convert from dB. Boosts above 0 dB
-    // cannot be previewed - the element clamps at 1 - but they still apply on export.
-    lane.audio.volume = Math.max(0, Math.min(1, 10 ** (Math.min(0, lane.gainDb) / 20)));
+    if (Monitor.has(stem)) {
+      // Level and mute go through the graph, which has no 0 dB ceiling - a fader pushed
+      // above unity is audible here where the <audio> element would have clamped it.
+      Monitor.setMuted(stem, !audible);
+      Monitor.setGain(stem, lane.gainDb);
+      lane.audio.muted = false;
+      lane.audio.volume = 1;
+    } else {
+      lane.audio.muted = !audible;
+      // HTMLMediaElement volume is linear 0..1, so convert from dB. Boosts above 0 dB
+      // cannot be previewed - the element clamps at 1 - but they still apply on export.
+      lane.audio.volume = Math.max(0, Math.min(1, 10 ** (Math.min(0, lane.gainDb) / 20)));
+    }
     lane.element.classList.toggle("dimmed", !audible);
     lane.element.querySelector("[data-solo]")?.classList.toggle("on", lane.solo);
     lane.element.querySelector("[data-mute]")?.classList.toggle("on", lane.muted);
@@ -727,6 +853,9 @@ async function togglePlay() {
     for (const lane of state.lanes.values()) lane.audio.pause();
     state.playing = false;
   } else {
+    // Browsers keep an AudioContext suspended until a gesture, and this click is one.
+    // Without it the graph is built, connected, and silent.
+    await Monitor.resume();
     // Start everything from one timestamp so the stack stays in sync.
     const from = [...state.lanes.values()][0]?.audio.currentTime ?? 0;
     for (const lane of state.lanes.values()) lane.audio.currentTime = from;
@@ -750,7 +879,11 @@ function paintPlayhead(time) {
 }
 
 // One rAF loop drives the playhead for every lane, rather than six timeupdate handlers.
-function tick() {
+function tick(now) {
+  // The monitor's drive follows each stem's level, the way the render's does. It
+  // throttles itself; this just gives it a clock.
+  Monitor.tick(now ?? performance.now());
+
   if (state.playing) {
     const lead = state.lanes.values().next().value;
     if (lead) {
@@ -872,10 +1005,7 @@ async function uploadReference() {
       info.integrated_lufs != null ? ` · ${info.integrated_lufs.toFixed(1)} LUFS` : "";
     $("ref-hint").textContent =
       `${info.duration_s.toFixed(0)}s${loudness} — will be matched`;
-    updateMasterSummary();
-    await refreshPerStemState();
-    // Now there is something to compare against, so the dials can be set for this pair.
-    await loadSuggestion();
+    await afterReferenceUpload();
   } catch (error) {
     state.referenceLoaded = false;
     $("ref-dropzone").classList.remove("has-file");
@@ -883,6 +1013,29 @@ async function uploadReference() {
     $("ref-hint").textContent = "a commercial master you want to sound like — optional";
     fail("ref-error", error);
   }
+}
+
+/**
+ * Everything that follows a reference landing, whichever screen it arrived from.
+ *
+ * Shared because a reference can now be given up front with the song, or added later on
+ * the master page, and the two paths were drifting - the up-front one skipped fetching
+ * the suggestions and the dials silently stayed at their defaults.
+ */
+async function afterReferenceUpload() {
+  // A reference given on the first screen is the one being used. Offering a second
+  // dropzone here invites someone to load a different one on top of a comparison that
+  // was computed against the first, which would leave the numbers describing a song that
+  // is no longer loaded.
+  const already = !!state.upfrontReference;
+  $("ref-inputs").hidden = already;
+  $("ref-already").hidden = !already;
+  if (already) $("ref-already-name").textContent = state.upfrontReference.name;
+
+  updateMasterSummary();
+  await refreshPerStemState();
+  // Now there is something to compare against, so the dials can be set for this pair.
+  await loadSuggestion();
 }
 
 /** Reflect whether the reference has been split, and whether per-stem matching is on. */
@@ -896,6 +1049,7 @@ async function refreshPerStemState() {
     box.checked = false;
     button.hidden = true;
     $("per-stem-options").hidden = true;
+    refreshInstrumentSection();
     note.textContent =
       "Upload a reference first. Matching per instrument fixes a whole-mix match " +
       "cutting your bass away.";
@@ -924,6 +1078,10 @@ async function refreshPerStemState() {
       "the first. Without it, matching can only tilt the whole mix.";
     $("per-stem-options").hidden = true;
   }
+
+  // Separating the reference is what makes the instrument-by-instrument screen possible,
+  // so this is the moment it becomes available.
+  refreshInstrumentSection();
 }
 
 async function separateReference() {
@@ -969,6 +1127,11 @@ async function runMaster() {
   $("master-error").hidden = true;
   $("master-result").hidden = true;
 
+  // Nothing should still be playing behind the progress bar. Leaving a stem soloed and
+  // looping under "Mastering…" is disorienting, and it competes with the master the user
+  // is about to be handed.
+  stopPreview();
+
   // Mute and solo on the lanes ARE the mix. No second set of controls to keep in sync:
   // what you hear in the mixer is what gets exported.
   const stems = [...state.lanes].map(([stem, lane]) => ({
@@ -976,8 +1139,19 @@ async function runMaster() {
     gain_db: lane.gainDb,
     reverb_s: lane.reverbS,
     reverb_mix: lane.reverbMix,
+    sparkle_db: lane.sparkleDb ?? 0,
     pan: lane.pan,
     width: lane.width,
+    // The per-instrument moves, in the same five bands the comparison speaks in. Sent
+    // whether or not the comparison has been run - they are zero until something sets
+    // them, and the export is the only place they are real.
+    tone_low_db: lane.tone?.low ?? 0,
+    tone_low_mid_db: lane.tone?.low_mid ?? 0,
+    tone_high_mid_db: lane.tone?.high_mid ?? 0,
+    tone_presence_db: lane.tone?.presence ?? 0,
+    tone_air_db: lane.tone?.air ?? 0,
+    compress_db: lane.compressDb ?? 0,
+    saturation_db: lane.saturationDb ?? 0,
     muted: lane.muted,
     solo: lane.solo,
   }));
@@ -1003,6 +1177,10 @@ async function runMaster() {
         sparkle_from_hz: parseFloat($("sparkle-hz").value),
         centre_bass_hz: parseFloat($("centre-bass").value),
         subsonic_hz: parseFloat($("subsonic").value),
+        saturation_db: parseFloat($("saturation").value),
+        ambience_mix: parseInt($("ambience").value, 10) / 1000,
+        parallel_mix: parseInt($("parallel").value, 10) / 100,
+        side_air_db: parseFloat($("side-air").value),
         headroom_db: parseFloat($("headroom").value),
         match_stem_levels: $("ms-levels").checked,
         match_stem_tone: $("ms-tone").checked,
@@ -1262,39 +1440,50 @@ const MODES = {
   flat: {
     label: "Flat",
     why: "Every finishing dial off — whatever the reference match decides, and nothing else.",
-    dials: { brightness: 0, brightnessHz: 8000, warmth: 0, bass: 0, width: 100, headroom: 0 },
+    dials: { brightness: 0, brightnessHz: 8000, warmth: 0, bass: 0, width: 100, headroom: 0,
+             saturation: 0, ambience: 0, parallel: 0, sideAir: 0 },
   },
   bright: {
     label: "Brighten",
     why: "A shelf from <b>6 kHz</b>. High enough to stay out of the midrange, low enough to " +
          "reach the top of the presence range where a closed-in mix usually needs opening up.",
-    dials: { brightness: 3, brightnessHz: 6000, warmth: 0, bass: 0, width: 100, headroom: 0 },
+    dials: { brightness: 3, brightnessHz: 6000, warmth: 0, bass: 0, width: 100, headroom: 0,
+             saturation: 0, ambience: 0, parallel: 0, sideAir: 0 },
   },
   bassier: {
     label: "Bassier",
     why: "A shelf below <b>90 Hz</b> — kick weight and bass fundamentals. Separate from " +
          "Warmer on purpose: 90 Hz is weight, 450 Hz is body, and asking for one usually " +
          "means you do not want the other.",
-    dials: { brightness: 0, brightnessHz: 8000, warmth: 0, bass: 3, width: 100, headroom: 0 },
+    dials: { brightness: 0, brightnessHz: 8000, warmth: 0, bass: 3, width: 100, headroom: 0,
+             saturation: 0, ambience: 0, parallel: 0, sideAir: 0 },
   },
   warm: {
     label: "Warmer",
-    why: "Body around <b>450 Hz</b> with the very top eased back. Warmth is weight in the low " +
-         "mids, not less treble — the bell leaves the bass alone so it does not turn boomy.",
-    dials: { brightness: -1, brightnessHz: 12000, warmth: 2.5, bass: 0, width: 100, headroom: 0 },
+    why: "Body around <b>450 Hz</b> with the very top eased back, plus <b>1 dB</b> of " +
+         "saturation — harmonics through the body are literally what warmth is. The bell " +
+         "leaves the bass alone so it does not turn boomy.",
+    dials: { brightness: -1, brightnessHz: 12000, warmth: 2.5, bass: 0, width: 100, headroom: 0,
+             saturation: 1, ambience: 0, parallel: 0, sideAir: 0 },
   },
   punchy: {
     label: "Punchier",
     why: "Punch is transients surviving the limiter, so this mostly buys headroom: " +
-         "<b>1.5 dB</b> further under the reference, with a little presence for attack. " +
-         "It trades loudness for impact.",
-    dials: { brightness: 1.5, brightnessHz: 3000, warmth: 0.5, bass: 1, width: 100, headroom: 1.5 },
+         "<b>1.5 dB</b> further under the reference, with a little presence for attack, " +
+         "and <b>10%</b> parallel glue to hold the quiet parts up. Saturation stays off " +
+         "here on purpose — it rounds transients, which is the one thing this is " +
+         "protecting.",
+    dials: { brightness: 1.5, brightnessHz: 3000, warmth: 0.5, bass: 1, width: 100, headroom: 1.5,
+             saturation: 0, ambience: 0, parallel: 10, sideAir: 0 },
   },
   wide: {
     label: "Wider",
-    why: "Spreads everything above <b>250 Hz</b> to 125% and adds sheen at 12 kHz, which the " +
-         "ear also reads as width. The bass stays centred so it survives a mono system.",
-    dials: { brightness: 1.5, brightnessHz: 12000, warmth: 0, bass: 0, width: 125, headroom: 0 },
+    why: "Spreads everything above <b>250 Hz</b> to 125%, adds sheen at 12 kHz, and puts " +
+         "<b>2 dB</b> on the sides above 6 kHz with <b>1%</b> of room — width the ear " +
+         "reads as space rather than as a wider pan. The bass stays centred so it " +
+         "survives a mono system.",
+    dials: { brightness: 1.5, brightnessHz: 12000, warmth: 0, bass: 0, width: 125, headroom: 0,
+             saturation: 0, ambience: 10, parallel: 0, sideAir: 2 },
   },
 };
 
@@ -1312,6 +1501,10 @@ const DIAL_IDS = {
   sparkle: "sparkle",
   centreBass: "centre-bass",
   subsonic: "subsonic",
+  saturation: "saturation",
+  ambience: "ambience",
+  parallel: "parallel",
+  sideAir: "side-air",
 };
 
 /** Are the controls already sitting where this finding wants them?
@@ -1412,17 +1605,35 @@ function selectMode(name) {
 function applySuggestion() {
   const s = state.suggestion;
   if (!s?.available) return;
-  applyDials({
+
+  // The tonal engine's dials, and then every dial the comparison is offering. These come
+  // from two different places and this button used to know about only the first, so on a
+  // mix whose tone already matched it moved nothing at all while the findings below it
+  // each carried a real number. "Apply suggestions" has to mean everything on the card.
+  const dials = {
     brightness: s.settings.brightness_db,
     brightnessHz: nearestBrightnessOption(s.settings.brightness_from_hz),
     warmth: s.settings.warmth_db,
     bass: s.settings.bass_db,
     width: Math.round(s.settings.width * 100),
     headroom: s.settings.headroom_db,
-  });
+  };
+  let offered = 0;
+  for (const finding of state.shownFindings ?? []) {
+    if (!finding.action?.dials) continue;
+    offered += 1;
+    // The findings are the more specific measurement, so where the two overlap they win.
+    Object.assign(dials, finding.action.dials);
+  }
+  applyDials(dials);
+
   $("mode-why").innerHTML =
     "Measured against your reference, after allowing for what the tonal match already " +
-    "does. Hover any dial for the reasoning behind its value.";
+    "does." +
+    (offered
+      ? ` Includes ${offered} finding${offered === 1 ? "" : "s"} from the comparison below.`
+      : "") +
+    " Hover any dial for the reasoning behind its value.";
   describeDials(s.reasons);
 }
 
@@ -1711,7 +1922,7 @@ function compareNote(info) {
 
 The limiter numbers are the point. "Sounds squashed" is not a matter of taste - it is
 gain reduction, and a master three dB down for a third of its length is measurably a
-different record from one that never touches the ceiling. */
+different song from one that never touches the ceiling. */
 function renderFinishing(finishing) {
   const node = $("master-finishing");
   if (!finishing) {
@@ -1842,9 +2053,9 @@ const MODALS = {
     <h3>What you promise when you upload</h3>
     <p>That you own the recording, hold a licence covering this use, or that your use is
       otherwise permitted by law; that you did not obtain the file by circumventing DRM or
-      breaching a streaming service's terms; and that you will not distribute Extract0r's
+      breaching a streaming service's terms; and that you will not distribute extract0r's
       output from someone else's recording without permission.</p>
-    <h3>What Extract0r does not give you</h3>
+    <h3>What extract0r does not give you</h3>
     <p>No licence, no permission, and no legal opinion. A transcription of a copyrighted
       song is itself a derivative work of that composition. Private study is often argued
       to be fair use in the United States, but fair use is a defence decided case by case,
@@ -1860,7 +2071,7 @@ const MODALS = {
   dmca: `
     <h2>Copyright &amp; DMCA</h2>
     <h3>Our position</h3>
-    <p>Extract0r is a processing tool. It hosts no catalogue, lets nobody search or share
+    <p>extract0r is a processing tool. It hosts no catalogue, lets nobody search or share
       another person's uploads, and purges everything on a schedule. Uploaders confirm
       they hold the rights to their audio before anything is processed.</p>
     <h3>Sending a notice</h3>
@@ -1904,6 +2115,30 @@ $("dropzone").addEventListener("drop", (e) => pickFile(e.dataTransfer.files[0]))
 $("owns").addEventListener("change", refreshUploadButton);
 $("personal").addEventListener("change", refreshUploadButton);
 $("upload-btn").addEventListener("click", upload);
+
+// The optional reference on the first screen, with the same drag-and-drop as the song.
+$("upfront-ref-file").addEventListener("change", (event) =>
+  pickUpfrontReference(event.target.files[0]),
+);
+$("plan-match").addEventListener("change", refreshUploadButton);
+// So the button and its note describe the empty state rather than the markup's
+// placeholder before anything has been chosen.
+refreshUploadButton();
+for (const event of ["dragover", "dragenter"]) {
+  $("upfront-ref-dropzone").addEventListener(event, (e) => {
+    e.preventDefault();
+    $("upfront-ref-dropzone").classList.add("over");
+  });
+}
+for (const event of ["dragleave", "drop"]) {
+  $("upfront-ref-dropzone").addEventListener(event, () =>
+    $("upfront-ref-dropzone").classList.remove("over"),
+  );
+}
+$("upfront-ref-dropzone").addEventListener("drop", (e) => {
+  e.preventDefault();
+  pickUpfrontReference(e.dataTransfer.files[0]);
+});
 $("transcribe-btn").addEventListener("click", transcribe);
 $("play-btn").addEventListener("click", togglePlay);
 $("timing-halve").addEventListener("click", () => nudgeTempo(0.5));
@@ -2006,6 +2241,23 @@ $("brightness").addEventListener("input", () => {
   const value = parseFloat($("brightness").value);
   $("brightness-out").textContent = value ? `${signed(value.toFixed(1))} dB` : "off";
 });
+$("saturation").addEventListener("input", () => {
+  const value = parseFloat($("saturation").value);
+  $("saturation-out").textContent = value ? `+${value.toFixed(1)} dB` : "off";
+});
+$("ambience").addEventListener("input", () => {
+  // Tenths of a percent: the whole usable range of this control lives under 5% wet.
+  const value = parseInt($("ambience").value, 10);
+  $("ambience-out").textContent = value ? `${(value / 10).toFixed(1)}% wet` : "off";
+});
+$("parallel").addEventListener("input", () => {
+  const value = parseInt($("parallel").value, 10);
+  $("parallel-out").textContent = value ? `${value}% blended` : "off";
+});
+$("side-air").addEventListener("input", () => {
+  const value = parseFloat($("side-air").value);
+  $("side-air-out").textContent = value ? `+${value.toFixed(1)} dB` : "off";
+});
 $("sparkle").addEventListener("input", () => {
   const value = parseFloat($("sparkle").value);
   $("sparkle-out").textContent = value ? `+${value.toFixed(1)} dB` : "off";
@@ -2051,7 +2303,8 @@ $("apply-suggested").addEventListener("click", () => {
 });
 // Touching a slider means the preset no longer describes what is set.
 for (const id of ["brightness", "warmth", "bass", "stereo-width", "width-profile",
-                  "sparkle", "centre-bass", "subsonic", "headroom"]) {
+                  "sparkle", "centre-bass", "subsonic", "saturation", "ambience",
+                  "parallel", "side-air", "headroom"]) {
   $(id).addEventListener("input", () => {
     if (settingDials) return;
     // Before the preset check, and outside it: moving a dial away from what a finding

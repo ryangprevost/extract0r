@@ -10,7 +10,17 @@ import logging
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -40,7 +50,15 @@ from app.services.mastering.exciter import (
     MAX_SPARKLE_DB,
     MIN_FROM_HZ as MIN_SPARKLE_FROM_HZ,
 )
+from app.services.mastering.depth import (
+    MAX_AMBIENCE_MIX,
+    MAX_PARALLEL_MIX,
+    MAX_SIDE_AIR_DB,
+)
+from app.services.mastering.dynamics import MAX_COMPRESSION_DB
+from app.services.mastering.instrument import MAX_APPLIED_BAND_DB
 from app.services.mastering.lowend import MAX_CENTRE_HZ, MAX_SUBSONIC_HZ
+from app.services.mastering.saturation import MAX_SATURATION_DB
 from app.services.mastering.vocals import VocalPresence
 from app.services.registry import TrackRegistry
 from app.services.storage import TrackStorage, UnsupportedAudioError
@@ -65,6 +83,34 @@ class StemMixSetting(BaseModel):
     #: Tail length in seconds, and how much of it to blend in. 0 mix leaves it dry.
     reverb_s: float = Field(default=1.2, ge=0.15, le=4.0)
     reverb_mix: float = Field(default=0.0, ge=0.0, le=0.6)
+    #: Harmonics made from this stem alone. Driving one instrument lifts it against the
+    #: others, which driving the whole mix cannot do.
+    sparkle_db: float = Field(default=0.0, ge=0.0, le=MAX_SPARKLE_DB)
+    sparkle_from_hz: float = Field(
+        default=DEFAULT_SPARKLE_FROM_HZ, ge=MIN_SPARKLE_FROM_HZ, le=MAX_SPARKLE_FROM_HZ
+    )
+    #: The five tone bands the per-instrument comparison speaks in. Each one is a row on
+    #: the comparison screen that can be taken or left on its own, which is the whole
+    #: reason they are separate fields rather than one matching curve.
+    #:
+    #: Bounded by what a user may ask for, not by what the comparison will suggest - the
+    #: two are different numbers on purpose. See `instrument.MAX_APPLIED_BAND_DB`.
+    tone_low_db: float = Field(default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB)
+    tone_low_mid_db: float = Field(
+        default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB
+    )
+    tone_high_mid_db: float = Field(
+        default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB
+    )
+    tone_presence_db: float = Field(
+        default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB
+    )
+    tone_air_db: float = Field(default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB)
+    #: dB of dynamic range removed from this stem, level-matched afterwards.
+    compress_db: float = Field(default=0.0, ge=0.0, le=MAX_COMPRESSION_DB)
+    #: Drive on this stem alone. Never suggested - see `instrument` for why a saturation
+    #: measurement would have to be invented rather than measured.
+    saturation_db: float = Field(default=0.0, ge=0.0, le=MAX_SATURATION_DB)
     muted: bool = False
     solo: bool = False
 
@@ -119,6 +165,16 @@ class MasterJobRequest(BaseModel):
     centre_bass_amount: float = Field(default=1.0, ge=0.0, le=1.0)
     #: Cut below this, where there are no notes - only rumble. 0 leaves it alone.
     subsonic_hz: float = Field(default=0.0, ge=0.0, le=MAX_SUBSONIC_HZ)
+    #: A band-limited tail, in fractions of a percent. Filtered to 200 Hz - 10 kHz before
+    #: blending, so it cannot muddy the bottom or wash the cymbals.
+    ambience_mix: float = Field(default=0.0, ge=0.0, le=MAX_AMBIENCE_MIX)
+    #: A heavily compressed copy blended underneath, lifting what is quiet.
+    parallel_mix: float = Field(default=0.0, ge=0.0, le=MAX_PARALLEL_MIX)
+    #: A high shelf on the side channel only.
+    side_air_db: float = Field(default=0.0, ge=0.0, le=MAX_SIDE_AIR_DB)
+    #: Harmonics through the body rather than above it - the other end of the spectrum
+    #: from sparkle, and what is usually meant by glue.
+    saturation_db: float = Field(default=0.0, ge=0.0, le=MAX_SATURATION_DB)
     #: Extra dB to sit under the reference, on top of whatever the guard decides.
     headroom_db: float = Field(default=0.0, ge=0.0, le=6.0)
     #: Refuse to squash the master past the reference's own dynamic range.
@@ -366,6 +422,193 @@ def reference_stems(
     return ReferenceStemsResponse(separated=bool(stems), stems=list(stems))
 
 
+@router.get("/{track_id}/reference/stems/{stem}/audio")
+def stream_reference_stem(
+    track_id: str,
+    stem: str,
+    request: Request,
+    registry: TrackRegistry = Depends(get_registry),
+):
+    """Stream one separated reference stem, so it can be played against yours.
+
+    The point of the whole per-instrument screen is putting your snare next to that
+    record's snare, and a number next to a number only gets you so far - at some point you
+    have to hear both. Range requests are honoured for the same reason they are on your
+    own stems: without them a browser re-downloads the file on every seek.
+
+    This serves audio from the reference, which nothing else in extract0r does. It is
+    playback only: the reference is analysed, never sampled, and no path exists from these
+    bytes into a master. The rights attestation collected at upload is what makes playing
+    it back the user's own recording to play.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    try:
+        kind = StemKind(stem)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown stem {stem!r}.") from exc
+
+    path = (record.reference_stems or {}).get(kind)
+    if path is None or not Path(path).exists():
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "The reference has not been separated, or has no such stem.",
+        )
+
+    from app.api.routes_audio import ranged_file
+
+    return ranged_file(Path(path), request)
+
+
+@router.post("/{track_id}/reference/instruments", response_model=JobResponse)
+def compare_instruments(
+    track_id: str,
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """Your instruments against the reference's, one at a time, with a dial per difference.
+
+    The whole-mix comparison can only ever move the sum: it knows the reference has more
+    low end and cannot know whether that means the bass should come up or the kick needs
+    weight. This one knows, because it compares bass with bass.
+
+    Six dimensions per instrument - level, tone in five bands, dynamics, transients,
+    position and width - and each difference comes back as its own row with the control
+    that closes it, so a user can take the air on the drums and decline everything else.
+    What does not come back is saturation: added harmonics cannot be told from played ones
+    without the dry signal, and a number invented for the sake of a full table would be
+    worse than an honest gap in it.
+
+    A job rather than a plain response because it reads twelve stems in full - both sides,
+    end to end, around 25 seconds. Windowing them was tried in `stem_match` and put the
+    parts that come and go several dB out, which is enough to invent a finding.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    if record.separation is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Separate this track first.")
+    if not record.reference_stems:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Comparing instrument by instrument needs the reference separated too. "
+            "POST /reference/separate, then try again.",
+        )
+
+    mine_paths = {s.kind: s.path for s in record.separation.stems}
+    theirs_paths = dict(record.reference_stems)
+
+    def work(handle: JobHandle) -> dict:
+        from app.services.mastering.critique import STEM_WORDS
+        from app.services.mastering.instrument import compare, profile_all
+
+        handle.update(JobState.RUNNING, 0.05, "measuring your instruments")
+        mine = profile_all(mine_paths)
+        handle.update(JobState.RUNNING, 0.55, "measuring the reference's")
+        theirs = profile_all(theirs_paths)
+        handle.update(JobState.RUNNING, 0.9, "comparing them")
+
+        instruments = []
+        for kind in StemKind:
+            a, b = mine.get(kind), theirs.get(kind)
+            if a is None:
+                continue
+            words = STEM_WORDS.get(kind, (kind.value, False))
+            moves = compare(kind, a, b, words) if b is not None else []
+            instruments.append(
+                {
+                    "stem": kind.value,
+                    "label": words[0],
+                    # Whether the reference actually plays this instrument. A record with
+                    # no piano still yields a piano stem; saying so is more use than
+                    # quietly dropping the row.
+                    "in_reference": bool(b is not None and b.present),
+                    "yours": _profile_json(a),
+                    "reference": _profile_json(b) if b is not None else None,
+                    # The precomputed band-to-filter solve, so the monitor runs the same
+                    # EQ the render will. Sent already solved rather than as the raw
+                    # matrix: the page used to invert it itself, which was correct right
+                    # up until the server started damping the solve and the page did not.
+                    "tone_solver": _tone_solver_json(a),
+                    "moves": [
+                        {
+                            "dimension": m.dimension,
+                            "band": m.band,
+                            "headline": m.headline,
+                            "detail": m.detail,
+                            "severity": m.severity,
+                            "yours": round(m.yours, 3),
+                            "reference": round(m.reference, 3),
+                            "suggested": m.suggested,
+                            "control": m.control,
+                            "confident": m.confident,
+                        }
+                        for m in moves
+                    ],
+                }
+            )
+
+        from app.services.mastering.instrument import BANDS, BASIS
+
+        return {
+            "available": True,
+            "instruments": instruments,
+            # The five filters the tone controls are built from, so the page can build the
+            # same ones. Biquads in the browser are not the same shape as the zero-phase
+            # curves used for the render - a Web Audio peaking filter is not a Gaussian in
+            # log frequency - so the monitor is close rather than identical, and the page
+            # says so where the user can read it.
+            "tone_basis": [
+                {"band": band, "kind": kind, "hz": hz} for band, kind, hz in BASIS
+            ],
+            "bands": [
+                {"band": name, "low_hz": low, "high_hz": high} for name, low, high in BANDS
+            ],
+        }
+
+    return to_response(jobs.submit("compare-instruments", track_id, work))
+
+
+def _tone_solver_json(one) -> list[list[float]] | None:
+    """The band-to-filter solve for this stem, as five rows of five.
+
+    `gains = solver @ wanted` - a matrix-vector product, nothing for the page to solve.
+    """
+    from app.services.mastering.instrument import tone_solver
+
+    if one.spectrum is None:
+        return None
+    try:
+        return [
+            [round(float(value), 6) for value in row]
+            for row in tone_solver(one.sample_rate, one.spectrum)
+        ]
+    except Exception:  # pragma: no cover - a bad spectrum should not fail the comparison
+        log.debug("could not build the tone solver", exc_info=True)
+        return None
+
+
+def _profile_json(one) -> dict:
+    """One instrument's measurements, in the shape the comparison screen draws."""
+    return {
+        "relative_lufs": round(one.relative_lufs, 2),
+        "bands": one.bands,
+        "dynamic_range_db": one.dynamic_range_db,
+        "crest_db": one.crest_db,
+        "pan": one.pan,
+        "width": one.width,
+        "present": one.present,
+        # Where to start an audition of this stem, so the preview opens on the part the
+        # comparison is about rather than on the intro.
+        "preview_start_s": one.preview_start_s,
+    }
+
+
 @router.post(
     "/{track_id}/master", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED
 )
@@ -429,19 +672,12 @@ def start_master(
 
     request = MasterRequest(
         stems=available,
-        settings=[
-            StemSetting(
-                stem=s.stem,
-                gain_db=s.gain_db,
-                pan=s.pan,
-                width=s.width,
-                reverb_s=s.reverb_s,
-                reverb_mix=s.reverb_mix,
-                muted=s.muted,
-                solo=s.solo,
-            )
-            for s in body.stems
-        ],
+        # Copied by name rather than field by field, and the two models are kept in step
+        # by a test rather than by hand. The hand-written version was seventeen lines of
+        # `x=s.x`, and the failure it invites is silent: a new control reaches the request
+        # model, reaches the pipeline, and is dropped in between, so the slider moves and
+        # the master does not change. That has already shipped once here.
+        settings=[StemSetting(**s.model_dump()) for s in body.stems],
         reference=reference,
         reference_stems=reference_stems,
         source=(
@@ -476,6 +712,10 @@ def start_master(
             centre_bass_hz=body.centre_bass_hz,
             centre_bass_amount=body.centre_bass_amount,
             subsonic_hz=body.subsonic_hz,
+            ambience_mix=body.ambience_mix,
+            parallel_mix=body.parallel_mix,
+            side_air_db=body.side_air_db,
+            saturation_db=body.saturation_db,
             headroom_db=body.headroom_db,
             protect_dynamics=body.protect_dynamics,
         ),
@@ -508,28 +748,7 @@ def start_master(
                 else None
             ),
             "finishing": _finishing(result.report),
-            "per_stem": [
-                {
-                    "stem": a.stem.value,
-                    "gain_db": a.gain_db,
-                    "width_factor": a.width_factor,
-                    "width_bands": a.width_bands,
-                    "mono_loss_db": a.mono_loss_db,
-                    "sparkle_db": a.sparkle_db,
-                    "sparkle_from_hz": a.sparkle_from_hz,
-                    "air_added_db": a.air_added_db,
-                    "centred_below_hz": a.centred_below_hz,
-                    "bass_width_before": a.bass_width_before,
-                    "bass_width_after": a.bass_width_after,
-                    "subsonic_hz": a.subsonic_hz,
-                    "eq_bands": a.eq_bands,
-                    "notes": a.notes,
-                    "matched": a.matched,
-                    "proportional": a.proportional,
-                    "user_gain_db": a.user_gain_db,
-                }
-                for a in result.stem_adjustments
-            ],
+            "per_stem": [_adjustment_json(a) for a in result.stem_adjustments],
         }
         if result.report:
             payload["mastering"] = {
@@ -544,6 +763,29 @@ def start_master(
         return payload
 
     return to_response(jobs.submit("master", track_id, work))
+
+
+def _adjustment_json(adjustment) -> dict:
+    """What per-instrument matching did to one stem.
+
+    Built from the dataclass rather than field by field, because the hand-written version
+    had drifted badly: it read fifteen names off a StemAdjustment that only exist on
+    PolishReport - `width_bands`, `ambience_mix`, `saturation_db` and the rest, which are
+    master-bus measurements and were never per-stem at all. It raised AttributeError on
+    the first name it reached, so every export with per-instrument matching turned on
+    died at the point of writing the response, after all the work was done.
+
+    It survived that long because the list is empty unless per-stem matching actually
+    ran, so every test and every manual export that left the box unticked passed straight
+    over it.
+    """
+    from dataclasses import fields
+
+    out: dict = {}
+    for spec in fields(adjustment):
+        value = getattr(adjustment, spec.name)
+        out[spec.name] = value.value if isinstance(value, StemKind) else value
+    return out
 
 
 def _finishing(report) -> dict | None:
@@ -870,8 +1112,26 @@ def suggest_settings(
     try:
         from app.services.mastering.finishing import suggest as suggest_finishing
 
+        # The stems are optional here and only sharpen the continuity finding, which can
+        # then name the sustained part that is turned down rather than describing the
+        # problem in the abstract.
+        loaded_stems = None
+        if source_stems:
+            loaded_stems = {}
+            for kind, stem_path in source_stems.items():
+                try:
+                    loaded_stems[getattr(kind, "value", str(kind))] = read_audio(
+                        stem_path
+                    ).samples
+                except Exception:
+                    continue
+
         finishing = suggest_finishing(
-            source.samples, target.samples, source.sample_rate, target.sample_rate
+            source.samples,
+            target.samples,
+            source.sample_rate,
+            target.sample_rate,
+            loaded_stems or None,
         )
     except Exception:
         log.debug("could not measure the finishing moves", exc_info=True)

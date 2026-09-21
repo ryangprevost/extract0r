@@ -93,6 +93,17 @@ class Polish:
     centre_bass_amount: float = 1.0
     #: Cut below this, where there are no notes - only rumble and handling noise. 0 off.
     subsonic_hz: float = 0.0
+    #: A band-limited tail, counted in fractions of a percent. See `mastering.depth`:
+    #: the wet signal is filtered to 200 Hz - 10 kHz before blending, so it cannot muddy
+    #: the low end or wash the cymbals.
+    ambience_mix: float = 0.0
+    #: A heavily compressed copy blended underneath, to lift what is quiet.
+    parallel_mix: float = 0.0
+    #: A high shelf on the side channel only, which opens out ambience rather than parts.
+    side_air_db: float = 0.0
+    #: Harmonics through the body of the sound rather than above it - the opposite end of
+    #: the spectrum from sparkle, and the thing usually meant by glue.
+    saturation_db: float = 0.0
     #: Extra dB to stay under the reference, on top of whatever the guard decides.
     headroom_db: float = 0.0
     #: Aim at the reference's loudness relative to its peak rather than absolutely,
@@ -109,6 +120,10 @@ class Polish:
             or self.sparkle_db
             or self.centre_bass_hz
             or self.subsonic_hz
+            or self.ambience_mix
+            or self.parallel_mix
+            or self.side_air_db
+            or self.saturation_db
         )
 
 
@@ -126,6 +141,14 @@ class PolishReport:
     width_bands: dict[str, float] = field(default_factory=dict)
     sparkle_db: float = 0.0
     sparkle_from_hz: float = 0.0
+    ambience_mix: float = 0.0
+    parallel_mix: float = 0.0
+    side_air_db: float = 0.0
+    saturation_db: float = 0.0
+    #: What the tail added where the cymbals live. Near zero is the point.
+    cymbal_change_db: float = 0.0
+    #: Peak given up to saturation. Small is smoothing, large is losing the attack.
+    peak_softened_db: float = 0.0
     #: What the exciter actually added above 8 kHz, which is not always what was asked.
     air_added_db: float = 0.0
     centred_below_hz: float = 0.0

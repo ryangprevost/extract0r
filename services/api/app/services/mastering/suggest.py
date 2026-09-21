@@ -48,8 +48,24 @@ BANDS: dict[str, tuple[float, float]] = {
 MEANINGFUL_GAP_DB = 1.2
 
 #: How much of a measured gap to actually close. Matching a reference exactly is rarely
-#: what someone wants - it is their record, not a copy of someone else's.
-CLOSE_FRACTION = 0.7
+#: what someone wants - it is their song, not a copy of someone else's.
+#:
+#: Was 0.7, which on a real pair asked for the maximum shelf the control allows. The
+#: source was a bass-heavy electronic mix, the reference was MSTRKRFT's "Bounce", and they
+#: differ by 8-11 dB through the mids and top - a difference of *song*, not of mastering.
+#: Closing 70% of that on top of a match curve already lifting the same band produced a
+#: master its author described as "super hollow with no bass".
+CLOSE_FRACTION = 0.4
+
+#: What a *suggestion* may ask a shelf for, as against what the control itself allows.
+#: The two are different questions - the same distinction `instrument` draws between
+#: MAX_BAND_DB and MAX_APPLIED_BAND_DB - and they matter most here, because these shelves
+#: land on top of a matching curve that has already moved the same bands.
+MAX_SUGGESTED_SHELF_DB = 3.0
+
+#: Past this, the two recordings are not the same kind of song and no amount of EQ will
+#: make them one. The suggestion is still offered, small, and the reason says so.
+FURTHER_THAN_EQ_CAN_FIX_DB = 5.0
 
 #: A filter that cannot deliver this fraction of a gap is the wrong tool for it.
 MIN_BAND_OVERLAP = 0.25
@@ -210,21 +226,29 @@ def suggest(
         hz = 3000.0
         ramp = shelf_ramp(DEFAULT_N_FFT, sample_rate, hz, kind="high")
         gain = gain_for(ramp, presence_gap * CLOSE_FRACTION, "presence", sample_rate, power)
-        out.polish.air_db = round(float(np.clip(gain, 0.0, MAX_AIR_DB)), 1)
+        out.polish.air_db = round(float(np.clip(gain, 0.0, MAX_SUGGESTED_SHELF_DB)), 1)
         out.polish.air_hz = hz
         out.reasons.append(
             Reason(
                 "brightness",
                 f"Your mix sits {presence_gap:.1f} dB below the reference between 2.5 and "
                 f"8 kHz — that band is clarity, not sparkle, so the shelf starts at 3 kHz "
-                f"rather than up in the air band.",
+                f"rather than up in the air band. Offered at +{out.polish.air_db:.1f} dB, "
+                f"a nudge rather than the whole gap"
+                + (
+                    ", because a difference this size is the two songs being different "
+                    "rather than yours being wrong — closing it would leave your mix "
+                    "thin and hollow."
+                    if presence_gap > FURTHER_THAN_EQ_CAN_FIX_DB
+                    else ", on top of whatever the reference match already did here."
+                ),
             )
         )
     elif air_gap > MEANINGFUL_GAP_DB:
         hz = 8000.0
         ramp = shelf_ramp(DEFAULT_N_FFT, sample_rate, hz, kind="high")
         gain = gain_for(ramp, air_gap * CLOSE_FRACTION, "air", sample_rate, power)
-        out.polish.air_db = round(float(np.clip(gain, 0.0, MAX_AIR_DB)), 1)
+        out.polish.air_db = round(float(np.clip(gain, 0.0, MAX_SUGGESTED_SHELF_DB)), 1)
         out.polish.air_hz = hz
         out.reasons.append(
             Reason(
@@ -257,7 +281,9 @@ def suggest(
     if body_gap > MEANINGFUL_GAP_DB:
         ramp = bell_ramp(DEFAULT_N_FFT, sample_rate, DEFAULT_WARMTH_HZ)
         gain = gain_for(ramp, body_gap * CLOSE_FRACTION, "body", sample_rate, power)
-        out.polish.warmth_db = round(float(np.clip(gain, 0.0, MAX_WARMTH_DB)), 1)
+        out.polish.warmth_db = round(
+            float(np.clip(gain, 0.0, min(MAX_WARMTH_DB, MAX_SUGGESTED_SHELF_DB))), 1
+        )
         out.reasons.append(
             Reason(
                 "warmth",
@@ -285,7 +311,9 @@ def suggest(
     if low_gap > MEANINGFUL_GAP_DB:
         ramp = shelf_ramp(DEFAULT_N_FFT, sample_rate, DEFAULT_BASS_HZ, kind="low")
         gain = gain_for(ramp, low_gap * CLOSE_FRACTION, "low", sample_rate, power)
-        out.polish.bass_db = round(float(np.clip(gain, 0.0, MAX_BASS_DB)), 1)
+        out.polish.bass_db = round(
+            float(np.clip(gain, 0.0, min(MAX_BASS_DB, MAX_SUGGESTED_SHELF_DB))), 1
+        )
         out.reasons.append(
             Reason(
                 "bass",

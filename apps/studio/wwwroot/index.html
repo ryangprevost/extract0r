@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Extract0r Studio</title>
+  <title>extract0r studio</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🎛️</text></svg>" />
 </head>
@@ -14,9 +14,11 @@
     <button class="hamburger" id="nav-toggle" aria-label="Menu" aria-expanded="false" aria-controls="nav">
       <span></span><span></span><span></span>
     </button>
-    <div class="brand">extract<span>0</span>r</div>
+    <div class="brand">extract<span>0</span>r studio</div>
     <span class="page-name" id="page-name">Mastering</span>
     <div class="backends" id="backends" title="Which engines this server actually has installed"></div>
+    <button class="ghost small help-btn" id="help-btn"
+            title="How to use extract0r studio">? Help</button>
   </div>
 </header>
 
@@ -46,30 +48,71 @@
 
   <!-- ═══════════════════════════ shared: upload ═══════════════════════════ -->
   <section class="step" id="step-upload">
-    <h1 id="upload-title">Master a track against a reference.</h1>
+    <h1 id="upload-title">Move your mix toward a song you love.</h1>
     <p class="lede" id="upload-lede">
-      Upload a song, split it into stems, then match its tone and loudness to a commercial
-      reference and export a new MP3.
+      Give it your song and a song you wish yours sounded like. Both get split into
+      their separate instruments, then your bass is compared with theirs, your drums with
+      theirs, and so on — and you get told what that song does differently, one
+      difference at a time, with a control for each.
     </p>
+
+    <p class="lede-link">
+      <button class="link" id="help-link">Show me how this works ▸</button>
+    </p>
+
+    <ol class="how">
+      <li><strong>Your song</strong> and, if you have one, <strong>a reference</strong>.</li>
+      <li>Both are split into vocals, drums, bass, guitar, piano and the rest. This is the
+        slow part — roughly the length of each song, once.</li>
+      <li>Instrument by instrument, you see what differs and try the suggestions you like.
+        Nothing is applied until you say so, and every one can be undone.</li>
+      <li>Then the whole mix is compared for the finishing moves, and you export.</li>
+    </ol>
 
     <div class="notice" role="note">
       <strong>Only upload audio you have the right to use.</strong>
       Recordings and the songs underneath them are usually copyrighted. Separating,
-      transcribing, and remixing all create derivative works. Extract0r grants you no
+      transcribing, and remixing all create derivative works. extract0r grants you no
       licence to anything, and will not process audio obtained by breaking DRM or a
       streaming service's terms.
       <a href="#" data-modal="terms">Terms</a> ·
       <a href="#" data-modal="dmca">Copyright &amp; DMCA</a>
     </div>
 
-    <label class="dropzone" id="dropzone">
-      <input type="file" id="file" accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aiff,.aif" hidden />
-      <div class="dropzone-idle">
-        <span class="big" id="dropzone-name">Drop an audio file here</span>
-        <span class="small" id="dropzone-hint">click to choose a different file</span>
-        <span class="small" id="limits">or click to choose — mp3, wav, flac, m4a, ogg, aiff</span>
-      </div>
-    </label>
+    <div class="two-up">
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="file" accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aiff,.aif" hidden />
+        <div class="dropzone-idle">
+          <span class="tag">Your song</span>
+          <span class="big" id="dropzone-name">Drop an audio file here</span>
+          <span class="small" id="dropzone-hint">click to choose a different file</span>
+          <span class="small" id="limits">mp3, wav, flac, m4a, ogg, aiff</span>
+        </div>
+      </label>
+
+      <label class="dropzone optional" id="upfront-ref-dropzone">
+        <input type="file" id="upfront-ref-file"
+               accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aiff,.aif" hidden />
+        <div class="dropzone-idle">
+          <span class="tag">A reference <em>— optional</em></span>
+          <span class="big" id="upfront-ref-name">Drop a song you admire</span>
+          <span class="small" id="upfront-ref-hint">
+            a commercial master in a similar style</span>
+          <span class="small">skip it to split stems and export without matching</span>
+        </div>
+      </label>
+    </div>
+
+    <fieldset class="plan" id="plan" hidden>
+      <legend class="sr-only">What to do</legend>
+      <label class="toggle">
+        <input type="checkbox" id="plan-match" checked />
+        <span><strong>Compare instrument by instrument</strong>
+          <em>Splits the reference too, so your snare can be compared with its snare.
+            Doubles the splitting time, and it is the whole point of giving it a
+            reference. Without it the reference is still used for overall tone.</em></span>
+      </label>
+    </fieldset>
 
     <fieldset class="attest">
       <legend class="sr-only">Rights attestation</legend>
@@ -86,6 +129,7 @@
     </fieldset>
 
     <button class="primary" id="upload-btn" disabled>Upload and split</button>
+    <p class="muted small" id="upload-plan-note"></p>
     <p class="error" id="upload-error" hidden></p>
   </section>
 
@@ -131,11 +175,17 @@
   <section class="step" id="step-master" hidden>
     <h2>Reference &amp; master</h2>
     <p class="muted hint-line">
-      The reference is <strong>analysed, never sampled</strong>. Extract0r measures its
+      The reference is <strong>analysed, never sampled</strong>. extract0r measures its
       tonal balance and loudness and moves your mix in that direction — no audio from it
       reaches your export.
     </p>
 
+    <p class="muted hint-line" id="ref-already" hidden>
+      <strong>Reference loaded:</strong> <span id="ref-already-name"></span>. To use a
+      different one, start again from the top.
+    </p>
+
+    <div id="ref-inputs">
     <label class="dropzone compact" id="ref-dropzone">
       <input type="file" id="ref-file" accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aiff,.aif" hidden />
       <div>
@@ -153,9 +203,10 @@
       <p class="muted small">
         A direct link to an audio file — cloud storage, your own site, a promo link.
         Streaming pages are not downloaded:
-        <a href="#" data-modal="terms">Extract0r&#39;s terms</a> say it will not process
+        <a href="#" data-modal="terms">extract0r&#39;s terms</a> say it will not process
         audio taken from a streaming service against that service's terms.
       </p>
+    </div>
     </div>
 
     <p class="error" id="ref-error" hidden></p>
@@ -188,6 +239,30 @@
         sounds. This reads every stem on both sides, so it takes a moment.
       </p>
       <button class="link" id="findings-toggle" hidden>Show everything that matches</button>
+    </section>
+
+    <section class="compare-card" id="instrument-compare" hidden>
+      <div class="row-between">
+        <h4 class="sub" style="margin:0">Instrument by instrument</h4>
+        <button class="primary small" id="compare-instruments-btn">Compare instruments</button>
+      </div>
+      <p class="muted small" id="instrument-intro">
+        Your bass against that song's bass, your drums against its drums — level, tone in
+        five bands, how evenly each part plays, where it sits and how wide it is. Each
+        difference gets its own control, so you can take the air on the drums and leave
+        everything else alone.
+      </p>
+      <p class="muted small working" id="instrument-working" hidden>
+        Reading every stem on both sides, end to end. Around half a minute.
+      </p>
+      <p class="error" id="instrument-error" hidden></p>
+      <div id="instruments"></div>
+      <p class="muted small" id="monitor-note" hidden>
+        Moving these is audible straight away — no re-render. The monitor runs the same
+        band gains as the export, but its filters and compressor are the browser's, so it
+        is a close preview rather than the finished master. Press <strong>Master</strong>
+        for the real thing.
+      </p>
     </section>
 
     <div class="modes" id="modes">
@@ -282,6 +357,26 @@
         <span>Cut subsonics</span>
         <input type="range" id="subsonic" min="0" max="60" step="5" value="0" />
         <output id="subsonic-out">off</output>
+      </label>
+      <label class="control" title="Harmonics through the body of the sound rather than above it — the other end of the spectrum from Sparkle. Fills a mix out and rounds transients on the way, which is most of what 'glue' means. Deliberately gentle — about 1% harmonic distortion at the lowest setting and 2.5% at the highest, oversampled 4× so it cannot alias. A master wants no audible distortion; if you can hear it working, it is too high.">
+        <span>Saturation</span>
+        <input type="range" id="saturation" min="0" max="2" step="0.25" value="0" />
+        <output id="saturation-out">off</output>
+      </label>
+      <label class="control" title="A short room across the whole mix, blended in at fractions of a percent. The wet signal is filtered to 200 Hz – 10 kHz before blending, so it cannot muddy the bottom or wash the cymbals — measured, 2% changes the 10–16 kHz band by 0.17 dB. Deepens a dense mix; does little for a sparse one, because a tail of near-silence is still near-silence.">
+        <span>Ambience</span>
+        <input type="range" id="ambience" min="0" max="50" step="5" value="0" />
+        <output id="ambience-out">off</output>
+      </label>
+      <label class="control" title="A heavily compressed copy blended underneath, which lifts whatever is quiet — room, decay, the ends of notes. Level-matched before blending, so this is a balance and not a volume.">
+        <span>Parallel glue</span>
+        <input type="range" id="parallel" min="0" max="25" step="5" value="0" />
+        <output id="parallel-out">off</output>
+      </label>
+      <label class="control" title="A high shelf above 6 kHz on the side channel only. Whatever is already wide is mostly ambience rather than parts, so this opens the room out while the middle stays anchored.">
+        <span>Side air</span>
+        <input type="range" id="side-air" min="0" max="4" step="0.5" value="0" />
+        <output id="side-air-out">off</output>
       </label>
       <label class="control" title="Records are usually tighter than a home mix below 250 Hz and much wider above it. This matches your reference band by band, and eases back if it would cost more in mono than the reference itself gives up.">
         <span>Match reference image</span>
@@ -449,7 +544,7 @@
   <section class="step" id="step-about" hidden>
     <h2>What this server can actually do</h2>
     <p class="muted hint-line">
-      Extract0r degrades rather than failing: when an engine is missing it falls back to a
+      extract0r degrades rather than failing: when an engine is missing it falls back to a
       stub and carries on. Convenient, and also a trap — so this reports what is installed
       right now, not what the configuration asked for.
     </p>
@@ -470,7 +565,7 @@
 
 <footer class="wrap foot">
   <p>
-    Extract0r processes audio you provide. It is a tool, not a catalogue: nothing is
+    extract0r processes audio you provide. It is a tool, not a catalogue: nothing is
     shared between users and uploads are purged on a schedule.
     <a href="#" data-modal="terms">Terms of use</a> ·
     <a href="#" data-modal="dmca">Copyright &amp; DMCA</a>
@@ -482,6 +577,9 @@
   <button class="primary" id="modal-close">Close</button>
 </dialog>
 
+<script src="monitor.js"></script>
 <script src="app.js"></script>
+<script src="instruments.js"></script>
+<script src="help.js"></script>
 </body>
 </html>

@@ -24,12 +24,14 @@ verified on this machine, not just written.
 
 | | |
 |---|---|
-| Backend tests | **521 passing**, 6 skipped without the ML extras |
+| Backend tests | **680 passing**, 6 skipped without the ML extras |
 | Domain layer | Pure Python, no third-party dependencies |
 | Ingest | libsndfile for everything it reads, PyAV for m4a/AAC — no system ffmpeg |
 | Separation | Demucs 4.1.0 + torch CPU — 6-stem, 0.72× realtime measured on a real track |
 | Transcription | pYIN for bass/vocals, basic-pitch (ONNX) for guitar/piano, onsets for drums |
 | Mastering | Tone, loudness and per-band stereo image matched to a reference, in numpy/scipy |
+| Per-instrument matching | Snare against snare: level, tone in five bands, dynamics, transients, position, width |
+| Monitoring | Web Audio channel strip per stem — settings audible without a render |
 | Studio front end | ASP.NET Core + vanilla JS — **runs**; hamburger nav over Mastering, Tablature, Capabilities and Legal |
 | Next.js front end | Written, **never built** — Node is not installed here |
 | Transcription accuracy | **Unmeasured.** Needs a licensed eval set (X0R-306) |
@@ -96,6 +98,75 @@ summing the stems, because separation is not lossless: six stems reconstructed o
 only to within −25.6 dB, worst in the presence range, which is exactly what a sizzle is.
 Applying the *difference* instead reproduces the original bit for bit when nothing is
 changed — −188 dB — and costs artefacts only in proportion to what you actually change.
+
+**Instrument by instrument.** Matching two whole mixes can only move the sum: it can see
+that the reference has more low end and cannot see whether that means the bass should come
+up or the kick needs weight, so it tilts everything and takes the bass guitar with it.
+Separate the reference too and the question becomes answerable — your snare against that
+record's snare, on level, tone in five bands, dynamic range, transients, position and
+width. Each difference comes back as its own control, so the air on the drums can be taken
+and everything else declined.
+
+Two things about it are worth more than the feature itself. The tone dial is *solved*
+rather than assumed: a bell at 250 Hz covers less than the 120–500 Hz band it is
+responsible for and the five filters overlap, so setting each one to its band's own number
+under-delivers by about a third and lets them fight. Building the band-response matrix and
+inverting it makes "+3 dB of air" deliver 2.99. And the compressor's dial is an *outcome* —
+dB of dynamic range removed — because "4:1 at −18 dB" means something different on every
+stem it is pointed at. Asking for 3 dB removes 2.94, measured, after one self-correction.
+
+**A nudge, not a copy — and this took getting wrong first.** The first version closed each
+gap completely: make your snare measure like their snare. Run on a real song it produced a
+master its own author could not recognise, and he was right to say so. Two records are not
+two takes of one arrangement. A reference whose guitars sit 9 dB hotter than yours may
+simply be a wall-of-guitars record where yours is not, and "correcting" that replaces your
+arrangement with someone else's. It asked for +9 dB on the guitars against −4 dB on the
+bass: a 13 dB swing between two instruments, which is not a mix note.
+
+Every suggestion is now **half the measured gap**, capped at 2.5 dB per band and 3 dB per
+fader, with gaps big enough to be arrangement flagged rather than offered. A stem also gets
+a total budget of 5 dB of tone change across all five bands, scaled proportionally when it
+is exceeded — a real drum stem asked for +3 dB in four bands at once, which is not an EQ
+move but a different drum sound.
+
+**The solve is damped, and that fixed a real complaint.** Masters came back "swirly",
+"hollow" and "muddy". The cause was the exact solve: to hit a band target precisely it sets
+overlapping filters against each other, so asking for +3 dB of presence produced +3.55 on
+the presence bell against −2.02 on the air shelf. A boost and a notch that close together
+is a crude comb, and it sounds like one. Adding a ridge term trades exactness for
+smoothness — the same request now spans −0.28 to +2.18 dB with a worst swing of 1.81 dB
+inside an octave, against −1.36 to +3.49 and 3.56 dB before. It delivers about two thirds
+of what is asked, and the missing third was never worth having. The whole gap is
+still reported — you see what was measured and what is being suggested, and the slider
+reaches further than the suggestion if your ears disagree.
+
+Measured on that same song, with the reference tone match off so nothing else is moving:
+
+| | drift from your mix | distance from the reference |
+|---|---|---|
+| your mix, untouched | 0.00 dB | 7.59 dB |
+| old: the whole gap, per instrument | 4.98 dB | 3.20 dB |
+| now: half the gap, per instrument | **2.55 dB** | 5.23 dB |
+| that, plus the whole-mix polish | 5.27 dB | **2.85 dB** |
+
+The last row is the point, and it is why the two stages are separate. Nudging the
+instruments and then letting the master bus close the tonal gap lands *closer* to the
+reference than the old carbon-copy behaviour did — while moving the balance between your
+instruments half as far. Tone is a thing to match; arrangement is a thing to keep.
+
+Saturation is deliberately missing from the comparison. Distortion adds harmonics at
+multiples of what is already there, so telling "this guitar was driven" from "this guitar
+played a brighter voicing" needs the undistorted signal, which does not exist. It stays a
+control the ear sets. An invented number would have made the table look complete and been
+worth less than the gap.
+
+**Hearing it before rendering it.** Every setting used to cost a full master to audition.
+Each stem now runs through a Web Audio chain mirroring the server's channel strip, so a
+slider is audible on the next buffer. The EQ solve matrix is sent from the server so the
+monitor runs the same band gains as the export rather than its own approximation — and
+where the two genuinely differ (biquads are not zero-phase curves; the browser's
+compressor cannot measure its own result) the page says so. A preview that quietly
+disagrees with the export is worse than no preview.
 
 **What it will not do.** Clarity is not in the summed spectrum, so no master EQ can add
 it. The comparison measures how crowded each band is and how much structure is left in
@@ -220,7 +291,7 @@ services/api          FastAPI · Python 3.12
     mixdown/          reading and writing audio, LAME encoding, ID3
   app/jobs/           thread-pool job store with progress
   app/api/            routes and wire schemas
-  tests/              521 tests, 6 of them skipped without the ML extras
+  tests/              680 tests, 6 of them skipped without the ML extras
 docs/                 architecture, runbook, backlog, roadmap, ADRs, legal
 scripts/              PowerShell dev loop
 storage/              uploads and artifacts — gitignored, auto-purged

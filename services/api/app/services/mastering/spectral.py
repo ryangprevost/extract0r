@@ -200,6 +200,49 @@ class SpectralMatchEngine:
                 f"{polish.width_floor_hz:.0f} Hz, low end left centred"
             )
 
+        # Saturation before the spatial moves: it rounds transients, and a tail built
+        # from an already-rounded signal sits in the mix rather than on top of it.
+        if polish.saturation_db:
+            from app.services.mastering.saturation import (
+                SaturationReport,
+                add_saturation,
+            )
+
+            saturation_report = SaturationReport()
+            processed = add_saturation(
+                processed, source.sample_rate, polish.saturation_db, saturation_report
+            )
+            finish.saturation_db = saturation_report.saturation_db
+            finish.peak_softened_db = saturation_report.peak_softened_db
+            finish.notes.extend(saturation_report.notes)
+
+        if polish.ambience_mix or polish.parallel_mix or polish.side_air_db:
+            from app.services.mastering.depth import (
+                DepthReport,
+                add_ambience,
+                add_side_air,
+                parallel_compress,
+            )
+
+            depth_report = DepthReport()
+            if polish.ambience_mix:
+                processed = add_ambience(
+                    processed, source.sample_rate, polish.ambience_mix, report=depth_report
+                )
+            if polish.parallel_mix:
+                processed = parallel_compress(
+                    processed, source.sample_rate, polish.parallel_mix, report=depth_report
+                )
+            if polish.side_air_db:
+                processed = add_side_air(
+                    processed, source.sample_rate, polish.side_air_db, report=depth_report
+                )
+            finish.ambience_mix = depth_report.ambience_mix
+            finish.parallel_mix = depth_report.parallel_mix
+            finish.side_air_db = depth_report.side_air_db
+            finish.cymbal_change_db = depth_report.cymbal_change_db
+            finish.notes.extend(depth_report.notes)
+
         # Centring the bass goes after every width move, so nothing widens it again
         # afterwards, and before the limiter, which then sees the tighter signal.
         if polish.centre_bass_hz:

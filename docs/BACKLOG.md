@@ -19,6 +19,7 @@ another card, ❌ not started.
 | [EPIC-08](#epic-08--reference-mastering) | Reference mastering | 21 | 2 |
 | [EPIC-09](#epic-09--mix-editor) | Mix editor | 26 | 2 |
 | [EPIC-10](#epic-10--mixdown--export) | Mixdown & export | 13 | 2 |
+| [EPIC-11](#epic-11--per-instrument-matching) | Per-instrument matching | 24 | 2 |
 
 ---
 
@@ -798,3 +799,250 @@ spike keeps its full level under the limiter and loses 6 dB under peak normalisa
 **Acceptance criteria**
 - Every export listed with its settings and a re-download link, until retention deletes it.
 - Re-render from a past export's settings in one click.
+
+---
+
+## EPIC-11 — Per-instrument matching (Phase 2)
+
+The whole-mix comparison can only move the sum. It can see that a reference has more low
+end and it cannot see whether that means the bass should come up or the kick needs weight,
+so it tilts everything and takes the bass guitar with it. This epic compares each
+instrument with its counterpart in the reference and turns each difference into its own
+control.
+
+### X0R-1101 · Measure one instrument across the dimensions a mix note uses · 3 · `DONE`
+**As a** mixer **I want** my snare described the way I would describe it **so that** the
+comparison says something I can act on.
+
+**Acceptance criteria**
+- ✅ Level relative to the stem's own mix, never absolute.
+- ✅ Tone in five bands, measured as a share of the stem so it is shape and not level.
+- ✅ Dynamic range as p95 − p10 of short-term level, silence gated out (`dynamics`).
+- ✅ Crest as peak minus RMS, reported separately because it is a different question.
+- ✅ Stereo balance and width.
+- ✅ Saturation deliberately absent: added harmonics cannot be told from played ones
+  without the dry signal, and an invented number is worse than an honest gap.
+
+---
+
+### X0R-1102 · A tone control whose dial reads true · 2 · `DONE`
+**As a** mixer **I want** "+3 dB of air" to deliver 3 dB **so that** the number on the
+screen means something.
+
+**Acceptance criteria**
+- ✅ Filter gains solved from a band-response matrix rather than set to the band's own
+  number — the naive version under-delivers by about a third and the filters fight.
+- ✅ Weighted by the stem's own spectrum, because what a filter does to a band depends on
+  where in that band the energy is.
+- ✅ Measured: asking for +3 dB moves the band 2.99 dB against the other four.
+
+---
+
+### X0R-1103 · Compression calibrated in dB of range removed · 2 · `DONE`
+**As a** mixer **I want** to ask for an outcome **so that** the setting means the same
+thing on every stem it is pointed at.
+
+**Acceptance criteria**
+- ✅ Threshold placed half a knee above the quiet end so the floor is untouched.
+- ✅ Ratio solved for the requested reduction, then measured and corrected once.
+- ✅ Measured: asking for 3 dB removes 2.94.
+- ✅ Level-matched afterwards, so the control is a balance and not a volume.
+- ✅ Refuses to compress material that is already flat.
+
+---
+
+### X0R-1104 · Compare the two and offer a dial per difference · 3 · `DONE`
+**Acceptance criteria**
+- ✅ `POST /reference/instruments` returns each instrument with its moves and their controls.
+- ✅ An instrument the reference does not play is named as such, not matched to residue.
+- ✅ Bass is never asked to move sideways.
+- ✅ Findings with no honest fix (transients) come back as notes with no dial.
+- ✅ Comparing a track with itself suggests nothing.
+
+---
+
+### X0R-1105 · Take a suggestion one at a time · 2 · `DONE`
+**Acceptance criteria**
+- ✅ Each difference has its own slider and Apply, plus "take all" per instrument.
+- ✅ Taking one by hand switches the automatic per-stem match off and says why.
+- ✅ Applied state compares within half a slider step, not exactly.
+- ✅ The moves reach the rendered file (`test_stem_shape_render`).
+
+---
+
+### X0R-1106 · Hear both sides · 2 · `DONE`
+**Acceptance criteria**
+- ✅ Reference stems stream with Range support, so seeking does not re-download.
+- ✅ "Hear yours" solos the stem in the transport; "hear the reference" plays its
+  counterpart on its own.
+- ❌ A true locked A/B that crossfades between the two at the same musical position.
+  Needs beat alignment between two different recordings — not just the same timestamp.
+
+---
+
+### X0R-1107 · Real-time monitoring · 3 · `DONE`
+**As a** mixer **I want** to hear a setting without rendering **so that** the loop is
+seconds rather than a minute.
+
+**Acceptance criteria**
+- ✅ Each stem routed through a Web Audio chain mirroring the server's channel strip.
+- ✅ The EQ solve matrix is sent from the server, so the monitor runs the same band gains
+  as the export rather than being a third out.
+- ✅ Gain, mute, pan and width move through the graph, so a fader above unity is audible.
+- ✅ Falls back to plain playback where Web Audio is unavailable.
+- ✅ The page says plainly where the monitor and the render differ.
+- ❌ Master-bus controls are not monitored: they act on the sum, after this point.
+
+---
+
+### X0R-1113 · Nudge toward the reference, never copy it · 3 · `DONE`
+**As a** mixer **I want** suggestions that move my song toward a record I admire **so
+that** it still sounds like my song afterwards.
+
+**Acceptance criteria**
+- ✅ Every suggestion is half the measured gap, capped at 3 dB per band and per fader.
+- ✅ The whole measured gap is still reported next to what is being offered.
+- ✅ Gaps large enough to be arrangement rather than mixing are flagged, not offered.
+- ✅ Sliders reach further than the suggestions, so the user can go on if they want.
+- ✅ Measured: drift from the user's own mix halved (4.98 → 2.55 dB) while the combined
+  result landed *closer* to the reference than the old behaviour (2.85 vs 3.20 dB).
+- ✅ Headlines reworded as observations — "the reference's drums have more presence" —
+  rather than as faults in the user's mix.
+
+---
+
+### X0R-1114 · One upload, both splits · 2 · `DONE`
+**Acceptance criteria**
+- ✅ Song and reference both given on the first screen; one button runs both splits.
+- ✅ The first screen says what will happen and roughly how long it takes.
+- ✅ Matching the reference per instrument is an explicit, optional choice.
+- ✅ Lands directly on the comparison when there is one, rather than on the mixer.
+
+---
+
+### X0R-1115 · Fewer clicks, and a way back · 2 · `DONE`
+**Acceptance criteria**
+- ✅ "Try all" is a button in each instrument's header, not a link beneath the rows.
+- ✅ Apply is a toggle: pressing it again undoes that one move.
+- ✅ Per-instrument undo appears once anything is applied.
+- ✅ Bulk apply skips the moves flagged as worth hearing first.
+
+---
+
+### X0R-1116 · Auditions start where the music is · 1 · `DONE`
+**Acceptance criteria**
+- ✅ Each side starts at its own busiest stretch, found from a rolling loudness window.
+- ✅ Measured on a real pair: the vocal's busy part began at 63.6 s in the source and
+  142.5 s in the reference, so a shared playhead would have been wrong.
+- ✅ Auditions stop themselves after twelve seconds, and there is a stop button.
+- ✅ Stopping clears the solo, so the next thing played is the whole mix.
+
+---
+
+### X0R-1117 · A curve that does not comb · 2 · `DONE`
+**As a** mixer **I want** applied suggestions to sound like EQ **so that** the master does
+not come back hollow and swirly.
+
+**Acceptance criteria**
+- ✅ The band-to-filter solve is damped, so overlapping filters are not set in opposition.
+- ✅ Worst swing inside one octave fell from 3.56 dB to 1.81 dB on a single-band request.
+- ✅ A boost no longer has to dig a notch beside it: the curve floor went −1.36 → −0.28 dB.
+- ✅ Per-stem tone budget of 5 dB total, scaled proportionally so shape survives.
+- ✅ The browser receives the solve already inverted, so the monitor cannot drift from it.
+
+---
+
+### X0R-1118 · Read a card without opening it · 2 · `DONE`
+**Acceptance criteria**
+- ✅ Each instrument is a collapsed panel with a one-sentence plain-language summary:
+  "Drums in Sleeping In could use less weight, more body, more mids and more presence."
+- ✅ Apply-all and the auditions live on the header, so an instrument can be taken whole
+  without being opened.
+- ✅ A tick on the header shows which instruments have been acted on.
+- ✅ All panels start closed.
+
+---
+
+### X0R-1119 · One wait, not two · 1 · `DONE`
+**Acceptance criteria**
+- ✅ The comparison runs inside the initial load, so arriving on the page costs nothing.
+- ✅ The reference uploader on the mastering page is hidden when one was given up front.
+- ✅ Starting an export stops whatever is playing.
+- ✅ The name reads "extract0r studio" in the tab, the brand mark and the copy; "song"
+  replaces "record" throughout.
+
+---
+
+### X0R-1108 · Basic and advanced modes · 3 · `TODO`
+**As a** user **I want** a black box that matches the reference **and** the option to open
+it **so that** I am not forced to understand a channel strip to get a good master.
+
+**Acceptance criteria**
+- Basic: upload, reference, "match it", master. Suggestions opted into as a group.
+- Advanced: every manual slider, including per-stem tone, compression and drive on the
+  mixer lanes rather than only on the comparison screen.
+- The choice persists, and switching does not silently discard settings.
+
+---
+
+### X0R-1109 · On-screen help · 2 · `DONE`
+**Acceptance criteria**
+- ✅ Openable from the topbar on every screen, and from a link on the front page.
+- ✅ A guided tour of eight scenes, captioned and self-advancing, with play/pause,
+  step buttons and jump-to-step dots.
+- ✅ Reference sections underneath covering the workflow, why suggestions are smaller
+  than measurements, what the five tone bands are, the flagged rows, the limits of the
+  preview, absent instruments, and the analysed-never-sampled guarantee.
+- ✅ Drawn from the app's own CSS variables rather than recorded, so it follows the theme
+  and cannot show an interface that no longer exists.
+- ✅ Narration kept as text in `docs/WALKTHROUGH.md` so a voiceover could be recorded.
+- ✅ Motion is additive: nothing is hidden behind an animation that might not run.
+- ❌ Recorded audio narration. No text-to-speech is available here — see the note on
+  X0R-1120.
+
+---
+
+### X0R-1120 · Narrated video walkthrough · 3 · `TODO`
+**As a** new user **I want** to watch someone use this **so that** I can see it working
+before I commit twenty minutes of splitting to it.
+
+**Blocked on tooling, not design.** The captioned tour covers the same ground; what is
+missing is audio and a real screen recording. Neither can be produced from this
+environment: there is no text-to-speech and no screen capture. The script is written and
+timed in `docs/WALKTHROUGH.md`, so the remaining work is recording rather than authoring.
+
+**Acceptance criteria**
+- A screen recording of a real session, from upload through export.
+- Narration recorded over it, or generated from `docs/WALKTHROUGH.md`.
+- Hosted rather than bundled, so the page weight does not grow.
+
+---
+**Acceptance criteria**
+- An openable panel explaining each control and what each measurement means.
+- Grown as functionality is added, rather than written once and left to rot.
+- Reachable from the control it explains, not only from a menu.
+
+---
+
+### X0R-1110 · American spelling throughout · 1 · `TODO`
+**Acceptance criteria**
+- `colour`, `behaviour`, `centred`, `normalise`, `analysed`, `licence`, `metre` and their
+  relatives converted, in code, comments, tests and UI copy.
+- Identifiers renamed too, not only prose — `centre_bass_hz` is in the public API.
+- A test or lint rule that keeps it that way.
+
+---
+
+### X0R-1111 · Audit what is no longer used · 2 · `TODO`
+**Acceptance criteria**
+- Candidates already noted: `matchering_engine`, the single-band `widen_above` now that
+  per-band width matching exists, the ffmpeg path in `loudness.py`.
+- Each one either deleted or given a comment saying what it is still for.
+
+---
+
+### X0R-1112 · Name the application "extract0r studio" · 1 · `TODO`
+**Acceptance criteria**
+- Consistent in the title, the brand mark, the About page and the export metadata.
+
+---

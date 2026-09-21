@@ -41,6 +41,11 @@ from app.services.mastering.polish import (
     add_warmth,
     widen_above,
 )
+from app.services.mastering.exciter import (
+    DEFAULT_FROM_HZ as DEFAULT_SPARKLE_FROM_HZ,
+    add_sparkle,
+)
+from app.services.mastering.instrument import StemShape, apply_shape
 from app.services.mastering.reverb import apply_reverb
 from app.services.mastering.spectral import SpectralMatchEngine
 from app.services.mastering.stem_match import (
@@ -83,8 +88,42 @@ class StemSetting:
     #: Seconds of tail, and how much of it to blend in. 0 mix leaves it dry.
     reverb_s: float = 1.2
     reverb_mix: float = 0.0
+    #: Harmonics generated from this stem's own upper mids and added above
+    #: `sparkle_from_hz`. Per stem rather than on the master because that is the whole
+    #: point: driving the mix makes harmonics from the bass and the vocal too, so the
+    #: hats gain nothing on anything. Driving the drums alone lifts the cymbals against
+    #: everything else - measured, +4 dB on the drums moved hats and cymbals 2.4 dB in
+    #: the finished mix while the kick band did not move at all.
+    sparkle_db: float = 0.0
+    sparkle_from_hz: float = DEFAULT_SPARKLE_FROM_HZ
+    #: Tone, band by band, in the five bands `instrument` compares in. These are what the
+    #: per-instrument comparison writes into when a suggestion is taken: one row of the
+    #: comparison, one field here, so a user can accept the air on the drums and decline
+    #: everything else. Solved for rather than applied literally - see `instrument`.
+    tone_low_db: float = 0.0
+    tone_low_mid_db: float = 0.0
+    tone_high_mid_db: float = 0.0
+    tone_presence_db: float = 0.0
+    tone_air_db: float = 0.0
+    #: dB of dynamic range to take out of this stem, level-matched afterwards.
+    compress_db: float = 0.0
+    #: Harmonic drive on this stem alone. Not suggested by the comparison and cannot be:
+    #: added harmonics are indistinguishable from played ones without the dry signal.
+    saturation_db: float = 0.0
     muted: bool = False
     solo: bool = False
+
+    def shape(self) -> "StemShape":
+        """The channel-strip half of these settings, in the form `instrument` applies."""
+        return StemShape(
+            tone_low_db=self.tone_low_db,
+            tone_low_mid_db=self.tone_low_mid_db,
+            tone_high_mid_db=self.tone_high_mid_db,
+            tone_presence_db=self.tone_presence_db,
+            tone_air_db=self.tone_air_db,
+            compress_db=self.compress_db,
+            saturation_db=self.saturation_db,
+        )
 
 
 @dataclass(slots=True)
@@ -224,6 +263,21 @@ def run(
                 kit=request.drum_kit,
                 drums=tuple(request.drum_targets),
                 blend=request.drum_blend,
+            )
+
+        shape = setting.shape()
+        if not shape.is_identity():
+            # The per-instrument moves, taken from the comparison with the reference's
+            # counterpart stem. First in the strip, because everything after this - the
+            # exciter, the tail, the width - should be reacting to the instrument as it is
+            # meant to sound rather than to the version that needed correcting.
+            samples = apply_shape(samples, sample_rate, shape)
+
+        if setting.sparkle_db > 0:
+            # Before the tail, so the reverb is fed the excited signal and the two agree
+            # about what the instrument sounds like.
+            samples = add_sparkle(
+                samples, sample_rate, setting.sparkle_db, setting.sparkle_from_hz
             )
 
         if setting.reverb_mix > 0:

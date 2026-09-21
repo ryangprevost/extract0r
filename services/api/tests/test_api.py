@@ -240,6 +240,10 @@ def test_every_finishing_control_is_reachable_through_the_api():
         "centre_bass_hz": "centre_bass_hz",
         "centre_bass_amount": "centre_bass_amount",
         "subsonic_hz": "subsonic_hz",
+        "ambience_mix": "ambience_mix",
+        "parallel_mix": "parallel_mix",
+        "side_air_db": "side_air_db",
+        "saturation_db": "saturation_db",
         "headroom_db": "headroom_db",
         "protect_dynamics": "protect_dynamics",
     }
@@ -254,3 +258,54 @@ def test_every_finishing_control_is_reachable_through_the_api():
     known = set(wiring) | {"warmth_hz", "bass_hz", "width_floor_hz"}
     unmapped = {f for f in Polish.__dataclass_fields__ if f not in known}
     assert not unmapped, f"new Polish controls with no API wiring or exemption: {unmapped}"
+
+
+def test_every_per_stem_control_is_reachable_through_the_api():
+    """The same guarantee as the finishing controls, for the per-instrument ones.
+
+    `start_master` builds each StemSetting by unpacking the request model, so the two have
+    to carry the same field names or the unpack raises. This pins that agreement in a test
+    rather than leaving it to be discovered at runtime by a user whose compression slider
+    did nothing.
+    """
+    from app.api.routes_master import StemMixSetting
+    from app.services.mastering.pipeline import StemSetting
+
+    request_fields = set(StemMixSetting.model_fields)
+    pipeline_fields = set(StemSetting.__dataclass_fields__)
+
+    missing = request_fields - pipeline_fields
+    assert not missing, f"the request accepts controls the pipeline cannot take: {missing}"
+
+    unreachable = pipeline_fields - request_fields
+    assert not unreachable, (
+        f"pipeline stem controls with no way in from the API: {unreachable}"
+    )
+
+
+def test_a_stem_setting_survives_the_trip_from_request_to_pipeline():
+    """Values, not just names. Unpacking would still succeed if a field were renamed on
+    both sides into something the pipeline ignores."""
+    from app.api.routes_master import StemMixSetting
+    from app.services.mastering.pipeline import StemSetting
+
+    sent = StemMixSetting(
+        stem="drums",
+        gain_db=-2.5,
+        tone_air_db=3.0,
+        tone_low_db=-1.5,
+        compress_db=4.0,
+        saturation_db=1.0,
+    )
+    got = StemSetting(**sent.model_dump())
+
+    assert got.gain_db == -2.5
+    assert got.tone_air_db == 3.0
+    assert got.tone_low_db == -1.5
+    assert got.compress_db == 4.0
+    assert got.saturation_db == 1.0
+    # And the shape the pipeline actually applies carries them.
+    shape = got.shape()
+    assert shape.tone()["air"] == 3.0
+    assert shape.compress_db == 4.0
+    assert not shape.is_identity()

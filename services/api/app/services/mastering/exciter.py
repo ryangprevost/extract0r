@@ -60,6 +60,13 @@ EVEN_SHARE = 0.5
 #: and a mix with no top end is precisely what this control is for.
 AIR_FLOOR_SHARE = 0.03
 
+#: How far past the asked-for figure the floor may take a very dark source. The floor
+#: exists so "add 3 dB" does something to a mix with no top end, but on a stem with
+#: almost none - a DI'd guitar measured 51 dB below its own level up there - it turned a
+#: 4 dB request into 15.8 dB. The dial has to mean roughly what it says, so the floor may
+#: overshoot and may not run away.
+MAX_FLOOR_OVERSHOOT_DB = 6.0
+
 #: The most this may add to the mix's peak, as a share of it. Harmonics from a soft
 #: clipper are spiky and they arrive just before the limiter, so an uncapped exciter
 #: spends the master's headroom on content nobody asked to be that loud.
@@ -190,6 +197,15 @@ def add_sparkle(
     if added_peak > ceiling > 0:
         gain *= ceiling / added_peak
         capped = True
+
+    # The floor can ask for far more than the setting when a source has nothing up top.
+    # Allowed, up to a point: past that the number on the dial stops describing what
+    # happens, which is how a control becomes something people stop trusting.
+    ceiling_rise = sparkle_db + MAX_FLOOR_OVERSHOOT_DB
+    would_add = made * gain
+    most = existing * float(np.sqrt(max(10 ** (ceiling_rise / 10.0) - 1.0, 1e-12)))
+    if existing > 1e-12 and would_add > most:
+        gain *= most / would_add
 
     out = audio + generated * gain
 

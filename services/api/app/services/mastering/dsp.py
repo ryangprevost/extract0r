@@ -48,11 +48,37 @@ class MatchSettings:
     max_cut_db: float = 12.0
     #: How much the curve may cut *below* `low_guard_hz`, which is far less than
     #: elsewhere. See `matching_curve` for why the deep bass gets its own limit.
-    max_low_cut_db: float = 2.0
-    low_guard_hz: float = 140.0
+    #:
+    #: Widened from 140 Hz / 2 dB after a real complaint of "no bass". The guard was
+    #: protecting the sub and leaving 90-180 Hz exposed, so the correction piled up just
+    #: above the corner and dug a 5 dB notch at 105 Hz - straight through the kick and
+    #: bass fundamentals, and precisely the band a car stereo reproduces. Extending the
+    #: guard to 220 Hz flattened that notch from -2.5 dB to -0.7 while leaving the rest of
+    #: the curve intact.
+    #:
+    #: The asymmetry is deliberate and worth stating: an automatic match derived from a
+    #: *different song* has very little business cutting the most audible band there is,
+    #: because the difference down here is mostly how much bass the two songs have rather
+    #: than how they were mastered. Anyone who does want less bass can say so with the
+    #: bass control, which reaches much further than this ever will.
+    max_low_cut_db: float = 1.0
+    low_guard_hz: float = 220.0
     #: 0 = no correction, 1 = the full clamped curve. A dial, because "as much of the
     #: reference as possible" is rarely what a person actually wants.
     strength: float = 1.0
+    #: The most this curve may tilt a master, from its lowest point to its highest.
+    #:
+    #: The per-band clamps above bound each band on its own and say nothing about the
+    #: total, so a reference with a different spectral centre of gravity pins the curve to
+    #: -6 at the bottom and +6 at the top and tilts the master twelve decibels. Measured on
+    #: a real pair - a bass-heavy electronic mix against MSTRKRFT's "Bounce" - the curve
+    #: ran the full -6.03 to +6.00, cutting 90-180 Hz by 4-5 dB while lifting 2-6 kHz by
+    #: 3-5. The master came back, in its author's words, "super hollow with no bass".
+    #:
+    #: Six decibels end to end is already a strong mastering move. Beyond that the two
+    #: recordings are not the same kind of song, and the honest response is to move part
+    #: of the way rather than to rebuild one into the other.
+    max_tilt_db: float = 6.0
 
 
 def to_mono(samples: np.ndarray) -> np.ndarray:
@@ -177,6 +203,23 @@ def matching_curve(
         )
     allowed = -(settings.max_low_cut_db + blend * (settings.max_cut_db - settings.max_low_cut_db))
     db = np.where(guarded, np.maximum(db, allowed), db)
+
+    # Then limit the tilt of the whole curve, scaled rather than clipped so the shape of
+    # the correction survives and only its size changes - the same treatment a per-stem
+    # tone request gets in `instrument.within_budget`, and for the same reason. Clipping
+    # would flatten the extremes into plateaux and leave the middle untouched, which
+    # changes what the curve says rather than how loudly it says it.
+    #
+    # Measured over the audible range only. The bins below 30 Hz carry rumble and the ones
+    # at the very top carry codec cutoff, and both routinely sit at the clamp on material
+    # that is otherwise a close match - so including them would let silence decide how far
+    # the music is allowed to move.
+    freqs_all = np.fft.rfftfreq((len(db) - 1) * 2, d=1.0 / sample_rate)
+    audible = (freqs_all > 30.0) & (freqs_all < 16000.0)
+    if audible.any():
+        span = float(db[audible].max() - db[audible].min())
+        if span > settings.max_tilt_db > 0:
+            db = db * (settings.max_tilt_db / span)
 
     db *= float(np.clip(settings.strength, 0.0, 1.0))
     return 10.0 ** (db / 20.0)

@@ -61,7 +61,9 @@ is the only way to tell a separation problem from a transcription one.
 | `POST` | `/tracks/{id}/reference/url` | Fetch a reference from a direct link instead of uploading it. Same rights gate, size limit and probing |
 | `POST` | `/tracks/{id}/reference/separate` | Split the reference into stems so matching can work per instrument. `202` + job |
 | `GET` | `/tracks/{id}/reference/stems` | Whether the reference has been separated, and into what |
-| `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/width/mute/solo, optional `reference_track_id`, `per_stem_match`, `vocal_presence`, `vocal_duck_db`, `match_strength`, `brightness_db`, `brightness_from_hz`, `width`, `headroom_db`, `protect_dynamics`, `bitrate_kbps`. `202` + job |
+| `GET` | `/tracks/{id}/reference/stems/{stem}/audio` | One separated reference stem, for playing against yours. Range requests honoured |
+| `POST` | `/tracks/{id}/reference/instruments` | Your instruments against the reference's, one at a time, with a control per difference. `202` + job |
+| `POST` | `/tracks/{id}/master` | Body: `stems[]` with gain/pan/width/mute/solo plus the per-instrument controls (`tone_low_db`, `tone_low_mid_db`, `tone_high_mid_db`, `tone_presence_db`, `tone_air_db`, `compress_db`, `saturation_db`), optional `reference_track_id`, `per_stem_match`, `vocal_presence`, `vocal_duck_db`, `match_strength`, `brightness_db`, `brightness_from_hz`, `width`, `headroom_db`, `protect_dynamics`, `bitrate_kbps`. `202` + job |
 | `GET` | `/tracks/{id}/master/download` | The rendered MP3 |
 | `GET` | `/tracks/drum-kits` | The kits available to lay over a drum track |
 | `GET` | `/tracks/{id}/master/suggest` | How this mix compares with its reference in plain language, plus where to set each finishing dial and why |
@@ -229,6 +231,32 @@ the master with the reference's own crest factor. Measured on a real pair: match
 outright gave a 7.91 dB crest with the limiter working on 31% of the track; backing off
 1.31 dB gives 9.08 dB and 6%. It will not make a master *more* dynamic than its reference
 — that is what `headroom_db` is for.
+
+### Instrument by instrument
+
+`POST /tracks/{id}/reference/instruments` needs both sides separated and answers with one
+entry per instrument: what yours measures, what the reference's measures, and a list of
+`moves`. Each move carries the sentence describing it, the measurement behind it, and the
+control that closes it — `gain_db`, one of the five `tone_*_db`, `compress_db`, `pan` or
+`width` — so a page can offer them one at a time rather than as a single opaque match.
+
+A move with an empty `control` is a note rather than a setting. Transients are the usual
+case: no dial sharpens an attack that was not played, and saying so is more use than
+offering a slider that cannot help.
+
+`in_reference: false` means the reference does not really play that instrument. Separation
+returns a stem for everything the model knows, so a record with no piano still yields a
+piano stem — forty-odd dB under its own mix. Matching to it would ask for a 40 dB cut and
+silence a part the user did play, so those instruments are named and left alone.
+
+`tone_matrix` is the band-to-filter solve for that stem: five rows of five saying how far
+one dB of each filter moves each band. It is sent so a browser can run the same EQ the
+render will. Without it a client setting each filter to its band's own number
+under-delivers by about a third, and the preview would disagree with the export.
+
+A job rather than a plain response: it reads every stem on both sides in full, about 25
+seconds. Windowing them was tried and put the parts that come and go several dB out, which
+is enough to invent a finding.
 
 ### Suggestions
 

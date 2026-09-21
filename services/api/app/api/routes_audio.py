@@ -64,7 +64,16 @@ def stream_stem(
     Without Range support a browser re-downloads the whole file on every seek, which for
     a five-minute stem is tens of megabytes per drag of the playhead.
     """
-    path = _stem_path(track_id, stem, registry)
+    return ranged_file(_stem_path(track_id, stem, registry), request)
+
+
+def ranged_file(path, request: Request):
+    """Serve a WAV, honouring a Range header so the player can seek.
+
+    Shared with the reference stems, which are streamed by `routes_master` for the
+    side-by-side comparison. One implementation rather than two, because the seek path is
+    exactly the kind of thing that gets fixed in one copy and not the other.
+    """
     size = path.stat().st_size
     range_header = request.headers.get("range")
 

@@ -1,4 +1,4 @@
-/* Extract0r Studio. Hand-written, no build step - this file is the whole design system. */
+/* extract0r studio. Hand-written, no build step - this file is the whole design system. */
 
 :root {
   --ink: #0b0d10;
@@ -581,3 +581,268 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .kit-drums { display: flex; gap: 14px; font-size: 13px; color: var(--muted); }
 .kit-drums label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 #kit-note { margin: 10px 0 0; max-width: 70ch; }
+
+/* ── instrument by instrument ─────────────────────────────────────────────────
+   One card per instrument, each holding the differences between yours and the
+   reference's. The severity stripe matches the whole-mix findings above it so the
+   two screens read as one comparison rather than two features. */
+
+.instrument {
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+/* The card is a <details>; its header is the <summary>. The default disclosure triangle
+   is replaced with one that sits where the eye expects it on a wide row. */
+.instrument > summary { list-style: none; cursor: pointer; }
+.instrument > summary::-webkit-details-marker { display: none; }
+
+.instrument-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-left: 20px;
+  position: relative;
+}
+.instrument-head::before {
+  content: "▸";
+  position: absolute;
+  left: 0;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+.instrument[open] .instrument-head::before { transform: rotate(90deg); }
+.instrument > summary:hover .instrument-head::before { color: var(--accent); }
+
+.instrument-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.instrument-summary { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.instrument.has-applied > summary .instrument-title strong::after {
+  content: " ✓";
+  color: var(--accent);
+}
+.instrument-head strong { font-size: 14px; }
+.instrument .players { display: flex; gap: 12px; }
+.instrument .players button { font-size: 12.5px; }
+.instrument .players button.on { color: var(--accent); font-weight: 600; }
+.instrument .players button[disabled] { opacity: 0.4; cursor: not-allowed; }
+.instrument-numbers {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  margin: 6px 0 10px;
+}
+
+.moves { display: grid; gap: 7px; }
+.move {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+  border-left: 3px solid var(--muted);
+  padding: 8px 0 8px 10px;
+  background: var(--panel);
+  border-radius: 0 6px 6px 0;
+}
+.move.sev-notable { border-left-color: var(--warn); }
+.move.sev-strong { border-left-color: var(--danger); }
+.move.sev-slight { border-left-color: color-mix(in srgb, var(--warn) 45%, var(--muted)); }
+.move.sev-match { border-left-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+
+.move-text strong { display: block; font-size: 13px; margin-bottom: 2px; }
+.move-text em {
+  display: block;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.move-text em.caution { color: var(--warn); margin-top: 3px; }
+.move-text .band {
+  font-size: 10px;
+  font-weight: 600;
+  /* Not uppercased: the chip holds a frequency range, and "kHz" is not "KHZ". */
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin-left: 7px;
+  vertical-align: 1px;
+}
+
+.move-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+}
+.move-action .move-slider { width: 108px; accent-color: var(--accent); }
+.move-action output {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  min-width: 56px;
+  text-align: right;
+  color: var(--muted);
+}
+.move-apply.applied {
+  background: none;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.apply-all { margin-top: 10px; font-size: 12.5px; }
+
+/* Two columns is unreadable on a phone: the slider ends up 40px wide and the text
+   reflows to one word a line. Stacked, the control sits under the sentence it belongs
+   to, which is also the order they are read in. */
+@media (max-width: 720px) {
+  .move { grid-template-columns: 1fr; gap: 8px; }
+  .move-action { padding-right: 0; }
+  .move-action .move-slider { flex: 1; width: auto; }
+  .instrument-head { flex-wrap: wrap; }
+}
+
+/* The bulk actions live in the card header, where the eye lands first. They were a text
+   link under the rows and went unseen. */
+.instrument-bulk {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  padding-left: 12px;
+  flex-shrink: 0;
+}
+.instrument-bulk .players { display: flex; gap: 10px; }
+.instrument-bulk .muted { font-size: 11.5px; }
+.instrument-head { flex-wrap: wrap; row-gap: 8px; }
+.instrument .players button { white-space: nowrap; }
+.stop-preview { color: var(--warn) !important; }
+
+/* Two dropzones side by side on the first screen: the song and, optionally, the record
+   it is aiming at. Stacked on a phone, where side-by-side would give each about 160px. */
+.two-up { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.two-up .dropzone { padding: 28px 18px; }
+.dropzone.optional { border-style: dashed; }
+.dropzone .tag {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.dropzone .tag em { font-style: normal; text-transform: none; letter-spacing: 0; }
+.dropzone.over { border-color: var(--accent); background: var(--panel-2); }
+
+.how {
+  margin: 0 0 20px;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.7;
+  max-width: 68ch;
+}
+.how strong { color: var(--text); font-weight: 600; }
+
+.plan {
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 12px 14px;
+  margin: 14px 0 0;
+}
+#upload-plan-note { margin-top: 8px; }
+
+@media (max-width: 720px) {
+  .two-up { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .instrument-head { flex-direction: column; align-items: flex-start; }
+  .instrument-bulk { margin-left: 0; padding-left: 0; flex-wrap: wrap; }
+}
+
+/* ── help panel and the guided tour ───────────────────────────────────────────
+   The tour is drawn rather than recorded, so it uses the same variables as the rest
+   of the app and can never show a version of the interface that no longer exists. */
+
+.help-btn { margin-left: 10px; white-space: nowrap; }
+.lede-link { margin: -12px 0 20px; }
+
+#modal { max-width: 760px; width: calc(100vw - 48px); }
+.help h2 { margin: 0 0 16px; font-size: 20px; }
+.help-section { margin-top: 22px; }
+.help-section h3 { font-size: 14px; margin: 0 0 6px; }
+.help-section p { margin: 0 0 8px; font-size: 13.5px; line-height: 1.6; color: var(--muted); }
+.help-section b { color: var(--text); font-weight: 600; }
+
+.help-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.help-table td { padding: 6px 10px 6px 0; vertical-align: top; color: var(--muted); }
+.help-table td:first-child { color: var(--text); white-space: nowrap; }
+.help-table td:nth-child(2) { font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+.help-table tr + tr td { border-top: 1px solid var(--edge); }
+
+.tour {
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 14px;
+}
+.tour-stage { width: 100%; height: auto; display: block; }
+.tour-stage .panel { fill: var(--panel-2); stroke: var(--edge); }
+.tour-stage .drop { fill: var(--panel-2); stroke: var(--edge); stroke-width: 1.5; }
+.tour-stage .drop.dashed { stroke-dasharray: 5 4; }
+.tour-stage .cta { fill: var(--accent); }
+.tour-stage .cta-text { fill: var(--ink); font-size: 12px; font-weight: 650; text-anchor: middle; }
+.tour-stage .cta-text.sm { font-size: 10.5px; }
+.tour-stage .label { fill: var(--text); font-size: 13px; text-anchor: middle; }
+.tour-stage .label.start { text-anchor: start; }
+.tour-stage .caption-sm { fill: var(--muted); font-size: 11px; text-anchor: middle; }
+.tour-stage .caption-sm.start { text-anchor: start; }
+.tour-stage .caption-sm.end { text-anchor: end; }
+.tour-stage .arrow { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+.tour-stage .arrow.thick { stroke: var(--accent); stroke-width: 2.5; }
+.tour-stage .axis { stroke: var(--edge); stroke-width: 2; }
+.tour-stage .marker { fill: var(--accent); }
+
+.tour-bar { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.tour-dots { display: flex; gap: 6px; margin-left: auto; }
+.tour-dots button {
+  width: 7px; height: 7px; padding: 0; border-radius: 50%;
+  border: 0; background: var(--edge); cursor: pointer;
+}
+.tour-dots button.on { background: var(--accent); }
+.tour-title { margin: 12px 0 4px; font-size: 15px; }
+.tour-caption { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--muted); }
+
+/* The animation. Each scene re-renders, so these run once on entry.
+
+   Motion only - deliberately no opacity. An entrance that fades in from zero makes the
+   animation load-bearing: anything that stops it running (a throttled background tab, a
+   pane that is not compositing, an engine that ignores the keyframes) leaves the content
+   invisible rather than unanimated. Caught exactly that way during review, with three
+   cards sitting at 0.11 opacity and a frozen animation clock. Sliding six pixels degrades
+   to "already in place", which nobody will notice. */
+.tour-stage .fade-in,
+.tour-stage g > g.stagger { animation: tour-in 0.45s ease backwards; }
+.tour-stage g > g.stagger { animation-delay: calc(var(--i, 0) * 70ms); }
+.tour-stage rect.stagger { animation: tour-in 0.45s ease backwards;
+                           animation-delay: calc(var(--i, 0) * 70ms); }
+.tour-stage .pulse { animation: tour-pulse 1.8s ease-in-out infinite; }
+.tour-stage .blink { animation: tour-pulse 1.2s ease-in-out infinite; }
+.tour-stage .slide { animation: tour-slide 3.5s ease-in-out infinite; }
+
+@keyframes tour-in { from { transform: translateY(7px); } }
+@keyframes tour-pulse { 50% { opacity: 0.6; } }
+@keyframes tour-slide { 0%, 12% { transform: translateX(0); }
+                        55%, 100% { transform: translateX(210px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-stage * { animation: none !important; }
+}
+@media (max-width: 720px) {
+  .help-btn { display: none; }
+  #modal { width: calc(100vw - 20px); }
+}

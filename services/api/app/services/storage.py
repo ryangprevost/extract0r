@@ -7,6 +7,7 @@ which matters because "we delete your audio" has to be true, not aspirational.
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import time
 import uuid
@@ -113,12 +114,24 @@ class TrackStorage:
     def delete(self, track_id: str) -> None:
         shutil.rmtree(self.track_dir(track_id), ignore_errors=True)
 
+    #: What a track folder is called: the hex track id and nothing else.
+    _TRACK_DIR = re.compile(r"^[0-9a-f]{32}$")
+
     def purge_expired(self, retention_hours: int) -> list[str]:
-        """Delete track folders older than the retention window. Returns what went."""
+        """Delete track folders older than the retention window. Returns what went.
+
+        Track folders specifically, not every directory under the root. The sweep used to
+        remove anything old enough that it found here, which is fine while the root holds
+        nothing but tracks and quietly destroys the first thing that is put beside them -
+        a folder of saved reference profiles would have lasted a day. Profiles are kept
+        outside this root for that reason as well; this is the second lock on the door.
+        """
         cutoff = time.time() - retention_hours * 3600
         removed: list[str] = []
         for directory in self.root.iterdir():
-            if directory.is_dir() and directory.stat().st_mtime < cutoff:
+            if not directory.is_dir() or not self._TRACK_DIR.match(directory.name):
+                continue
+            if directory.stat().st_mtime < cutoff:
                 shutil.rmtree(directory, ignore_errors=True)
                 removed.append(directory.name)
         return removed

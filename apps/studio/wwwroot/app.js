@@ -397,8 +397,9 @@ async function upload() {
 
     const separation = await api(`/tracks/${track.track_id}/stems`);
     await buildMixer(separation, track);
-    // No reference yet means the library is worth offering; with one it stays hidden.
+    // No reference yet means the library and any saved profiles are worth offering.
     if (typeof refreshLibraryPanel === "function") await refreshLibraryPanel();
+    if (typeof refreshProfilePanels === "function") await refreshProfilePanels();
 
     // Land on the comparison rather than on the mixer when there is one to show. The
     // user did not upload two songs to look at six faders.
@@ -1037,6 +1038,7 @@ async function afterReferenceUpload() {
   updateMasterSummary();
   await refreshPerStemState();
   if (typeof refreshLibraryPanel === "function") await refreshLibraryPanel();
+  if (typeof refreshProfilePanels === "function") await refreshProfilePanels();
   // Now there is something to compare against, so the dials can be set for this pair.
   await loadSuggestion();
 }
@@ -1066,6 +1068,19 @@ async function refreshPerStemState() {
     separated = false;
   }
   state.referenceSeparated = separated;
+
+  if (state.usingProfile) {
+    box.disabled = true;
+    box.checked = false;
+    button.hidden = true;
+    $("per-stem-options").hidden = true;
+    note.textContent =
+      "Not available when aiming at a saved profile. A profile is measurements, and " +
+      "comparing your snare with the reference's needs the reference's snare — which " +
+      "means its audio. Upload the song itself to compare instrument by instrument.";
+    refreshInstrumentSection();
+    return;
+  }
 
   box.disabled = !separated;
   button.hidden = separated;

@@ -167,12 +167,36 @@ def match_profile(
         report.notes.append("the reference is mono; width left alone")
         return audio, report
 
+    return match_to(
+        audio, sample_rate, width_profile(target, sample_rate), mono_loss_db(target), strength
+    )
+
+
+def match_to(
+    samples: np.ndarray,
+    sample_rate: int,
+    reference_width: dict[str, float],
+    reference_mono_loss_db: float,
+    strength: float = 1.0,
+) -> tuple[np.ndarray, WidthReport]:
+    """`match_profile`, given the reference's measurements rather than its audio.
+
+    Split out because a saved reference profile has these nine numbers and no waveform -
+    eight band widths and what the reference gives up in mono - and they are the whole of
+    what the match ever reads from it.
+    """
+    audio = np.asarray(samples, dtype=np.float64)
+    report = WidthReport()
+    if audio.ndim == 1 or audio.shape[1] < 2:
+        report.notes.append("mono input; there is no image to match")
+        return audio, report
+
     bands = split_bands(audio, sample_rate)
-    theirs = split_bands(target, sample_rate)
 
     factors: list[float] = []
-    for name, mine, ref in zip(BAND_NAMES, bands, theirs, strict=True):
-        here, want = side_to_mid(mine), side_to_mid(ref)
+    for name, mine in zip(BAND_NAMES, bands, strict=True):
+        here = side_to_mid(mine)
+        want = float(reference_width.get(name, here))
         if here < NO_IMAGE:
             factors.append(1.0)
             report.notes.append(f"{name} is effectively mono; left as it is")
@@ -181,7 +205,7 @@ def match_profile(
         factor = 1.0 + (factor - 1.0) * float(np.clip(strength, 0.0, 1.0))
         factors.append(factor)
 
-    report.reference_mono_loss_db = round(mono_loss_db(target), 2)
+    report.reference_mono_loss_db = round(reference_mono_loss_db, 2)
     report.factors = {n: round(f, 2) for n, f in zip(BAND_NAMES, factors, strict=True)}
 
     if all(f == 1.0 for f in factors):

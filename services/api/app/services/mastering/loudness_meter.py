@@ -55,6 +55,34 @@ def integrated_loudness(samples: np.ndarray, sample_rate: int) -> tuple[float, s
     return (20.0 * np.log10(rms) if rms > 0 else -np.inf), "rms"
 
 
+def gain_to_lufs(
+    target: np.ndarray, sample_rate: int, reference_lufs: float, max_gain_db: float = 24.0
+) -> tuple[float, dict]:
+    """`gain_to_match`, given the reference's loudness rather than its audio.
+
+    A saved reference profile has the number and not the waveform, and this stage never
+    wanted anything else from it.
+    """
+    target_loudness, backend = integrated_loudness(target, sample_rate)
+    if not (np.isfinite(target_loudness) and np.isfinite(reference_lufs)):
+        return 0.0, {
+            "target": target_loudness,
+            "reference": reference_lufs,
+            "backend": backend,
+            "clamped": False,
+        }
+
+    wanted = float(reference_lufs) - target_loudness
+    applied = float(np.clip(wanted, -max_gain_db, max_gain_db))
+    return applied, {
+        "target": round(target_loudness, 2),
+        "reference": round(float(reference_lufs), 2),
+        "backend": backend,
+        "wanted_db": round(wanted, 2),
+        "clamped": bool(abs(wanted - applied) > 0.01),
+    }
+
+
 def gain_to_match(
     target: np.ndarray, reference: np.ndarray, sample_rate: int, max_gain_db: float = 24.0
 ) -> tuple[float, dict]:

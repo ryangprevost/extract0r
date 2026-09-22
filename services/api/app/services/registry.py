@@ -26,6 +26,8 @@ class TrackRecord:
     timing: TimingEstimate | None = None
     #: Separated stems of the mastering reference, if it has been split.
     reference_stems: dict = field(default_factory=dict)
+    #: A saved reference profile standing in for reference audio, if one was chosen.
+    reference_profile: object | None = None
     #: What the reference was called when it arrived. On disk it becomes "reference.mp3"
     #: like every other, but an export should be able to say what it was matched against.
     reference_name: str = ""
@@ -63,6 +65,11 @@ class TrackRegistry:
         with self._lock:
             if track_id in self._records:
                 self._records[track_id].timing = timing
+
+    def set_reference_profile(self, track_id: str, profile) -> None:
+        with self._lock:
+            if track_id in self._records:
+                self._records[track_id].reference_profile = profile
 
     def set_reference_stems(self, track_id: str, stems: dict) -> None:
         with self._lock:

@@ -994,6 +994,33 @@ will accept. Local music does, and can be explained rather than guessed at.
 
 ---
 
+### X0R-1122 · Reference profiles · 5 · `DONE`
+**As a** user **I want** to capture what a song teaches **so that** I can aim at it again
+without keeping the audio.
+
+**Acceptance criteria**
+- ✅ A profile is a spectrum at 96 log-spaced points, side-to-mid per band, overall width,
+  loudness and both peaks. About 3 KB. No audio and nothing reconstructable from it.
+- ✅ It replaces the reference completely at the whole-mix stage: tonal curve, width
+  match, level and headroom guard all read measurements and nothing else.
+- ✅ Measured: a master from a profile matched the master from the audio to within 0.02 dB
+  of applied gain, 0.01 LUFS of output, and 40.6 dB below signal on the waveform.
+- ✅ Advice works from a profile too - `suggest` takes one in place of reference audio,
+  so aiming at a profile gives findings and dial settings, not just a render.
+- ✅ Per-instrument matching is refused with a reason, in the API and in the UI. It needs
+  the reference's stems, and stems are audio.
+- ✅ Curve resolution chosen by measurement: 96 points rebuild the matching curve within
+  0.64 dB worst and 0.17 dB RMS, and more stops helping.
+- ✅ Profiles live outside `storage_dir`, and the retention sweep now only deletes
+  directories named like a track id rather than everything it finds.
+
+**Why it is legitimate where a streaming rip is not.** Measurements of a recording are
+facts about it - its loudness, its tonal balance, how wide it is - in the same family as
+its tempo or its key. Ninety-six magnitudes with the phase discarded describes a song and
+cannot become one.
+
+---
+
 ### X0R-1108 · Basic and advanced modes · 3 · `TODO`
 **As a** user **I want** a black box that matches the reference **and** the option to open
 it **so that** I am not forced to understand a channel strip to get a good master.

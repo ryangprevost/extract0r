@@ -133,6 +133,10 @@ class MasterRequest:
     stems: dict[StemKind, Path]
     settings: list[StemSetting]
     reference: Path | None = None
+    #: A saved reference profile, used when there is no reference audio. Covers the
+    #: whole-mix stage completely; per-instrument matching still needs `reference_stems`,
+    #: because comparing your snare with theirs needs theirs.
+    reference_profile: object | None = None
     #: Separated stems of the reference, keyed the same way as `stems`. When present,
     #: each source stem is matched to its counterpart before the bus is matched.
     reference_stems: dict[StemKind, Path] = field(default_factory=dict)
@@ -412,7 +416,7 @@ def run(
 
     master_report = None
     mastered_wav = mix_wav
-    if request.reference is not None:
+    if request.reference is not None or request.reference_profile is not None:
         report(0.5, "matching the reference")
         engine = SpectralMatchEngine(MatchSettings(strength=request.match_strength))
         mastered_wav = work_dir / "mastered.wav"
@@ -422,6 +426,7 @@ def run(
             mastered_wav,
             analysis=analysis_wav,
             polish=request.polish,
+            reference_profile=request.reference_profile,
         )
         report(0.8, f"matched, {master_report.gain_applied_db:+.1f} dB")
 

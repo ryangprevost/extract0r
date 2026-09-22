@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # Unset means the feature is off, which is why there is no default guess at a Music
     # folder - scanning somebody's library should be something they asked for.
     library_dir: Path | None = None
+    #: Where saved reference profiles live - the measurements of a record, kept so it can
+    #: be aimed at again without the audio.
+    #:
+    #: Outside `storage_dir` on purpose. The retention sweep clears track folders under
+    #: that root, and although it now only removes ones named like a track id, profiles
+    #: are meant to outlive every track that used them by years.
+    profile_dir: Path = REPO_ROOT / "profiles"
     # Ceiling on one scan, so pointing this at a 40,000-track collection reports a
     # sensible refusal instead of running for a day.
     library_max_tracks: int = 2000

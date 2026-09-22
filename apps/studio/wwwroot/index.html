@@ -185,6 +185,21 @@
       different one, start again from the top.
     </p>
 
+    <div class="save-profile" id="save-profile" hidden>
+      <span class="or">keep this reference as a profile</span>
+      <p class="muted small">
+        Measures it once and stores the numbers — a spectrum, a width profile, a loudness
+        and two peaks. About 6 KB, no audio, and enough to aim any future mix at this song
+        without the file.
+      </p>
+      <div class="url-row">
+        <input type="text" id="profile-name" placeholder="name it, e.g. Bounce — club target"
+               spellcheck="false" autocomplete="off" maxlength="120" />
+        <button class="ghost" id="profile-save-btn">Save profile</button>
+      </div>
+      <p class="muted small" id="profile-saved" hidden></p>
+    </div>
+
     <div id="ref-inputs">
     <label class="dropzone compact" id="ref-dropzone">
       <input type="file" id="ref-file" accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aiff,.aif" hidden />
@@ -206,6 +221,17 @@
         <a href="#" data-modal="terms">extract0r&#39;s terms</a> say it will not process
         audio taken from a streaming service against that service's terms.
       </p>
+    </div>
+
+    <div class="or-url profile-pick" id="profile-pick" hidden>
+      <span class="or">or aim at a saved profile</span>
+      <p class="muted small">
+        What a song teaches, kept as numbers rather than audio — its tonal balance,
+        loudness and stereo image. Measure a reference once and aim at it for ever,
+        without keeping the file. Whole-mix matching only: comparing instrument by
+        instrument needs the reference's own audio.
+      </p>
+      <div id="profile-list"></div>
     </div>
 
     <div class="or-url library-pick" id="library-pick" hidden>
@@ -591,6 +617,7 @@
 <script src="app.js"></script>
 <script src="instruments.js"></script>
 <script src="library.js"></script>
+<script src="profiles.js"></script>
 <script src="help.js"></script>
 </body>
 </html>

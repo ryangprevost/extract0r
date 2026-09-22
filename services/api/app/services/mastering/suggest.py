@@ -111,9 +111,10 @@ def shares_from(power: np.ndarray, freqs: np.ndarray) -> dict[str, float]:
 
 def matched_shares(
     source: np.ndarray,
-    reference: np.ndarray,
+    reference: np.ndarray | None,
     sample_rate: int,
     settings: MatchSettings,
+    reference_spectrum: np.ndarray | None = None,
 ) -> tuple[dict[str, float], dict[str, float], dict[str, float], np.ndarray]:
     """Band shares before and after matching, plus the spectrum the dials will act on.
 
@@ -127,7 +128,11 @@ def matched_shares(
     which is exactly what `apply_curve` does to the audio itself.
     """
     source_spectrum = average_spectrum(source, settings.n_fft, settings.hop)
-    reference_spectrum = average_spectrum(reference, settings.n_fft, settings.hop)
+    reference_spectrum = (
+        average_spectrum(reference, settings.n_fft, settings.hop)
+        if reference is not None
+        else reference_spectrum
+    )
     curve = matching_curve(source_spectrum, reference_spectrum, sample_rate, settings)
 
     freqs = np.fft.rfftfreq(settings.n_fft, d=1.0 / sample_rate)
@@ -199,16 +204,29 @@ def gain_for(
 
 def suggest(
     source: np.ndarray,
-    reference: np.ndarray,
+    reference: np.ndarray | None,
     sample_rate: int,
     match_strength: float = 1.0,
+    profile=None,
 ) -> Suggestion:
     """Compare a mix with its reference and propose where to set the finishing dials.
 
     The comparison is against the *matched* mix, not the raw one - see `matched_shares`.
+
+    `profile` is a saved `ReferenceProfile` and stands in for the reference audio. It
+    carries everything this function reads from a reference: a spectrum, an overall width,
+    a loudness and a peak to take the crest from. Without this, aiming at a profile would
+    give you a master and no advice, which is half the tool.
     """
     settings = MatchSettings(strength=match_strength)
-    raw, mine, theirs, power = matched_shares(source, reference, sample_rate, settings)
+    if reference is None and profile is None:
+        raise ValueError("suggesting needs either reference audio or a saved profile")
+
+    raw, mine, theirs, power = matched_shares(
+        source, reference, sample_rate, settings,
+        reference_spectrum=None if reference is not None
+        else profile.spectrum(settings.n_fft, sample_rate),
+    )
     out = Suggestion()
     out.bands = {name: (mine[name], theirs[name], theirs[name] - mine[name]) for name in BANDS}
     out.raw_bands = {name: (raw[name], theirs[name], theirs[name] - raw[name]) for name in BANDS}
@@ -334,7 +352,9 @@ def suggest(
 
     # --- width ----------------------------------------------------------------
     out.source_width = round(stereo_width(source), 3)
-    out.reference_width = round(stereo_width(reference), 3)
+    out.reference_width = round(
+        stereo_width(reference) if reference is not None else profile.stereo_width, 3
+    )
     if out.source_width > 1e-6 and out.reference_width > out.source_width * 1.08:
         factor = float(np.clip(out.reference_width / out.source_width, 1.0, MAX_WIDTH))
         # Only close part of the gap: width measured on a whole mix is a blunt number.
@@ -360,7 +380,15 @@ def suggest(
         out.reasons.append(Reason("width", "Your stereo image already matches closely."))
 
     # --- headroom -------------------------------------------------------------
-    for audio, store in ((reference, "reference"), (source, "source")):
+    # The reference's crest and loudness come from the profile when there is no audio.
+    if reference is None and profile is not None:
+        out.reference_lufs = round(float(profile.lufs), 2)
+        out.reference_crest_db = round(float(profile.peak_db - profile.lufs), 2)
+
+    measured = [(source, "source")] if reference is None else [
+        (reference, "reference"), (source, "source")
+    ]
+    for audio, store in measured:
         loudness, _ = integrated_loudness(audio, sample_rate)
         peak = float(np.max(np.abs(audio))) if np.size(audio) else 0.0
         if not (np.isfinite(loudness) and peak > 0):

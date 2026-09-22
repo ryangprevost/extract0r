@@ -346,5 +346,19 @@ def ceiling_headroom(
     loudness, _ = integrated_loudness(reference, sample_rate)
     if not np.isfinite(loudness):
         return 0.0, 0.0
-    reference_crest = float(peak_db(reference) - loudness)
-    return max(0.0, float(peak_db(reference)) - ceiling_db), reference_crest
+    return headroom_for(float(peak_db(reference)), float(loudness), ceiling_db)
+
+
+def headroom_for(
+    reference_peak_db: float, reference_lufs: float, ceiling_db: float = -1.0
+) -> tuple[float, float]:
+    """`ceiling_headroom`, from the reference's two numbers rather than its audio.
+
+    Sample peak rather than true peak, deliberately: that is what `ceiling_headroom`
+    measures, and a saved profile keeps both so this arrives at the same answer the audio
+    would have given rather than a slightly more cautious one.
+    """
+    if not np.isfinite(reference_lufs):
+        return 0.0, 0.0
+    reference_crest = reference_peak_db - reference_lufs
+    return max(0.0, reference_peak_db - ceiling_db), reference_crest

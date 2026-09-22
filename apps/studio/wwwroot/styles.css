@@ -881,3 +881,16 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 @media (max-width: 720px) {
   .candidate { flex-direction: column; align-items: stretch; }
 }
+
+/* ── reference profiles ───────────────────────────────────────────────────── */
+.save-profile {
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 12px 14px;
+  margin: 12px 0 0;
+}
+.save-profile .url-row { margin-top: 8px; }
+#profile-saved { margin-top: 8px; color: var(--accent); }
+.profile-pick { margin-top: 14px; }
+#profile-list { display: grid; gap: 8px; margin-top: 10px; }

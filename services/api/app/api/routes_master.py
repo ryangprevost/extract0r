@@ -364,6 +364,124 @@ async def reference_from_url(
     return response
 
 
+class SaveProfileRequest(BaseModel):
+    #: What to call it. Becomes the filename, sanitised - see `profile.safe_filename`.
+    name: str = Field(min_length=1, max_length=120)
+
+
+class UseProfileRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+@router.get("/reference/profiles")
+def list_profiles(settings: Settings = Depends(get_config)) -> dict:
+    """Every saved reference profile: what a record teaches, without the record.
+
+    Not scoped to a track. A profile is the point of the feature precisely because it
+    outlives the track it was captured from - measure a song once, aim at it for years.
+    """
+    from app.services.mastering.profile import listing
+
+    return {
+        "directory": str(settings.profile_dir),
+        "profiles": [
+            {
+                "name": p.name,
+                "captured_from": p.captured_from,
+                "captured_at": p.captured_at,
+                "seconds": p.seconds,
+                "lufs": p.lufs,
+                "true_peak_db": p.true_peak_db,
+            }
+            for p in listing(settings.profile_dir)
+        ],
+    }
+
+
+@router.post("/{track_id}/reference/profile", status_code=status.HTTP_201_CREATED)
+def save_reference_profile(
+    track_id: str,
+    body: SaveProfileRequest,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Measure this track's reference once and keep the numbers.
+
+    What gets written is a spectrum, a width profile, a loudness and two peaks - the whole
+    of what the match ever reads from a reference. No audio, and nothing that can be turned
+    back into audio.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    reference = storage.reference_path(track_id)
+    if reference is None or not reference.exists():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "There is no reference on this track to measure."
+        )
+
+    from app.services.mastering.profile import capture, save
+    from app.services.mixdown.encode import read_audio
+
+    audio = read_audio(reference)
+    captured = capture(
+        audio.samples,
+        audio.sample_rate,
+        body.name,
+        getattr(record, "reference_name", "") or reference.name,
+    )
+    path = save(captured, settings.profile_dir)
+    return {
+        "name": captured.name,
+        "captured_from": captured.captured_from,
+        "lufs": captured.lufs,
+        "seconds": captured.seconds,
+        "bytes": path.stat().st_size,
+    }
+
+
+@router.post(
+    "/{track_id}/reference/use-profile", status_code=status.HTTP_200_OK
+)
+def use_reference_profile(
+    track_id: str,
+    body: UseProfileRequest,
+    settings: Settings = Depends(get_config),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Aim this track at a saved profile instead of at a reference file.
+
+    Covers the whole-mix stage completely - the tonal curve, the width match, the level
+    and the headroom guard all read measurements and nothing else. Per-instrument matching
+    is not available from a profile and the response says so rather than leaving someone
+    to discover it: comparing your snare with theirs needs their snare.
+    """
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    from app.services.mastering.profile import find
+
+    profile = find(settings.profile_dir, body.name)
+    if profile is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No saved profile {body.name!r}.")
+
+    registry.set_reference_profile(track_id, profile)
+    return {
+        "name": profile.name,
+        "captured_from": profile.captured_from,
+        "lufs": profile.lufs,
+        "seconds": profile.seconds,
+        "per_stem_available": False,
+        "note": "Whole-mix matching only. Comparing instrument by instrument needs the "
+        "reference's own audio, so that stays with an uploaded reference.",
+    }
+
+
 class LibraryReferenceRequest(BaseModel):
     #: Path to a file inside the configured library. Validated against it - see the route.
     path: str
@@ -742,10 +860,14 @@ def start_master(
             f"This track has no stem(s): {', '.join(missing)}",
         )
 
+    # A saved profile stands in for reference audio at the whole-mix stage, so a track
+    # aimed at one masters without a reference file existing anywhere.
+    reference_profile = getattr(record, "reference_profile", None)
+
     reference = None
     if body.reference_track_id:
         reference = storage.reference_path(body.reference_track_id)
-        if reference is None:
+        if reference is None and reference_profile is None:
             raise HTTPException(
                 status.HTTP_404_NOT_FOUND,
                 "No reference has been uploaded for that track.",
@@ -781,6 +903,7 @@ def start_master(
         # the master does not change. That has already shipped once here.
         settings=[StemSetting(**s.model_dump()) for s in body.stems],
         reference=reference,
+        reference_profile=reference_profile if reference is None else None,
         reference_stems=reference_stems,
         source=(
             storage.normalized_path(track_id)
@@ -1160,8 +1283,11 @@ def suggest_settings(
     except KeyError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
 
+    # A track aimed at a saved profile has no reference file, and still has everything
+    # this endpoint needs: the profile carries the spectrum, width, loudness and peak.
+    profile = getattr(record, "reference_profile", None)
     reference = storage.reference_path(track_id)
-    if reference is None or not reference.exists():
+    if (reference is None or not reference.exists()) and profile is None:
         return {"available": False, "why": "No reference uploaded for this track yet."}
 
     try:
@@ -1180,13 +1306,18 @@ def suggest_settings(
             return {"available": False, "why": "The source audio for this track is gone."}
 
         source = read_audio(source_file)
-        target = read_audio(reference)
+        target = read_audio(reference) if reference is not None and reference.exists() else None
     except ImportError as exc:  # pragma: no cover - numpy/soundfile are hard requirements
         raise HTTPException(
             status.HTTP_501_NOT_IMPLEMENTED, "numpy/soundfile are required."
         ) from exc
 
-    result = suggest(source.samples, target.samples, source.sample_rate)
+    result = suggest(
+        source.samples,
+        target.samples if target is not None else None,
+        source.sample_rate,
+        profile=profile,
+    )
 
     # The per-instrument findings need both sides separated, and reading twelve stems in
     # full costs around 25 seconds against 5 for everything else. Rather than make every
@@ -1203,7 +1334,7 @@ def suggest_settings(
     # reference does not have to be: without its stems the congestion findings still
     # work, and only "nothing of yours reaches up here" goes quiet.
     clarity: list[dict] = []
-    if source_stems:
+    if source_stems and reference is not None and reference.exists():
         from app.services.mastering.clarity import compare
 
         clarity = compare(source_file, reference, source_stems, reference_stems)
@@ -1228,12 +1359,18 @@ def suggest_settings(
                 except Exception:
                     continue
 
-        finishing = suggest_finishing(
-            source.samples,
-            target.samples,
-            source.sample_rate,
-            target.sample_rate,
-            loaded_stems or None,
+        # Needs both waveforms - it measures continuity and transients, which a profile
+        # does not carry. On a profile the tonal findings still arrive; these do not.
+        finishing = (
+            suggest_finishing(
+                source.samples,
+                target.samples,
+                source.sample_rate,
+                target.sample_rate,
+                loaded_stems or None,
+            )
+            if target is not None
+            else []
         )
     except Exception:
         log.debug("could not measure the finishing moves", exc_info=True)

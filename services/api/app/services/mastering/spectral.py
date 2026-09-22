@@ -29,7 +29,7 @@ from app.services.mastering.dsp import (
     stereo_width,
     true_peak_db,
 )
-from app.services.mastering.loudness_meter import gain_to_match, integrated_loudness
+from app.services.mastering.loudness_meter import gain_to_lufs, gain_to_match, integrated_loudness
 from app.services.mastering.polish import (
     Polish,
     PolishReport,
@@ -37,6 +37,7 @@ from app.services.mastering.polish import (
     add_bass,
     add_warmth,
     ceiling_headroom,
+    headroom_for,
     crest_db,
     widen_above,
 )
@@ -66,13 +67,27 @@ class SpectralMatchEngine:
     def match(
         self,
         target: Path,
-        reference: Path,
+        reference: Path | None,
         out_path: Path,
         analysis: Path | None = None,
         polish: Polish | None = None,
+        reference_profile=None,
     ) -> MasteringReport:
+        """Match `target` to a reference, given either its audio or its measurements.
+
+        `reference_profile` is a saved `ReferenceProfile` and stands in for the audio
+        completely at this stage. Everything the whole-mix match reads from a reference is
+        a measurement of it - an averaged spectrum, side-to-mid per band, integrated
+        loudness and true peak - so a profile is not an approximation of the reference
+        here, it is the same numbers arriving by a shorter route.
+
+        Per-instrument matching is the exception and lives in `pipeline`: comparing your
+        snare with theirs needs their snare, and stems are audio.
+        """
         source = read_audio(target)
-        ref = read_audio(reference)
+        ref = read_audio(reference) if reference is not None else None
+        if ref is None and reference_profile is None:
+            raise ValueError("matching needs either a reference file or a saved profile")
 
         # `analysis` is the same mix without the user's own faders. Deriving the tonal
         # correction from it keeps a fader from being read as a tonal deviation: raise
@@ -82,7 +97,7 @@ class SpectralMatchEngine:
         # uniform gain leaves the fader's relative move intact.
         tone_source = read_audio(analysis) if analysis is not None else source
 
-        if source.sample_rate != ref.sample_rate:
+        if ref is not None and source.sample_rate != ref.sample_rate:
             log.info(
                 "reference is %d Hz against the target's %d Hz; comparing spectra by "
                 "frequency regardless",
@@ -91,13 +106,27 @@ class SpectralMatchEngine:
 
         report = MasteringReport(backend=self.name)
         report.source = self._stats(source.samples, source.sample_rate)
-        report.reference = self._stats(ref.samples, ref.sample_rate)
+        report.reference = (
+            self._stats(ref.samples, ref.sample_rate)
+            if ref is not None
+            else LoudnessStats(
+                integrated_lufs=reference_profile.lufs,
+                true_peak_dbtp=reference_profile.true_peak_db,
+                # A profile keeps no loudness range: nothing in the match reads it, and
+                # storing a number that is never used invites someone to trust it.
+                loudness_range_lu=0.0,
+            )
+        )
 
         # --- tone -----------------------------------------------------------
         target_spectrum = average_spectrum(
             tone_source.samples, self.settings.n_fft, self.settings.hop
         )
-        ref_spectrum = average_spectrum(ref.samples, self.settings.n_fft, self.settings.hop)
+        ref_spectrum = (
+            average_spectrum(ref.samples, self.settings.n_fft, self.settings.hop)
+            if ref is not None
+            else reference_profile.spectrum(self.settings.n_fft, source.sample_rate)
+        )
         curve = matching_curve(
             target_spectrum, ref_spectrum, source.sample_rate, self.settings
         )
@@ -168,11 +197,23 @@ class SpectralMatchEngine:
         # Matching the reference's image comes first, so the manual dial rides on top of
         # a mix that is already the right shape rather than fighting it.
         if polish.width_profile > 0.0:
-            from app.services.mastering.width import match_profile
+            from app.services.mastering.width import match_to, mono_loss_db, width_profile
 
             finish.width_before = round(stereo_width(processed), 3)
-            processed, width_report = match_profile(
-                processed, ref.samples, source.sample_rate, polish.width_profile
+            # Nine numbers, whether they come from the reference's audio or from a saved
+            # profile that measured it once: eight band widths and its mono loss.
+            their_width = (
+                width_profile(ref.samples, source.sample_rate)
+                if ref is not None
+                else reference_profile.width
+            )
+            their_mono_loss = (
+                mono_loss_db(ref.samples) if ref is not None
+                else reference_profile.mono_loss_db
+            )
+            processed, width_report = match_to(
+                processed, source.sample_rate, their_width, their_mono_loss,
+                polish.width_profile,
             )
             finish.width_after = round(stereo_width(processed), 3)
             finish.width_bands = width_report.factors
@@ -262,14 +303,22 @@ class SpectralMatchEngine:
             finish.notes.extend(centre_report.notes)
 
         # --- level ----------------------------------------------------------
-        gain, measurements = gain_to_match(processed, ref.samples, source.sample_rate)
+        gain, measurements = (
+            gain_to_match(processed, ref.samples, source.sample_rate)
+            if ref is not None
+            else gain_to_lufs(processed, source.sample_rate, reference_profile.lufs)
+        )
 
         # Aim at the reference's loudness relative to its own peak. Chasing the raw
         # LUFS number from a lower ceiling just means driving harder into the limiter,
         # and the difference comes out as gain reduction rather than as loudness.
         if polish.protect_dynamics:
-            guard, reference_crest = ceiling_headroom(
-                ref.samples, source.sample_rate, self.ceiling_db
+            guard, reference_crest = (
+                ceiling_headroom(ref.samples, source.sample_rate, self.ceiling_db)
+                if ref is not None
+                else headroom_for(
+                    reference_profile.peak_db, reference_profile.lufs, self.ceiling_db
+                )
             )
             finish.ceiling_headroom_db = round(guard, 2)
             finish.reference_crest_db = round(reference_crest, 2)

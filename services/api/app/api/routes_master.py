@@ -364,6 +364,108 @@ async def reference_from_url(
     return response
 
 
+class LibraryReferenceRequest(BaseModel):
+    #: Path to a file inside the configured library. Validated against it - see the route.
+    path: str
+
+
+@router.get("/{track_id}/reference/library")
+def library_status(
+    track_id: str,
+    settings: Settings = Depends(get_config),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Whether a reference library is configured, and where.
+
+    Separate from the scan so the page can explain itself before anyone waits on a job:
+    "no library configured, here is the setting" is a different screen from "scanning
+    2000 files", and finding out which one you are on should not cost a minute.
+    """
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    root = settings.library_dir
+    if root is None:
+        return {
+            "configured": False,
+            "why": "No reference library is set. Point EXTRACT0R_LIBRARY_DIR at a folder "
+            "of music you own and restart the API.",
+        }
+    if not Path(root).is_dir():
+        return {
+            "configured": False,
+            "path": str(root),
+            "why": f"{root} is not a folder.",
+        }
+    return {"configured": True, "path": str(root), "max_tracks": settings.library_max_tracks}
+
+
+@router.post(
+    "/{track_id}/reference/from-library",
+    response_model=ReferenceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def reference_from_library(
+    track_id: str,
+    body: LibraryReferenceRequest,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> ReferenceResponse:
+    """Adopt a file from the configured library as this track's reference.
+
+    The ranking endpoint can say which of your own records would make a good target, and
+    until this existed there was no way to act on the answer - you had to go and find the
+    file yourself and upload it back.
+
+    No rights gate here, unlike the upload and the URL routes, and the reason is worth
+    stating: the library is a folder the operator configured on the server. Nothing the
+    browser says can widen it, and a file already sitting in it was not obtained by this
+    request. What *is* checked is that the path really is inside that folder.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    root = settings.library_dir
+    if root is None or not Path(root).is_dir():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "No reference library is configured."
+        )
+
+    # Resolve both sides before comparing. The path arrives from the browser, so without
+    # this it is an arbitrary file read wearing a library's name: "../../.ssh/id_rsa"
+    # resolves to somewhere very different from where it appears to point, and symlinks
+    # inside the folder do the same thing without any suspicious-looking characters.
+    root_real = Path(root).resolve(strict=True)
+    try:
+        wanted = Path(body.path).resolve(strict=True)
+    except OSError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file.") from exc
+
+    if not wanted.is_relative_to(root_real) or not wanted.is_file():
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "That path is outside the configured reference library.",
+        )
+
+    try:
+        data = wanted.read_bytes()
+    except OSError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Could not read that file.") from exc
+
+    if len(data) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"That file is larger than the {settings.max_upload_mb} MB limit.",
+        )
+
+    return _store_reference(track_id, wanted.name, data, storage, record)
+
+
 @router.post(
     "/{track_id}/reference/separate",
     response_model=JobResponse,

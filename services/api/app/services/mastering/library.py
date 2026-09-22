@@ -255,6 +255,12 @@ def _mean(values: dict[str, float], names: tuple[str, ...]) -> float:
     return float(np.mean(picked)) if picked else 0.0
 
 
+#: Below this tonal distance, a candidate that is no louder, wider or tighter than the
+#: source is the same recording wearing a different filename - or one of this tool's own
+#: exports of it. Both are true matches and neither is a reference.
+MIRROR_DISTANCE_DB = 3.0
+
+
 def rank(
     source: Profile,
     profiles: dict[str, Profile],
@@ -276,6 +282,10 @@ def rank(
 
     out: list[Candidate] = []
     for candidate in profiles.values():
+        # The same file, by path. Catches the common case and not the interesting one:
+        # what a user uploads is a copy in the track's own storage, so their own song
+        # sitting in the library is a different path holding identical audio. See the
+        # mirror check further down, which is the one that catches that.
         if Path(candidate.path) == Path(source.path):
             continue
         shared = [n for _, _, n in BANDS if n in source.bands and n in candidate.bands]
@@ -313,6 +323,19 @@ def rank(
             notes.append(f"{tighter:.1f} dB tighter at the bottom")
         if is_mono(candidate):
             notes.append("but it is mono, so it can teach nothing about width")
+
+        # A mirror: close in tone and no further along on any axis the match can act on.
+        #
+        # This is what "a record that already sounds like the mix teaches it nothing"
+        # means in code, and it is not hypothetical. Pointed at a folder containing the
+        # song being mastered and several of extract0r's own exports of it, the top four
+        # suggestions were the song itself and three of its own masters - the first at
+        # "within 0.0 dB of your tonal balance", which is true and useless.
+        #
+        # `notes` is empty exactly when the candidate is not meaningfully louder, wider
+        # or tighter, so it is already the test for "nothing to learn here".
+        if not notes and distance < MIRROR_DISTANCE_DB:
+            continue
 
         why = (
             f"within {distance:.1f} dB of your tonal balance"

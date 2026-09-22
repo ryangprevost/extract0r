@@ -397,6 +397,8 @@ async function upload() {
 
     const separation = await api(`/tracks/${track.track_id}/stems`);
     await buildMixer(separation, track);
+    // No reference yet means the library is worth offering; with one it stays hidden.
+    if (typeof refreshLibraryPanel === "function") await refreshLibraryPanel();
 
     // Land on the comparison rather than on the mixer when there is one to show. The
     // user did not upload two songs to look at six faders.
@@ -1034,6 +1036,7 @@ async function afterReferenceUpload() {
 
   updateMasterSummary();
   await refreshPerStemState();
+  if (typeof refreshLibraryPanel === "function") await refreshLibraryPanel();
   // Now there is something to compare against, so the dials can be set for this pair.
   await loadSuggestion();
 }

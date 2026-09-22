@@ -212,3 +212,37 @@ def test_the_cache_round_trips(tmp_path):
     original = {"k": _profile("x", FLAT, STEREO)}
     save_cache(tmp_path, original)
     assert load_cache(tmp_path)["k"].bands == original["k"].bands
+
+
+def test_a_record_that_already_sounds_like_the_mix_is_not_offered():
+    """The whole point of the ranking, and it was not enforced.
+
+    Pointed at a folder holding the song being mastered and several of extract0r's own
+    exports of it, the top four suggestions were the song itself and three of its own
+    masters - led by one at "within 0.0 dB of your tonal balance", which is true and
+    teaches nothing. The path check above cannot catch it: an upload is a copy in the
+    track's own storage, so the same audio arrives under a different path.
+    """
+    source = _profile("mine", FLAT, STEREO)
+    twin = _profile("a-copy-of-mine", FLAT, STEREO)
+
+    assert rank(source, {"a": twin}) == []
+
+
+def test_a_near_twin_that_is_further_along_is_still_offered():
+    """The filter is about having nothing to teach, not about being similar. Close in
+    tone and louder is the *most* useful reference there is."""
+    source = _profile("mine", FLAT, STEREO, lufs=-16.0)
+    mastered = _profile("same-song-but-finished", FLAT, STEREO, lufs=-9.0)
+
+    candidates = rank(source, {"a": mastered})
+    assert len(candidates) == 1
+    assert candidates[0].louder_by_db >= 1.0
+
+
+def test_a_distant_record_is_offered_even_when_it_is_no_louder():
+    """Far in tone is a real difference to learn from, whatever the loudness."""
+    source = _profile("mine", FLAT, STEREO)
+    different = _profile("very-different", {n: v + 9.0 for n, v in FLAT.items()}, STEREO)
+
+    assert len(rank(source, {"a": different})) == 1

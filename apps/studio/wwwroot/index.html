@@ -207,6 +207,16 @@
         audio taken from a streaming service against that service's terms.
       </p>
     </div>
+
+    <div class="or-url library-pick" id="library-pick" hidden>
+      <span class="or">or pick one from music you already own</span>
+      <p class="muted small" id="library-note"></p>
+      <button class="ghost" id="library-scan">Find a reference in my library</button>
+      <p class="muted small working" id="library-working" hidden>
+        Measuring your library. The first pass reads every file; after that it is cached.
+      </p>
+      <div id="library-results"></div>
+    </div>
     </div>
 
     <p class="error" id="ref-error" hidden></p>
@@ -580,6 +590,7 @@
 <script src="monitor.js"></script>
 <script src="app.js"></script>
 <script src="instruments.js"></script>
+<script src="library.js"></script>
 <script src="help.js"></script>
 </body>
 </html>

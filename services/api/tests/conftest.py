@@ -83,8 +83,18 @@ def write_tone_m4a(
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    """Isolated settings pointed at a temp storage root, with all backends stubbed."""
+    """Isolated settings pointed at a temp storage root, with all backends stubbed.
+
+    `_env_file=None` is what makes "isolated" true. Settings normally reads the repo's
+    `.env`, and every field not passed here would otherwise come from whatever the
+    developer happens to have configured locally - so the suite would pass or fail
+    depending on a file that is deliberately not in version control.
+
+    Found the hard way: adding LIBRARY_DIR to a local `.env` broke two tests that assert
+    what happens when no reference library is configured, on a machine where one now was.
+    """
     return Settings(
+        _env_file=None,
         storage_dir=tmp_path / "storage",
         separation_backend="stub",
         transcription_backend="stub",

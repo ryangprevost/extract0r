@@ -973,6 +973,27 @@ not come back hollow and swirly.
 
 ---
 
+### X0R-1121 · Pick a reference from music you own · 3 · `DONE`
+**As a** user **I want** the tool to find me a reference **so that** I do not have to
+guess which of my records makes a good target.
+
+**Acceptance criteria**
+- ✅ `GET /reference/library` reports whether a library is configured and where.
+- ✅ `POST /reference/from-library` adopts a candidate, with the path resolved and checked
+  to be inside the configured folder — traversal, absolute paths and symlinks all tested.
+- ✅ Ranked candidates shown with the reason each is a target, and a one-click Use.
+- ✅ Mirrors excluded: a file close in tone and no louder, wider or tighter is the same
+  recording under another name. Pointed at a real folder it had been offering the song
+  itself at "within 0.0 dB", plus three of extract0r's own exports of it.
+- ✅ `LIBRARY_DIR` documented in `.env.example`.
+
+**Why this and not a streaming picker.** Spotify and YouTube links are refused by name in
+`app.services.fetch`, and the app's own terms are why. What makes a reference useful is
+that its *audio* can be measured; a streaming link never offers that on terms this tool
+will accept. Local music does, and can be explained rather than guessed at.
+
+---
+
 ### X0R-1108 · Basic and advanced modes · 3 · `TODO`
 **As a** user **I want** a black box that matches the reference **and** the option to open
 it **so that** I am not forced to understand a channel strip to get a good master.

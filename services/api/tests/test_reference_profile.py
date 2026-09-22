@@ -372,3 +372,46 @@ def test_using_a_profile_that_is_not_there_is_a_404(client, sample_wav: Path, se
         f"/api/v1/tracks/{track_id}/reference/use-profile", json={"name": "imaginary"}
     )
     assert response.status_code == 404
+
+
+# --- profiles stay on the machine that made them ------------------------------------
+
+
+def test_the_default_profile_directory_is_excluded_from_git():
+    """An explicit requirement, so it gets an explicit test.
+
+    A profile is measurements taken from a recording someone owns, and which recordings a
+    person has is their business. The default location is inside the repo for convenience,
+    which makes the .gitignore entry the only thing standing between that and a commit -
+    so this fails loudly if the line is ever removed or the default moved out from under
+    it.
+    """
+    import subprocess
+
+    from app.config import Settings
+
+    directory = Settings(_env_file=None).profile_dir
+    repo = Path(__file__).resolve().parents[3]
+    probe = directory / "a-profile.json"
+
+    result = subprocess.run(
+        ["git", "check-ignore", str(probe)],
+        cwd=repo, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, (
+        f"{probe} is NOT gitignored — saved profiles would be committed"
+    )
+
+
+def test_no_profile_has_ever_been_committed():
+    """Belt and braces: the ignore rule could have been added after a slip."""
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[3]
+    result = subprocess.run(
+        ["git", "log", "--all", "--name-only", "--pretty=format:", "--", "profiles/"],
+        cwd=repo, capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip("not a git checkout")
+    assert not result.stdout.strip(), f"profiles in history: {result.stdout[:200]}"

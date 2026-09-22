@@ -285,27 +285,72 @@ async function loadLegal() {
 function refreshUploadButton() {
   $("upload-btn").disabled = !(state.file && $("owns").checked && $("personal").checked);
 
-  // The plan only means anything once there is a reference to plan around.
+  const profileName = $("upfront-profile-pick")?.value || "";
   const hasReference = !!state.upfrontReference;
-  $("plan").hidden = !hasReference;
 
-  const matching = hasReference && $("plan-match").checked;
-  $("upload-btn").textContent = matching
-    ? "Split both and compare"
-    : hasReference
-      ? "Split and match the overall tone"
-      : "Split into stems";
-  $("upload-plan-note").textContent = matching
-    ? "Two splits, back to back — roughly the length of both songs. Done once."
-    : hasReference
-      ? "One split. The reference is used for overall tone only; you can compare "
-        + "instrument by instrument later."
-      : "One split. Add a reference later if you want something to aim at.";
+  // A profile and a reference file answer the same question, so only one can be live.
+  // Whichever was chosen last wins, and the other is visibly stood down rather than
+  // silently ignored.
+  $("upfront-ref-dropzone").classList.toggle("superseded", !!profileName);
+  // Per-instrument matching needs the reference's stems, which a profile does not carry.
+  $("plan").hidden = !hasReference || !!profileName;
+
+  const matching = hasReference && !profileName && $("plan-match").checked;
+  $("upload-btn").textContent = profileName
+    ? "Split and aim at the profile"
+    : matching
+      ? "Split both and compare"
+      : hasReference
+        ? "Split and match the overall tone"
+        : "Split into stems";
+  $("upload-plan-note").textContent = profileName
+    ? `One split. Aiming at “${profileName}” — no second split, because a profile is `
+      + "measurements rather than audio. Instrument-by-instrument needs a reference file."
+    : matching
+      ? "Two splits, back to back — roughly the length of both songs. Done once."
+      : hasReference
+        ? "One split. The reference is used for overall tone only; you can compare "
+          + "instrument by instrument later."
+        : "One split. Add a reference later if you want something to aim at.";
+}
+
+/** Offer saved profiles on the first screen, if there are any. */
+async function loadUpfrontProfiles() {
+  const select = $("upfront-profile-pick");
+  const panel = $("upfront-profile");
+  if (!select || !panel) return;
+
+  let profiles = [];
+  try {
+    profiles = (await api("/tracks/reference/profiles")).profiles ?? [];
+  } catch {
+    panel.hidden = true;
+    return;
+  }
+  if (!profiles.length) {
+    // Nothing saved yet, and an empty dropdown explains nothing. The way to get one is
+    // to load a reference, which the panel above already offers.
+    panel.hidden = true;
+    return;
+  }
+
+  panel.hidden = false;
+  select.innerHTML = '<option value="">None — use the reference above</option>';
+  for (const profile of profiles) {
+    const option = document.createElement("option");
+    option.value = profile.name;
+    option.textContent =
+      profile.name + (profile.lufs != null ? ` · ${profile.lufs.toFixed(1)} LUFS` : "");
+    select.appendChild(option);
+  }
 }
 
 /** The reference chosen on the first screen, before there is a track to attach it to. */
 function pickUpfrontReference(file) {
   if (!file) return;
+  // Dropping a file is a choice against the profile dropdown, so clear it rather than
+  // leaving two answers to the same question on screen.
+  if ($("upfront-profile-pick")) $("upfront-profile-pick").value = "";
   state.upfrontReference = file;
   $("upfront-ref-dropzone").classList.add("has-file");
   $("upfront-ref-name").textContent = file.name;
@@ -367,11 +412,28 @@ async function upload() {
       "run also downloads the model, which takes a few minutes more.",
     );
 
+    // A saved profile chosen on the first screen: no upload, no second split, just the
+    // measurements. Handled before the reference branch because the two are exclusive.
+    const chosenProfile = $("upfront-profile-pick")?.value || "";
+    if (chosenProfile) {
+      $("progress-title").textContent = "Aiming at the saved profile…";
+      $("progress-message").textContent = chosenProfile;
+      await api(`/tracks/${track.track_id}/reference/use-profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: chosenProfile }),
+      });
+      state.referenceLoaded = true;
+      state.usingProfile = true;
+      state.upfrontReference = { name: chosenProfile };
+      $("ref-hint").textContent = `aiming at the saved profile “${chosenProfile}”`;
+    }
+
     // The reference, if one was given, goes up and gets split in the same run. Doing
     // this as one uninterrupted pass is the whole point: it used to be upload, split,
     // find the master page, upload a reference, split that too, then find the compare
     // button - five deliberate steps to reach the thing the app is for.
-    if (state.upfrontReference) {
+    if (state.upfrontReference && !chosenProfile) {
       $("progress-title").textContent = "Uploading the reference…";
       const referenceForm = new FormData();
       referenceForm.append("file", state.upfrontReference);
@@ -408,15 +470,17 @@ async function upload() {
       // takes about half a minute, and making the user wait for it *again* on arrival -
       // after they have already waited out two separations - is one wait too many. It is
       // part of loading, so it happens during loading.
-      $("progress-title").textContent = "Comparing the instruments…";
-      $("progress-message").textContent =
-        "Your bass against theirs, your drums against theirs.";
+      const comparing = state.referenceSeparated && !state.usingProfile;
+      $("progress-title").textContent = comparing
+        ? "Comparing the instruments…"
+        : "Measuring your mix…";
+      $("progress-message").textContent = comparing
+        ? "Your bass against theirs, your drums against theirs."
+        : "Against the reference, as a whole.";
       $("progress-fill").style.width = "92%";
 
       await afterReferenceUpload();
-      if (state.referenceSeparated) {
-        await loadInstrumentComparison();
-      }
+      if (comparing) await loadInstrumentComparison();
       goToPage("master");
     }
   } catch (error) {
@@ -2139,6 +2203,10 @@ $("upfront-ref-file").addEventListener("change", (event) =>
   pickUpfrontReference(event.target.files[0]),
 );
 $("plan-match").addEventListener("change", refreshUploadButton);
+$("upfront-profile-pick").addEventListener("change", refreshUploadButton);
+// Saved profiles are offered on the first screen too - unlike the library picker,
+// which needs a source track to rank candidates against and so cannot appear here.
+loadUpfrontProfiles();
 // So the button and its note describe the empty state rather than the markup's
 // placeholder before anything has been chosen.
 refreshUploadButton();

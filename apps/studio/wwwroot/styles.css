@@ -894,3 +894,31 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 #profile-saved { margin-top: 8px; color: var(--accent); }
 .profile-pick { margin-top: 14px; }
 #profile-list { display: grid; gap: 8px; margin-top: 10px; }
+
+/* Choosing a saved profile on the first screen, as an alternative to a reference file.
+   Profiles can live here where the library picker cannot: ranking a library needs a
+   source track to rank against, and at this point there is not one yet. */
+.upfront-profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 12px 14px;
+  margin-top: 12px;
+}
+.upfront-profile label { flex: 1; min-width: 240px; }
+.upfront-profile strong { display: block; font-size: 13.5px; }
+.upfront-profile em {
+  display: block;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 3px;
+}
+.upfront-profile select { min-width: 220px; }
+.dropzone.superseded { opacity: 0.45; }
+.dropzone.superseded .big { text-decoration: line-through; }

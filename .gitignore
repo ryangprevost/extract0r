@@ -40,4 +40,13 @@ storage/
 Thumbs.db
 .idea/
 .vscode/
+# Saved reference profiles. Local only, deliberately and permanently.
+#
+# A profile is measurements taken from a recording someone owns, and which recordings a
+# person has is their business. There is also no reason for it to travel: a profile is
+# generated from a file on that machine in about a second, so committing one shares a
+# fact about its author and saves nobody any work.
+#
+# `app.config.profile_dir` defaults here for the same reason, and a test asserts this
+# line still covers it - see tests/test_reference_profile.py.
 profiles/

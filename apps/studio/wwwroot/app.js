@@ -46,6 +46,13 @@ const state = {
   referenceFile: null,
   referenceLoaded: false,
   referenceSeparated: false,
+  spectrum: null,        // the three tonal curves, once a master has been rendered
+  spectrumHover: null,   // which point the pointer is over, for the readout
+  usingProfile: false,
+  //: Whether the saved profile in use carries its reference's instruments as well as its
+  //: whole mix. Set from the server's answer rather than the listing's, because that is
+  //: the one that read the file.
+  profileHasInstruments: false,
 };
 
 // ───────────────────────────────── plumbing ─────────────────────────────────
@@ -292,20 +299,34 @@ function refreshUploadButton() {
   // Whichever was chosen last wins, and the other is visibly stood down rather than
   // silently ignored.
   $("upfront-ref-dropzone").classList.toggle("superseded", !!profileName);
-  // Per-instrument matching needs the reference's stems, which a profile does not carry.
+  // The plan fieldset exists to price a choice: a second split, or not. A profile never
+  // has one to make - the reference is already measured either way - so it is hidden and
+  // the note says what you get instead of offering a decision with one option.
   $("plan").hidden = !hasReference || !!profileName;
+
+  // Whether this profile was captured from a reference that had been separated. If it
+  // was, its instruments are measured too, and the comparison that used to cost a second
+  // split costs nothing at all.
+  const perStem =
+    !!profileName && $("upfront-profile-pick").selectedOptions[0]?.dataset.perStem === "yes";
 
   const matching = hasReference && !profileName && $("plan-match").checked;
   $("upload-btn").textContent = profileName
-    ? "Split and aim at the profile"
+    ? perStem
+      ? "Split and compare instruments"
+      : "Split and aim at the profile"
     : matching
       ? "Split both and compare"
       : hasReference
         ? "Split and match the overall tone"
         : "Split into stems";
   $("upload-plan-note").textContent = profileName
-    ? `One split. Aiming at “${profileName}” — no second split, because a profile is `
-      + "measurements rather than audio. Instrument-by-instrument needs a reference file."
+    ? perStem
+      ? `One split — yours. “${profileName}” was saved from a reference that had been `
+        + "separated, so its instruments are already measured: you get the "
+        + "instrument-by-instrument comparison without waiting for a second split."
+      : `One split. Aiming at “${profileName}” for overall tone. This one was saved `
+        + "without instruments, so there is nothing to compare yours against one by one."
     : matching
       ? "Two splits, back to back — roughly the length of both songs. Done once."
       : hasReference
@@ -339,8 +360,16 @@ async function loadUpfrontProfiles() {
   for (const profile of profiles) {
     const option = document.createElement("option");
     option.value = profile.name;
-    option.textContent =
-      profile.name + (profile.lufs != null ? ` · ${profile.lufs.toFixed(1)} LUFS` : "");
+    // Read back by `refreshUploadButton`, which has the name and not the object.
+    option.dataset.perStem = profile.per_stem ? "yes" : "no";
+    const loudness = profile.lufs != null ? ` · ${profile.lufs.toFixed(1)} LUFS` : "";
+    // Said in the option itself, because this is the difference between a profile that
+    // can drive the instrument screen and one that cannot, and finding that out after
+    // committing to a split is the wrong moment.
+    const reach = profile.per_stem
+      ? ` · ${profile.instruments.length} instruments`
+      : " · whole mix only";
+    option.textContent = profile.name + loudness + reach;
     select.appendChild(option);
   }
 }
@@ -418,15 +447,21 @@ async function upload() {
     if (chosenProfile) {
       $("progress-title").textContent = "Aiming at the saved profile…";
       $("progress-message").textContent = chosenProfile;
-      await api(`/tracks/${track.track_id}/reference/use-profile`, {
+      const aimed = await api(`/tracks/${track.track_id}/reference/use-profile`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: chosenProfile }),
       });
       state.referenceLoaded = true;
       state.usingProfile = true;
+      // A profile saved from a separated reference carries its instruments, so the
+      // comparison screen works from it. The server is the one that knows - the dropdown
+      // only ever had the listing's word for it.
+      state.profileHasInstruments = !!aimed.per_stem_available;
       state.upfrontReference = { name: chosenProfile };
-      $("ref-hint").textContent = `aiming at the saved profile “${chosenProfile}”`;
+      $("ref-hint").textContent = state.profileHasInstruments
+        ? `aiming at “${chosenProfile}” · ${aimed.instruments.length} instruments measured`
+        : `aiming at the saved profile “${chosenProfile}”`;
     }
 
     // The reference, if one was given, goes up and gets split in the same run. Doing
@@ -470,7 +505,12 @@ async function upload() {
       // takes about half a minute, and making the user wait for it *again* on arrival -
       // after they have already waited out two separations - is one wait too many. It is
       // part of loading, so it happens during loading.
-      const comparing = state.referenceSeparated && !state.usingProfile;
+      // Two ways to have something to compare against: a reference that was split just
+      // now, or a profile that carries the measurements of one that was split once, long
+      // ago. The screen is the same either way.
+      const comparing =
+        (state.referenceSeparated && !state.usingProfile) ||
+        (state.usingProfile && state.profileHasInstruments);
       $("progress-title").textContent = comparing
         ? "Comparing the instruments…"
         : "Measuring your mix…";
@@ -1134,14 +1174,34 @@ async function refreshPerStemState() {
   state.referenceSeparated = separated;
 
   if (state.usingProfile) {
+    // Whichever kind of profile this is, there is no second split to offer.
+    button.hidden = true;
     box.disabled = true;
     box.checked = false;
-    button.hidden = true;
     $("per-stem-options").hidden = true;
-    note.textContent =
-      "Not available when aiming at a saved profile. A profile is measurements, and " +
-      "comparing your snare with the reference's needs the reference's snare — which " +
-      "means its audio. Upload the song itself to compare instrument by instrument.";
+
+    if (state.profileHasInstruments) {
+      // This checkbox is the *old* whole-stem match: one opaque curve of several hundred
+      // bins per stem, which needs the reference stem's full spectrum. A snapshot carries
+      // the seven numbers the comparison reads and not that, so this path stays off.
+      //
+      // Nothing is lost by it. The instrument panel below is the replacement for this
+      // checkbox and it works completely from a profile - each difference with its own
+      // control, which is the version you can look at and disagree with. Its Apply
+      // buttons write stem dials, and dials render with or without reference audio.
+      note.textContent =
+        "Handled below, instrument by instrument — the reference's instruments were " +
+        "measured when this profile was saved, so the comparison is already done. This " +
+        "checkbox is the older all-or-nothing version of the same idea and needs the " +
+        "reference's audio; the panel below is better anyway, because you can see each " +
+        "difference and take them one at a time.";
+    } else {
+      note.textContent =
+        "Not available from this profile. It was saved from a reference that had not " +
+        "been separated, so there are no reference instruments in it to compare yours " +
+        "against. Load that song as a reference with instrument-by-instrument matching " +
+        "on, and save the profile again to include them.";
+    }
     refreshInstrumentSection();
     return;
   }
@@ -1178,6 +1238,13 @@ async function separateReference() {
     );
     goToPage("master");
     await refreshPerStemState();
+    // The save box offers to keep this reference as a profile, and what it says depends
+    // on whether the reference has been separated — which just changed. Without this the
+    // box went on reading "this reference has not been separated, so its instruments
+    // will not be in it" right up until the save, which then reported six instruments
+    // saved. Two opposite statements across one click, and no reload could fix it
+    // because nothing about the box is persisted.
+    if (typeof refreshProfilePanels === "function") await refreshProfilePanels();
     // Separating the reference is what makes the instrument-by-instrument comparison
     // possible, so it is the other moment worth going and getting it.
     if (state.suggestion?.summary) {
@@ -1302,12 +1369,17 @@ function renderMaster(result) {
       meter("Reference", info.reference) +
       meter("Master", info.result, info.source) +
       `<div class="meter">gain applied<b>${info.gain_applied_db > 0 ? "+" : ""}${info.gain_applied_db} dB</b></div>` +
-      `<div class="meter">file<b>${size} MB</b></div>`
+      `<div class="meter">file<b>${size} MB</b></div>` +
+      quantisationMeter(result)
     : `<div class="meter">exported<b>${size} MB</b></div>` +
-      `<div class="meter">stems<b>${result.stems.length}</b></div>`;
+      `<div class="meter">stems<b>${result.stems.length}</b></div>` +
+      quantisationMeter(result);
 
   $("compare-note").innerHTML = compareNote(info);
   renderCompare();
+  // The tonal picture, beside the loudness one. Not awaited: it measures three files and
+  // the rest of the report should not sit behind it.
+  if (typeof renderSpectrum === "function") renderSpectrum();
   renderFinishing(result.finishing);
 
   $("master-curve").innerHTML = info?.eq_curve_db?.length
@@ -1521,7 +1593,10 @@ function kitSettings() {
 const MODES = {
   flat: {
     label: "Flat",
-    why: "Every finishing dial off — whatever the reference match decides, and nothing else.",
+    why: "The tone, width and dynamics dials off — whatever the reference match decides, " +
+         "and nothing else. Sparkle, centred bass and the subsonic cut are left where " +
+         "you set them: they are repairs rather than taste, and a preset that silently " +
+         "undid them would put back a problem you had already fixed.",
     dials: { brightness: 0, brightnessHz: 8000, warmth: 0, bass: 0, width: 100, headroom: 0,
              saturation: 0, ambience: 0, parallel: 0, sideAir: 0 },
   },
@@ -1668,6 +1743,11 @@ function applyDials(dials) {
   // Whatever moved the dials - a mode, the suggestion, or one finding's own button -
   // every finding's label is now re-read from where they actually sit.
   refreshFixButtons();
+  // And so is every group header. Most of the dials above dispatch `input`, which the
+  // group badges listen for, but not all of them do - `brightness-hz` is set directly -
+  // and a preset that silently left a group looking untouched is the exact failure the
+  // badges exist to prevent.
+  if (typeof refreshGroupBadges === "function") refreshGroupBadges();
 }
 
 function selectMode(name) {
@@ -2065,6 +2145,32 @@ function renderFinishing(finishing) {
       : "");
 }
 
+/** How the float mix became integers on the way out.
+ *
+ * Shown because it is the one mastering stage with no control attached. Everything else
+ * on this page the user chose; this happened to their file regardless, and an export that
+ * does not say how it was quantised is asking to be trusted about the quiet parts.
+ *
+ * Guarded on the field being present: a master rendered by an older build has no opinion
+ * about this, and an empty meter reading "undefined" would be worse than no meter.
+ */
+function quantisationMeter(result) {
+  if (!result?.quantisation) return "";
+  // `describe()` emits "16-bit with TPDF dither and noise shaping" — one clause, no
+  // comma. Splitting on ", " therefore found nothing to split on every normal export and
+  // the fallback printed the whole sentence a second time, once bold and once muted.
+  // Split on the first " with " instead, which is the join that is actually there.
+  const at = result.quantisation.indexOf(" with ");
+  const depth = at === -1 ? result.quantisation : result.quantisation.slice(0, at);
+  const how = at === -1 ? "" : result.quantisation.slice(at + 1);
+  return `<div class="meter" title="Dither replaces the signal-dependent error of plain
+rounding with a steady, quiet hiss, and noise shaping moves that hiss out of the midrange
+where the ear is sharpest — about 16 dB quieter across 1–4 kHz, at the cost of 11 dB more
+above 16 kHz.">output<b>${escapeText(depth)}</b>${
+    how ? `<em>${escapeText(how)}</em>` : ""
+  }</div>`;
+}
+
 function renderCurve(bands) {
   const largest = Math.max(3, ...bands.map(([, db]) => Math.abs(db)));
   const rows = bands.map(([hz, db]) => {
@@ -2413,7 +2519,19 @@ $("kit-on").addEventListener("change", () => {
 $("kit-blend").addEventListener("input", () => {
   $("kit-blend-out").textContent = `${$("kit-blend").value}%`;
 });
-$("master-btn").addEventListener("click", runMaster);
+$("master-btn").addEventListener("click", async () => {
+  // Guarded, because a render takes tens of seconds with no change to the button and an
+  // impatient second click used to start a second one. It recovered, but it did the work
+  // twice and the two finished out of order.
+  const button = $("master-btn");
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    await runMaster();
+  } finally {
+    button.disabled = false;
+  }
+});
 $("separate-ref-btn").addEventListener("click", separateReference);
 $("per-stem-match").addEventListener("change", () => {
   $("per-stem-options").hidden = !$("per-stem-match").checked;

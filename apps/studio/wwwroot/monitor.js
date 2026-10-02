@@ -86,6 +86,26 @@ const Monitor = (() => {
    * Tone first for the same reason the render does it first: the compressor reacts to
    * what it is fed, and a few dB of EQ changes what it reacts to.
    */
+  /**
+   * The five bands the comparison speaks in, for auditioning one at a time.
+   *
+   * Deliberately the same five, with the same edges, that `instrument.BANDS` uses on the
+   * server. A finding says "the reference's drums have more presence"; the chip that lets
+   * you check it has to play the band the finding was measured in, or it is answering a
+   * different question.
+   */
+  const BAND_RANGES = {
+    low: [20, 120],
+    low_mid: [120, 500],
+    high_mid: [500, 3000],
+    presence: [3000, 8000],
+    air: [8000, 16000],
+  };
+
+  //: Transparent settings for the isolation filters. Not 0 and Nyquist: a highpass at 0 Hz
+  //: is undefined and some implementations produce silence rather than a through-path.
+  const BAND_OFF = [10, 22050];
+
   function attach(key, element) {
     if (chains.has(key)) return chains.get(key);
     const audio = context();
@@ -130,6 +150,27 @@ const Monitor = (() => {
     const panner = audio.createStereoPanner();
     const gain = audio.createGain();
 
+    // Band isolation, last in the chain and bypassed by default.
+    //
+    // Last on purpose. The question a band chip answers is "is this finding real in what
+    // I am about to export", so what it isolates has to be the stem *after* everything
+    // the user has dialled in - put it first and a +2 dB presence move would be inaudible
+    // in the presence band, which is precisely the move being checked.
+    //
+    // Two of each rather than one: a single 12 dB/octave pair leaks enough of the
+    // neighbouring bands that "more presence" and "more air" sound alike, which would
+    // make the feature worse than useless. Four biquads is 24 dB/octave a side.
+    const bandHigh = [audio.createBiquadFilter(), audio.createBiquadFilter()];
+    const bandLow = [audio.createBiquadFilter(), audio.createBiquadFilter()];
+    for (const f of bandHigh) {
+      f.type = "highpass";
+      f.frequency.value = BAND_OFF[0];
+    }
+    for (const f of bandLow) {
+      f.type = "lowpass";
+      f.frequency.value = BAND_OFF[1];
+    }
+
     let node = source;
     for (const filter of filters) {
       node.connect(filter);
@@ -143,7 +184,12 @@ const Monitor = (() => {
     postDrive.connect(width.input);
     width.output.connect(panner);
     panner.connect(gain);
-    gain.connect(audio.destination);
+    let tail = gain;
+    for (const f of [...bandHigh, ...bandLow]) {
+      tail.connect(f);
+      tail = f;
+    }
+    tail.connect(audio.destination);
 
     const chain = {
       element,
@@ -157,6 +203,9 @@ const Monitor = (() => {
       width,
       panner,
       gain,
+      bandHigh,
+      bandLow,
+      band: null,
       buffer: new Float32Array(analyser.fftSize),
       saturationDb: 0,
       gainDb: 0,
@@ -392,6 +441,27 @@ const Monitor = (() => {
     }
   }
 
+  /**
+   * Play only one of the five bands through this chain, or all of it.
+   *
+   * `band` is a key of `BAND_RANGES`, or null for the whole stem. Unknown names are
+   * treated as null rather than throwing: a chip for a band the server stopped sending
+   * should play everything, not nothing.
+   */
+  function setBand(key, band) {
+    const chain = chains.get(key);
+    if (!chain) return;
+    const [low, high] = BAND_RANGES[band] ?? BAND_OFF;
+    chain.band = BAND_RANGES[band] ? band : null;
+    for (const f of chain.bandHigh) ramp(f.frequency, low);
+    for (const f of chain.bandLow) ramp(f.frequency, high);
+  }
+
+  /** Every chain back to the full stem, for when an audition ends. */
+  function clearBands() {
+    for (const key of chains.keys()) setBand(key, null);
+  }
+
   function has(key) {
     return chains.has(key);
   }
@@ -414,6 +484,7 @@ const Monitor = (() => {
   return {
     available, resume, attach, has, forget, reset, tick, apply,
     setTone, setCompression, setSaturation, setWidth, setPan, setGain, setMuted,
-    BASIS,
+    setBand, clearBands,
+    BASIS, BAND_RANGES,
   };
 })();

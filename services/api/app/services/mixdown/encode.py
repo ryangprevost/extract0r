@@ -17,6 +17,8 @@ from pathlib import Path
 
 import numpy as np
 
+from app.services.mixdown.dither import to_int16
+
 log = logging.getLogger(__name__)
 
 TARGET_SAMPLE_RATE = 44100
@@ -127,6 +129,8 @@ def write_mp3(
     sample_rate: int,
     bitrate_kbps: int = 320,
     tags: dict[str, str] | None = None,
+    dither: bool = True,
+    noise_shaping: bool = True,
 ) -> Path:
     """Encode to MP3 with LAME directly, no external process."""
     try:
@@ -143,7 +147,13 @@ def write_mp3(
     audio = _as_stereo(samples)
     # LAME wants interleaved 16-bit PCM. Clip first: wrapping an over-range sample round
     # to the opposite polarity is the loudest possible click.
-    pcm = (np.clip(audio, -1.0, 1.0) * 32767.0).astype("<i2").reshape(-1)
+    #
+    # Dithered rather than truncated. Going straight to an integer makes an error that
+    # depends on the signal, which is distortion and not noise - on a fade-out it is the
+    # gritty edge that appears as the tail disappears. See `dither` for the measurements.
+    pcm = to_int16(
+        np.clip(audio, -1.0, 1.0), dither=dither, noise_shaping=noise_shaping
+    ).reshape(-1)
 
     encoder = lameenc.Encoder()
     encoder.set_bit_rate(bitrate_kbps)

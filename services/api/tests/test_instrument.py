@@ -16,6 +16,7 @@ reported one anyway would be inventing numbers, which is worse than a gap in the
 
 from __future__ import annotations
 
+import json
 import numpy as np
 import pytest
 
@@ -508,3 +509,109 @@ def test_the_applied_curve_does_not_boost_and_notch_within_an_octave():
     assert worst < 2.5, f"the curve swings {worst:.2f} dB inside one octave"
     # And it should not have to cut anything to deliver a boost.
     assert curve.min() > -1.0, f"asking for a boost dug a {curve.min():.2f} dB hole"
+
+
+# --- a reference instrument, kept without the reference ---------------------------------
+#
+# The claim being defended here is the same one the whole-mix profile makes, one level
+# down: that the reference half of a per-instrument comparison is measurements and nothing
+# else, so it can be written to a file once and reused for ever.
+#
+# The first test is the one that matters, and it is deliberately not a field-by-field
+# comparison of the snapshot against the profile. Checking fields would pass happily on the
+# day somebody adds a seventh dimension to `compare` that reads a field the snapshot does
+# not carry, because the new field would be missing from both sides of the assertion. So it
+# asserts the *output* instead: the same advice, from the same source stem, against a
+# reference measured directly and a reference rebuilt from its snapshot.
+
+
+def _profiled(audio: np.ndarray, stem: StemKind, relative_lufs: float) -> InstrumentProfile:
+    """A stem measured properly, with its mix-relative level filled in by hand.
+
+    `profile` cannot know that number on its own - it is a fact about the stem against the
+    other five - and `profile_all` supplies it from the sum. Set directly here so a test
+    can put two instruments a chosen distance apart.
+    """
+    one = profile(audio, SR, stem)
+    one.relative_lufs = relative_lufs
+    one.present = True
+    return one
+
+
+def test_a_snapshot_gives_the_same_advice_as_the_audio():
+    """The whole feature in one assertion.
+
+    If a saved profile's instruments produced even slightly different moves from the stems
+    they were measured from, the per-instrument half of a profile would be an approximation
+    being passed off as the real thing, and every suggestion taken from one would be a
+    guess. They are the same numbers by a shorter route, so the moves are identical - not
+    close, identical, because nothing is recomputed.
+    """
+    from app.services.mastering.instrument import from_snapshot, snapshot
+
+    mine = _profiled(_broadband(seed=7), StemKind.GUITAR, -8.0)
+    theirs = _profiled(_broadband(seed=21) * 0.6, StemKind.GUITAR, -5.5)
+
+    from_audio = compare(StemKind.GUITAR, mine, theirs)
+    rebuilt = from_snapshot(StemKind.GUITAR, snapshot(theirs))
+    from_saved = compare(StemKind.GUITAR, mine, rebuilt)
+
+    assert from_audio, "the fixture produced no advice at all, so this proves nothing"
+    assert len(from_audio) == len(from_saved)
+    for a, b in zip(from_audio, from_saved, strict=True):
+        assert (a.dimension, a.band, a.control) == (b.dimension, b.band, b.control)
+        assert a.headline == b.headline
+        assert a.detail == b.detail
+        assert a.severity == b.severity
+        assert a.suggested == pytest.approx(b.suggested, abs=1e-9)
+        assert a.measured == pytest.approx(b.measured, abs=1e-9)
+        assert a.confident == b.confident
+
+
+def test_a_snapshot_does_not_carry_audio_or_anything_that_could_rebuild_it():
+    """A snapshot is advice, not a recording. Seven numbers per stem, no spectrum.
+
+    The spectrum is the one measurement big enough to be worth checking for, and it is
+    excluded on purpose: it is only ever read from the *source* side, where the tone solve
+    asks what filter gains move my stem's bands, and my stem is right there.
+    """
+    from app.services.mastering.instrument import SNAPSHOT_FIELDS, snapshot
+
+    one = _profiled(_broadband(), StemKind.DRUMS, -6.0)
+    assert one.spectrum is not None
+
+    kept = snapshot(one)
+    assert set(kept) == set(SNAPSHOT_FIELDS)
+    assert "spectrum" not in kept
+    assert len(json.dumps(kept)) < 500
+
+    # And nothing that survives the trip can be played or shaped.
+    from app.services.mastering.instrument import from_snapshot
+
+    assert from_snapshot(StemKind.DRUMS, kept).spectrum is None
+
+
+def test_an_instrument_the_snapshot_does_not_mention_is_treated_as_absent():
+    """Absent rather than present-at-zero, which is the safe direction.
+
+    A profile that says nothing about a piano must not be read as a reference whose piano
+    sits 40 dB under its mix - that would ask the user to cut a part they actually played
+    until it disappeared. `compare` returns nothing for an absent instrument, so defaulting
+    to absent means silence rather than a destructive suggestion.
+    """
+    from app.services.mastering.instrument import from_snapshot
+
+    rebuilt = from_snapshot(StemKind.PIANO, {})
+    assert rebuilt.present is False
+
+    mine = _profiled(_broadband(), StemKind.PIANO, -9.0)
+    assert compare(StemKind.PIANO, mine, rebuilt) == []
+
+
+def test_a_stem_this_build_does_not_know_is_skipped_rather_than_fatal():
+    """One unreadable row should cost its own row, not the whole comparison."""
+    from app.services.mastering.instrument import from_snapshot_all, snapshot
+
+    one = snapshot(_profiled(_broadband(), StemKind.BASS, -4.0))
+    rebuilt = from_snapshot_all({"bass": one, "theremin": one})
+    assert set(rebuilt) == {StemKind.BASS}

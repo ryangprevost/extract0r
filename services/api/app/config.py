@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     # auto = pyin for monophonic stems, basic_pitch for polyphonic ones.
     transcription_backend: str = "stub"     # stub | auto | pyin | basic_pitch
     drum_backend: str = "stub"              # stub | onset
+    # Per-drum separation: split the drums stem again into kick/snare/cymbals/toms, so a
+    # replacement sample lands on the right drum instead of on whatever a band-rise
+    # classifier guessed. Off by default because it is a second separation pass - about
+    # half the clip's length again on CPU - and pointless unless drums are being layered.
+    drumsep_enabled: bool = False
+    models_dir: Path = Field(default=REPO_ROOT / "models")
     timing_backend: str = "stub"            # stub | librosa
     mastering_backend: str = "loudness"     # loudness | matchering
 

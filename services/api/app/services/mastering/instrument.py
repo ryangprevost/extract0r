@@ -550,6 +550,95 @@ def _severity(gap: float, slight: float, notable: float) -> str:
     return "notable" if size < notable * 2 else "strong"
 
 
+# --- a reference instrument, kept without the reference ---------------------------------
+#
+# `compare` reads exactly seven things from the side it is comparing against, and not one
+# of them is audio: a level relative to its own mix, five band shares, a dynamic range, a
+# crest, a balance, a width, and whether the instrument is there at all. So the reference
+# half of every per-instrument suggestion can be reduced to those numbers once and aimed at
+# for ever - the same argument that lets a whole-mix profile exist, applied one stem down.
+#
+# These two functions are the contract, and they live here rather than in `profile` so that
+# anyone adding an eighth dimension to `compare` has to walk past them to do it. If that
+# ever stops happening, `test_a_snapshot_gives_the_same_advice_as_the_audio` fails: it runs
+# the comparison twice, once against a measured stem and once against a stem rebuilt from
+# its snapshot, and demands the same moves out of both.
+
+#: The fields a snapshot carries. Named once so the two directions cannot drift apart.
+SNAPSHOT_FIELDS = (
+    "relative_lufs",
+    "bands",
+    "dynamic_range_db",
+    "crest_db",
+    "pan",
+    "width",
+    "present",
+)
+
+
+def snapshot(one: InstrumentProfile) -> dict:
+    """The measurements `compare` reads from a reference stem, as plain JSON types.
+
+    Deliberately *not* everything in an `InstrumentProfile`. The spectrum is left out
+    because it is only ever consulted on the source side - the tone solve asks "what filter
+    gains move *my* stem's bands", and my stem is right there. `loudness_lufs` is left out
+    because it is a fact about how loud that record was mastered rather than about how its
+    guitars were balanced, and `preview_start_s` because it points into audio this will not
+    have.
+    """
+    return {
+        "relative_lufs": round(float(one.relative_lufs), 2),
+        "bands": {k: round(float(v), 2) for k, v in one.bands.items()},
+        "dynamic_range_db": round(float(one.dynamic_range_db), 2),
+        "crest_db": round(float(one.crest_db), 2),
+        "pan": round(float(one.pan), 3),
+        "width": round(float(one.width), 3),
+        "present": bool(one.present),
+    }
+
+
+def from_snapshot(stem: StemKind, data: dict) -> InstrumentProfile:
+    """Rebuild just enough of an `InstrumentProfile` for `compare` to read it.
+
+    What comes back is not a whole profile and is not meant to be: there is no spectrum on
+    it, so it can be compared *against* but never shaped, previewed or rendered. Passing
+    one as `mine` would produce a stem with no tone solve, which is why nothing does.
+    """
+    return InstrumentProfile(
+        stem=stem,
+        relative_lufs=float(data.get("relative_lufs", 0.0)),
+        bands={k: float(v) for k, v in (data.get("bands") or {}).items()},
+        dynamic_range_db=float(data.get("dynamic_range_db", 0.0)),
+        crest_db=float(data.get("crest_db", 0.0)),
+        pan=float(data.get("pan", 0.0)),
+        width=float(data.get("width", 1.0)),
+        # Absent by default. A snapshot that does not say is treated as an instrument the
+        # reference does not play, which yields no advice - the safe direction, since the
+        # unsafe one invents a 40 dB cut on a part the user actually recorded.
+        present=bool(data.get("present", False)),
+        spectrum=None,
+    )
+
+
+def snapshot_all(profiles: dict[StemKind, InstrumentProfile]) -> dict[str, dict]:
+    """Every measured stem, keyed by name, ready to be written to a profile file."""
+    return {stem.value: snapshot(one) for stem, one in profiles.items()}
+
+
+def from_snapshot_all(data: dict[str, dict]) -> dict[StemKind, InstrumentProfile]:
+    """The other direction. Unknown stem names are skipped rather than raised on, so a
+    profile written by a build that knew about a seventh stem still yields its other six."""
+    out: dict[StemKind, InstrumentProfile] = {}
+    for name, one in (data or {}).items():
+        try:
+            kind = StemKind(name)
+        except ValueError:
+            log.info("skipping unknown stem %r in a saved profile", name)
+            continue
+        out[kind] = from_snapshot(kind, one)
+    return out
+
+
 def compare(
     stem: StemKind,
     mine: InstrumentProfile,

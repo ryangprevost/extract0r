@@ -124,6 +124,16 @@ function syncLaneSlider(stem, kind, value, label) {
 async function loadInstrumentComparison() {
   const button = $("compare-instruments-btn");
   $("instrument-error").hidden = true;
+  // What this costs depends entirely on which side the reference comes from, and saying
+  // "around half a minute" on a four-second job was both wrong and oddly discouraging.
+  // A profile's instruments were measured once, when it was saved; only the user's own
+  // stems are read now.
+  // Neither route costs the "around half a minute" this used to claim. By the time the
+  // button is pressable both sides are already separated, so what is left is reading
+  // them: measured at 4.3 s from a profile and 5.0 s from a pair of split references.
+  $("instrument-working").textContent = state.profileHasInstruments
+    ? "Reading your stems and comparing them with the saved profile. A moment."
+    : "Reading every stem on both sides, end to end. A few seconds.";
   $("instrument-working").hidden = false;
   button.disabled = true;
 
@@ -165,6 +175,23 @@ function renderInstruments(data) {
   const host = $("instruments");
   host.innerHTML = "";
 
+  // Where the reference half came from. Worth a line, because a comparison drawn from a
+  // profile is missing exactly one thing a user might go looking for - the ▶ theirs
+  // button - and an unexplained absence reads as a bug.
+  const source = $("instrument-source");
+  if (source) {
+    const fromProfile = data.reference_kind === "profile";
+    source.hidden = !fromProfile;
+    if (fromProfile) {
+      source.innerHTML =
+        "Compared against the saved profile <strong>" +
+        escapeText(data.reference_name || "") +
+        "</strong>, whose instruments were measured when it was saved — which is why " +
+        "there was no second split to wait for. Its stems cannot be played back: a " +
+        "profile keeps the measurements, not the music.";
+    }
+  }
+
   for (const instrument of data.instruments || []) {
     const lane = state.lanes.get(instrument.stem);
     // The band-to-filter solve for this stem, already inverted by the server, so the
@@ -184,14 +211,66 @@ function renderInstruments(data) {
  * summary is what the card is *for* - you should be able to decide whether to open an
  * instrument without opening it.
  */
+/**
+ * Which of five situations an instrument is in.
+ *
+ * Exists because the summary and the card body used to decide this separately, and drifted
+ * the moment one of them was corrected: a guitar 58 LU under its own mix got a summary
+ * reading "there is almost no guitar in your mix" directly above a body reading "nothing to
+ * change, this one already sits where the reference's does". Two answers on one card, and
+ * the corrected half made the stale half look authoritative.
+ *
+ * One function, two callers, no way for them to disagree again.
+ */
+function instrumentState(instrument) {
+  if (!instrument.in_reference) return "not-in-reference";
+  // A stem this far under its own mix is what separation leaves behind when the part is
+  // not there. `compare` returns nothing for it, and "no differences" is not "no
+  // difference" - matching to it would be matching to silence.
+  if (instrument.yours?.present === false) return "not-in-yours";
+
+  const moves = instrument.moves || [];
+  if (moves.some((m) => m.control && m.confident)) return "has-moves";
+  if (moves.some((m) => m.control && !m.confident)) return "flagged-only";
+  return "matched";
+}
+
+/** Stems whose names take a plural verb: "drums sit", not "drums sits". */
+const PLURAL_STEMS = ["drums", "guitar", "other"];
+
+function isPlural(stem) {
+  return PLURAL_STEMS.includes(stem);
+}
+
 function summariseMoves(instrument) {
   const label = (LABELS[instrument.stem] || instrument.stem).toLowerCase();
   const song = state.songName ? ` in ${state.songName}` : "";
-  const plural = ["drums", "guitar", "other"].includes(instrument.stem);
-  const could = plural ? "could use" : "could use";
+  const plural = isPlural(instrument.stem);
 
-  if (!instrument.in_reference) {
+  // Named `situation`, not `state`. Calling it `state` shadowed the global `state` object
+  // for this whole function, and the `state.songName` read two lines above then landed in
+  // the temporal dead zone — so every instrument threw "Cannot access 'state' before
+  // initialization" and the comparison screen rendered the raw error text instead of six
+  // cards. It never reached the console, because the caller's try/catch put it on screen
+  // instead. A one-word name took out the headline feature of the application.
+  const situation = instrumentState(instrument);
+
+  if (situation === "not-in-reference") {
     return `The reference barely plays ${label}, so there is nothing to compare it with.`;
+  }
+
+  if (situation === "not-in-yours") {
+    // `relative_lufs` is already negative and the sentence already says "under", so the
+    // sign is spelled out once and taken off the number.
+    const yours = Math.abs(instrument.yours.relative_lufs).toFixed(0);
+    const theirs = instrument.reference?.relative_lufs;
+    const against =
+      typeof theirs === "number"
+        ? `, against the reference's ${Math.abs(theirs).toFixed(0)}`
+        : "";
+    return `There is almost no ${label} in your mix — ${yours} LU under it${against}. ` +
+      "Either you did not record this part, or separation filed it under another stem. " +
+      "Nothing is suggested, because matching to it would be matching to silence.";
   }
 
   const parts = [];
@@ -207,16 +286,30 @@ function summariseMoves(instrument) {
   }
 
   if (!parts.length) {
-    return `Your ${label}${song} already sits where the reference's does.`;
+    // `parts` holds only the confident moves, so an instrument whose every finding was
+    // flagged "worth hearing first" would otherwise report itself as matched — the
+    // opposite of what the rows underneath say.
+    const flagged = (instrument.moves || []).filter((m) => m.control && !m.confident);
+    if (situation === "flagged-only") {
+      return `Nothing confident to suggest for your ${label}${song}, but ${
+        flagged.length === 1 ? "one difference is" : `${flagged.length} differences are`
+      } worth hearing before you decide.`;
+    }
+    return `Your ${label}${song} already ${plural ? "sit" : "sits"} where the ` +
+      "reference's does.";
   }
   const list = parts.length === 1
     ? parts[0]
     : parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];
   const caps = label.charAt(0).toUpperCase() + label.slice(1);
-  return `${caps}${song} ${could} ${list}.`;
+  // "could use" regardless of number — it reads correctly either way, which is why the
+  // ternary that used to compute it had identical arms. Inlined rather than left as a
+  // variable that looked like it was deciding something.
+  return `${caps}${song} could use ${list}.`;
 }
 
 function buildInstrumentCard(instrument) {
+  const plural = isPlural(instrument.stem);
   const label = LABELS[instrument.stem] || instrument.stem;
   // "Take all" deliberately skips the flagged ones. A row that says "worth hearing before
   // you take it" should not then be taken by a button the user pressed to save time -
@@ -258,8 +351,14 @@ function buildInstrumentCard(instrument) {
     '<span class="players">' +
     '<button class="link" data-hear="yours" data-stem="' + instrument.stem + '">' +
     "▶ yours</button>" +
-    '<button class="link" data-hear="theirs" data-stem="' + instrument.stem + '"' +
-    (instrument.in_reference ? "" : " disabled") + ">▶ theirs</button>" +
+    // Omitted entirely when the reference half came from a saved profile. There is no
+    // audio behind one, so the button could only ever fail - and a disabled control with
+    // a tooltip reads as something broken rather than as something a profile never had.
+    // The line under the card says where the comparison came from instead.
+    (instrument.reference_audio === false
+      ? ""
+      : '<button class="link" data-hear="theirs" data-stem="' + instrument.stem + '"' +
+        (instrument.in_reference ? "" : " disabled") + ">▶ theirs</button>") +
     '<button class="link stop-preview" hidden>■ stop</button>' +
     "</span>";
   head.appendChild(bulk);
@@ -274,12 +373,20 @@ function buildInstrumentCard(instrument) {
 
   const moves = document.createElement("div");
   moves.className = "moves";
-  if (!instrument.in_reference) {
+  const situation = instrumentState(instrument);
+  if (situation === "not-in-reference") {
     moves.innerHTML =
       '<p class="muted small">The reference does not really play this. There is nothing ' +
-      "to match to, so your " + label.toLowerCase() + " is left alone rather than being " +
+      "to match to, so your " + label.toLowerCase() + (plural ? " are" : " is") +
+      " left alone rather than being " +
       "matched to whatever separation left behind.</p>";
-  } else if (!(instrument.moves || []).length) {
+  } else if (situation === "not-in-yours") {
+    moves.innerHTML =
+      '<p class="muted small">There is almost no ' + label.toLowerCase() + " in your mix " +
+      "to compare. Nothing is suggested here, because every suggestion would be asking " +
+      "you to match silence to a part the reference actually plays — which is a " +
+      "difference of arrangement, not of mixing.</p>";
+  } else if (situation === "matched") {
     moves.innerHTML =
       '<p class="muted small">Nothing to change. This one already sits where the ' +
       "reference's does, in every dimension measured.</p>";
@@ -410,7 +517,7 @@ function wireInstrumentCards() {
   });
 
   document.querySelectorAll(".stop-preview").forEach((button) => {
-    button.addEventListener("click", stopPreview);
+    button.addEventListener("click", () => stopPreview());
   });
 
   // Every control on the header lives inside a <summary>, where a click would otherwise
@@ -500,7 +607,11 @@ const PREVIEW_SECONDS = 12;
  */
 async function hear(stem, side) {
   await Monitor.resume();
-  stopPreview();
+  // Tidy up the previous audition but *keep* the band. Switching from your snare to the
+  // reference's with "presence" selected has to keep playing presence — comparing the
+  // same band across the two sides is the entire point of the feature, and this call is
+  // the only thing that stood between it and working.
+  stopPreview({ keepBand: true });
 
   const instrument = (state.instruments?.instruments ?? []).find((i) => i.stem === stem);
   const profile = side === "yours" ? instrument?.yours : instrument?.reference;
@@ -526,20 +637,37 @@ async function hear(stem, side) {
   document.querySelectorAll(".stop-preview").forEach((b) => (b.hidden = false));
 }
 
-/** Stop whichever side is playing, and put the solo back. */
-function stopPreview() {
+/**
+ * Stop whichever side is playing, and put the solo back.
+ *
+ * `keepBand` is for the one caller that is starting another audition immediately — the
+ * band belongs to the comparison, not to one side of it. Everywhere else the band is
+ * cleared, because a band left isolated after the music stops is a trap: the next thing
+ * played sounds broken for no visible reason.
+ */
+function stopPreview({ keepBand = false } = {}) {
   clearTimeout(state.previewTimer);
   state.previewTimer = null;
 
   for (const audio of state.referencePlayers?.values() ?? []) audio.pause();
   if (state.playing) togglePlay();
   // Leaving a lane soloed after an audition means the next thing the user plays is that
-  // stem on its own, with no clue why.
+  // stem on its own, with no clue why. A band left isolated is the same trap and worse,
+  // because a band-limited mix sounds broken rather than merely unexpected.
   for (const lane of state.lanes.values()) lane.solo = false;
+  if (!keepBand) {
+    state.soloBand = null;
+    if (Monitor.available()) Monitor.clearBands();
+  }
   applyGains();
 
   markHearing(null, null);
   document.querySelectorAll(".stop-preview").forEach((b) => (b.hidden = true));
+}
+
+/** The monitor key for a reference stem, kept distinct from the lane key for yours. */
+function referenceKey(stem) {
+  return "ref:" + stem;
 }
 
 function referencePlayer(stem) {
@@ -550,10 +678,75 @@ function referencePlayer(stem) {
       API + "/tracks/" + state.trackId + "/reference/stems/" + stem + "/audio",
     );
     audio.preload = "none";
-    audio.addEventListener("ended", stopPreview);
+    audio.crossOrigin = "anonymous";
+    audio.addEventListener("ended", () => stopPreview());
     state.referencePlayers.set(stem, audio);
+
+    // Routed through the monitor so the band chips work on this side too. Every control
+    // in that chain starts neutral - no EQ, ratio 1, no drive, width 1, unity gain - so
+    // attaching a reference does not process it. All it buys is the isolation filters at
+    // the end, which is the whole reason the reference goes through the same chain as
+    // your own stem rather than a second one built to be different.
+    if (Monitor.available()) Monitor.attach(referenceKey(stem), audio);
   }
   return audio;
+}
+
+/**
+ * Hear one band of whichever side is playing.
+ *
+ * A finding says "the reference's drums have more presence" and offers a dial. You can
+ * already play your drums and play theirs — but presence is one of five bands inside
+ * each, and the whole stem is what plays. Deciding whether a finding is real means
+ * hearing the band the finding is about.
+ *
+ * Borrowed from Metric AB, whose filter bank solos the same band on the mix and the
+ * reference at once. It is cheap here because all three pieces already existed: the five
+ * bands, an audition per side, and a Web Audio chain to hang filters on.
+ */
+function buildBandStrip(stem) {
+  const strip = document.createElement("div");
+  strip.className = "band-strip";
+  strip.dataset.stem = stem;
+
+  const bands = state.instruments?.bands ?? [];
+  const chips = [
+    { band: "", label: "all", title: "The whole stem." },
+    ...bands.map((b) => ({
+      band: b.band,
+      label: BAND_WORDS[b.band] ?? b.band,
+      title: `${Math.round(b.low_hz)}–${Math.round(b.high_hz)} Hz`,
+    })),
+  ];
+
+  for (const chip of chips) {
+    const button = document.createElement("button");
+    button.className = "band-chip" + (chip.band === "" ? " on" : "");
+    button.dataset.band = chip.band;
+    button.textContent = chip.label;
+    button.title = chip.title;
+    button.addEventListener("click", () => selectBand(stem, chip.band));
+    strip.appendChild(button);
+  }
+  return strip;
+}
+
+/**
+ * Apply a band to both sides at once.
+ *
+ * Both, always, even though only one is audible: the chip has to survive switching from
+ * "yours" to "theirs" without the user setting it again, because comparing the same band
+ * across the two is the entire point of the feature.
+ */
+function selectBand(stem, band) {
+  state.soloBand = band || null;
+  if (Monitor.available()) {
+    Monitor.setBand(stem, state.soloBand);
+    Monitor.setBand(referenceKey(stem), state.soloBand);
+  }
+  for (const chip of document.querySelectorAll(`.band-strip[data-stem="${stem}"] .band-chip`)) {
+    chip.classList.toggle("on", (chip.dataset.band || "") === (band || ""));
+  }
 }
 
 function markHearing(stem, side) {
@@ -561,13 +754,30 @@ function markHearing(stem, side) {
     const on = stem !== null && button.dataset.stem === stem && button.dataset.hear === side;
     button.classList.toggle("on", on);
   });
+
+  // The strip belongs to whatever is playing, and only while it plays. A card that is
+  // silent showing band chips would be offering a control with nothing to apply it to.
+  for (const strip of document.querySelectorAll(".band-strip")) strip.remove();
+  if (stem === null) return;
+
+  const players = document.querySelector(
+    `[data-hear][data-stem="${stem}"]`,
+  )?.closest(".players");
+  if (players) players.insertAdjacentElement("afterend", buildBandStrip(stem));
+  // Carry the current band onto the strip that was just built, so switching sides keeps
+  // the band rather than silently resetting to "all" while the chip still says otherwise.
+  if (state.soloBand) selectBand(stem, state.soloBand);
 }
 
 /** Show the comparison once there is something to compare, and wire its button once. */
 function refreshInstrumentSection() {
   const section = $("instrument-compare");
   if (!section) return;
-  section.hidden = !(state.referenceLoaded && state.referenceSeparated);
+  // Two ways to have a reference to compare against: one separated just now, or a saved
+  // profile that carries the measurements of one separated once, long ago.
+  const haveReferenceInstruments =
+    state.referenceSeparated || (state.usingProfile && state.profileHasInstruments);
+  section.hidden = !(state.referenceLoaded && haveReferenceInstruments);
 }
 
 document.addEventListener("DOMContentLoaded", () => {

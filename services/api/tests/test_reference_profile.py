@@ -10,7 +10,11 @@ asserted vaguely: the stored curve is 96 points where the audio has 2049, which 
 about 0.2 dB RMS on the matching curve and lands the two masters within half a decibel of
 each other everywhere.
 
-What a profile deliberately cannot do is per-instrument matching, and that has a test too.
+The same argument runs one level down, and `test_instrument` carries that half: a
+per-instrument comparison reads seven numbers per stem from the reference side, so a
+profile captured from a separated reference drives that stage too. What no profile can do,
+with or without the stem half, is play - there is no audio in it, and the tests below check
+that the surfaces which offer listening know that.
 """
 
 from __future__ import annotations
@@ -312,9 +316,11 @@ def test_a_saved_profile_can_be_aimed_at_by_another_track(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["name"] == "House Target"
-    # And it is honest about the one thing it cannot do.
+    # This one was captured from a reference nobody separated, so it covers the mix stage
+    # and says so plainly rather than leaving an empty comparison screen to explain it.
     assert body["per_stem_available"] is False
-    assert "instrument by instrument" in body["note"]
+    assert body["instruments"] == []
+    assert "had not been separated" in body["note"]
 
 
 def test_a_track_aimed_at_a_profile_masters_without_any_reference_file(

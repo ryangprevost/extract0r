@@ -50,3 +50,9 @@ Thumbs.db
 # `app.config.profile_dir` defaults here for the same reason, and a test asserts this
 # line still covers it - see tests/test_reference_profile.py.
 profiles/
+
+# Downloaded ML model weights. Large, third-party, and reproducible from a URL — three
+# good reasons not to put them in a repository. `models/README.md` says where each one
+# comes from and under what licence, which is the part worth keeping in git.
+models/*
+!models/README.md

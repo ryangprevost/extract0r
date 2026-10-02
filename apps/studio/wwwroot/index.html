@@ -199,7 +199,7 @@
 
     <div class="save-profile" id="save-profile" hidden>
       <span class="or">keep this reference as a profile</span>
-      <p class="muted small">
+      <p class="muted small" id="profile-what">
         Measures it once and stores the numbers — a spectrum, a width profile, a loudness
         and two peaks. About 6 KB, no audio, and enough to aim any future mix at this song
         without the file.
@@ -300,10 +300,11 @@
         difference gets its own control, so you can take the air on the drums and leave
         everything else alone.
       </p>
-      <p class="muted small working" id="instrument-working" hidden>
-        Reading every stem on both sides, end to end. Around half a minute.
-      </p>
+      <p class="muted small working" id="instrument-working" hidden></p>
       <p class="error" id="instrument-error" hidden></p>
+      <!-- Filled in only when the reference half came from a saved profile, where two
+           things differ: it was instant, and there is no audio behind it to listen to. -->
+      <p class="muted small" id="instrument-source" hidden></p>
       <div id="instruments"></div>
       <p class="muted small" id="monitor-note" hidden>
         Moving these is audible straight away — no re-render. The monitor runs the same
@@ -320,18 +321,9 @@
                      what the tonal match will not. Needs a reference.">Suggested</button>
       <button class="mode" data-mode="flat"
               title="Every finishing dial off. The reference match alone.">Flat</button>
-      <button class="mode" data-mode="bright"
-              title="A shelf from 6 kHz. Opens up a mix that sounds closed-in.">Brighten</button>
-      <button class="mode" data-mode="bassier"
-              title="Weight under 90 Hz, where kick and bass fundamentals live. Separate
-                     from Warmer, which fills in the 450 Hz body range.">Bassier</button>
-      <button class="mode" data-mode="warm"
-              title="Body around 450 Hz, with the very top eased back slightly.">Warmer</button>
-      <button class="mode" data-mode="punchy"
-              title="Sits further under the reference so transients survive the limiter,
-                     with a little presence for attack.">Punchier</button>
-      <button class="mode" data-mode="wide"
-              title="Spreads everything above 250 Hz and adds air, which reads as width.">Wider</button>
+
+      
+
     </div>
     <p class="muted small mode-why" id="mode-why"></p>
     <details class="reasons" id="dial-reasons-box" hidden>
@@ -339,8 +331,13 @@
       <div class="stem-report" id="dial-reasons"></div>
     </details>
 
-    <div class="controls">
-      <label class="control">
+    <div class="controls controls-primary">
+<label class="control">
+        <span>Match strength</span>
+        <input type="range" id="strength" min="0" max="100" value="100" />
+        <output id="strength-out">100%</output>
+      </label>
+<label class="control">
         <span>Vocal presence</span>
         <select id="vocal-presence">
           <option value="natural">natural (-4.5 LU)</option>
@@ -349,99 +346,7 @@
           <option value="">leave to the reference</option>
         </select>
       </label>
-      <label class="control">
-        <span>Duck under vocal</span>
-        <input type="range" id="vocal-duck" min="0" max="6" step="0.5" value="3" />
-        <output id="vocal-duck-out">3.0 dB</output>
-      </label>
-      <label class="control">
-        <span>Match strength</span>
-        <input type="range" id="strength" min="0" max="100" value="100" />
-        <output id="strength-out">100%</output>
-      </label>
-      <label class="control">
-        <span>Bass</span>
-        <input type="range" id="bass" min="-3" max="4" step="0.5" value="0" />
-        <output id="bass-out">off</output>
-      </label>
-      <label class="control">
-        <span>Warmth</span>
-        <input type="range" id="warmth" min="-3" max="4" step="0.5" value="0" />
-        <output id="warmth-out">off</output>
-      </label>
-      <label class="control">
-        <span>Brightness</span>
-        <input type="range" id="brightness" min="-4" max="6" step="0.5" value="0" />
-        <output id="brightness-out">off</output>
-      </label>
-      <label class="control">
-        <span>Brightness from</span>
-        <select id="brightness-hz">
-          <option value="3000">3 kHz — clarity</option>
-          <option value="6000">6 kHz — presence</option>
-          <option value="8000" selected>8 kHz — air</option>
-          <option value="12000">12 kHz — sheen</option>
-        </select>
-      </label>
-      <label class="control" title="Makes top end that was never recorded, by generating harmonics from the mix's own upper mids. Different from Brightness, which can only lift what is already there — and that is why a shelf does nothing for parts played from a synth patch or taken direct off a DI.">
-        <span>Sparkle</span>
-        <input type="range" id="sparkle" min="0" max="6" step="0.5" value="0" />
-        <output id="sparkle-out">off</output>
-      </label>
-      <label class="control" title="Where the generated harmonics start. Low lands them on consonants, pick attack and stick, which reads as clearer and more present. High lands them above everything, which is sheen — brighter, but it does not help a part cut through.">
-        <span>Sparkle focus</span>
-        <select id="sparkle-hz">
-          <option value="3500">3.5 kHz — presence and clarity</option>
-          <option value="6000" selected>6 kHz — balanced</option>
-          <option value="9000">9 kHz — air and sheen</option>
-        </select>
-      </label>
-      <label class="control" title="Pulls the low end towards the centre. Spread bass is the usual cause of a mix that sounds big on headphones and thin on a phone, because side content cancels when the channels are summed. No EQ is applied — nothing gets louder, more of it just survives.">
-        <span>Centre the bass</span>
-        <input type="range" id="centre-bass" min="0" max="300" step="10" value="0" />
-        <output id="centre-bass-out">off</output>
-      </label>
-      <label class="control" title="Cuts below the lowest note anything plays — a bass guitar's E is 41 Hz. What lives down there is rumble and handling noise: inaudible on most systems, but the limiter hears it and spends headroom on it.">
-        <span>Cut subsonics</span>
-        <input type="range" id="subsonic" min="0" max="60" step="5" value="0" />
-        <output id="subsonic-out">off</output>
-      </label>
-      <label class="control" title="Harmonics through the body of the sound rather than above it — the other end of the spectrum from Sparkle. Fills a mix out and rounds transients on the way, which is most of what 'glue' means. Deliberately gentle — about 1% harmonic distortion at the lowest setting and 2.5% at the highest, oversampled 4× so it cannot alias. A master wants no audible distortion; if you can hear it working, it is too high.">
-        <span>Saturation</span>
-        <input type="range" id="saturation" min="0" max="2" step="0.25" value="0" />
-        <output id="saturation-out">off</output>
-      </label>
-      <label class="control" title="A short room across the whole mix, blended in at fractions of a percent. The wet signal is filtered to 200 Hz – 10 kHz before blending, so it cannot muddy the bottom or wash the cymbals — measured, 2% changes the 10–16 kHz band by 0.17 dB. Deepens a dense mix; does little for a sparse one, because a tail of near-silence is still near-silence.">
-        <span>Ambience</span>
-        <input type="range" id="ambience" min="0" max="50" step="5" value="0" />
-        <output id="ambience-out">off</output>
-      </label>
-      <label class="control" title="A heavily compressed copy blended underneath, which lifts whatever is quiet — room, decay, the ends of notes. Level-matched before blending, so this is a balance and not a volume.">
-        <span>Parallel glue</span>
-        <input type="range" id="parallel" min="0" max="25" step="5" value="0" />
-        <output id="parallel-out">off</output>
-      </label>
-      <label class="control" title="A high shelf above 6 kHz on the side channel only. Whatever is already wide is mostly ambience rather than parts, so this opens the room out while the middle stays anchored.">
-        <span>Side air</span>
-        <input type="range" id="side-air" min="0" max="4" step="0.5" value="0" />
-        <output id="side-air-out">off</output>
-      </label>
-      <label class="control" title="Records are usually tighter than a home mix below 250 Hz and much wider above it. This matches your reference band by band, and eases back if it would cost more in mono than the reference itself gives up.">
-        <span>Match reference image</span>
-        <input type="range" id="width-profile" min="0" max="100" step="10" value="100" />
-        <output id="width-profile-out">100%</output>
-      </label>
-      <label class="control">
-        <span>Stereo width</span>
-        <input type="range" id="stereo-width" min="70" max="160" step="5" value="100" />
-        <output id="stereo-width-out">100%</output>
-      </label>
-      <label class="control">
-        <span>Extra headroom</span>
-        <input type="range" id="headroom" min="0" max="4" step="0.5" value="0" />
-        <output id="headroom-out">off</output>
-      </label>
-      <label class="control">
+<label class="control">
         <span>Bitrate</span>
         <select id="bitrate">
           <option value="320">320 kbps</option>
@@ -452,14 +357,142 @@
       </label>
     </div>
 
-    <p class="muted small" style="margin:14px 0 20px;max-width:72ch">
-      Brightness is a shelf on top of the matched tone — the match can only give you the
-      reference's top end, not more of it. Width spreads everything above 250 Hz and leaves
-      the bass centred, so it survives a mono system. Extra headroom sits further under the
-      reference; the master already stops short of over-driving its own limiter.
-    </p>
-
-    <div class="drumkit">
+    <details class="control-group" id="group-tone" data-group="tone">
+      <summary>
+        <span class="group-name">Tone</span>
+        <span class="group-changed" hidden></span>
+        <span class="group-what">Shelves and lifts on top of the match — brightness, weight, and top end that was never recorded.</span>
+      </summary>
+      <div class="modes" id="taste-modes">
+        <span class="modes-label">Quick starts</span>
+        <button class="mode" data-mode="bright"
+              title="A shelf from 6 kHz. Opens up a mix that sounds closed-in.">Brighten</button>
+        <button class="mode" data-mode="bassier"
+              title="Weight under 90 Hz, where kick and bass fundamentals live. Separate
+                     from Warmer, which fills in the 450 Hz body range.">Bassier</button>
+        <button class="mode" data-mode="warm"
+              title="Body around 450 Hz, with the very top eased back slightly.">Warmer</button>
+        <button class="mode" data-mode="punchy"
+              title="Sits further under the reference so transients survive the limiter,
+                     with a little presence for attack.">Punchier</button>
+        <button class="mode" data-mode="wide"
+              title="Spreads everything above 250 Hz and adds air, which reads as width.">Wider</button>
+      </div>
+      <div class="controls">
+<label class="control">
+        <span>Bass</span>
+        <input type="range" id="bass" min="-3" max="4" step="0.5" value="0" />
+        <output id="bass-out">off</output>
+      </label>
+<label class="control">
+        <span>Warmth</span>
+        <input type="range" id="warmth" min="-3" max="4" step="0.5" value="0" />
+        <output id="warmth-out">off</output>
+      </label>
+<label class="control">
+        <span>Brightness</span>
+        <input type="range" id="brightness" min="-4" max="6" step="0.5" value="0" />
+        <output id="brightness-out">off</output>
+      </label>
+<label class="control">
+        <span>Brightness from</span>
+        <select id="brightness-hz">
+          <option value="3000">3 kHz — clarity</option>
+          <option value="6000">6 kHz — presence</option>
+          <option value="8000" selected>8 kHz — air</option>
+          <option value="12000">12 kHz — sheen</option>
+        </select>
+      </label>
+<label class="control" title="Makes top end that was never recorded, by generating harmonics from the mix's own upper mids. Different from Brightness, which can only lift what is already there — and that is why a shelf does nothing for parts played from a synth patch or taken direct off a DI.">
+        <span>Sparkle</span>
+        <input type="range" id="sparkle" min="0" max="6" step="0.5" value="0" />
+        <output id="sparkle-out">off</output>
+      </label>
+<label class="control" title="Where the generated harmonics start. Low lands them on consonants, pick attack and stick, which reads as clearer and more present. High lands them above everything, which is sheen — brighter, but it does not help a part cut through.">
+        <span>Sparkle focus</span>
+        <select id="sparkle-hz">
+          <option value="3500">3.5 kHz — presence and clarity</option>
+          <option value="6000" selected>6 kHz — balanced</option>
+          <option value="9000">9 kHz — air and sheen</option>
+        </select>
+      </label>
+      </div>
+    </details>
+    <details class="control-group" id="group-space" data-group="space">
+      <summary>
+        <span class="group-name">Space and stereo</span>
+        <span class="group-changed" hidden></span>
+        <span class="group-what">How wide the mix is and how much room is around it. Bass stays centred whatever you do here.</span>
+      </summary>
+      <div class="controls">
+<label class="control" title="Pulls the low end towards the centre. Spread bass is the usual cause of a mix that sounds big on headphones and thin on a phone, because side content cancels when the channels are summed. No EQ is applied — nothing gets louder, more of it just survives.">
+        <span>Centre the bass</span>
+        <input type="range" id="centre-bass" min="0" max="300" step="10" value="0" />
+        <output id="centre-bass-out">off</output>
+      </label>
+<label class="control" title="A high shelf above 6 kHz on the side channel only. Whatever is already wide is mostly ambience rather than parts, so this opens the room out while the middle stays anchored.">
+        <span>Side air</span>
+        <input type="range" id="side-air" min="0" max="4" step="0.5" value="0" />
+        <output id="side-air-out">off</output>
+      </label>
+<label class="control" title="Records are usually tighter than a home mix below 250 Hz and much wider above it. This matches your reference band by band, and eases back if it would cost more in mono than the reference itself gives up.">
+        <span>Match reference image</span>
+        <input type="range" id="width-profile" min="0" max="100" step="10" value="100" />
+        <output id="width-profile-out">100%</output>
+      </label>
+<label class="control">
+        <span>Stereo width</span>
+        <input type="range" id="stereo-width" min="70" max="160" step="5" value="100" />
+        <output id="stereo-width-out">100%</output>
+      </label>
+<label class="control" title="A short room across the whole mix, blended in at fractions of a percent. The wet signal is filtered to 200 Hz – 10 kHz before blending, so it cannot muddy the bottom or wash the cymbals — measured, 2% changes the 10–16 kHz band by 0.17 dB. Deepens a dense mix; does little for a sparse one, because a tail of near-silence is still near-silence.">
+        <span>Ambience</span>
+        <input type="range" id="ambience" min="0" max="50" step="5" value="0" />
+        <output id="ambience-out">off</output>
+      </label>
+      </div>
+    </details>
+    <details class="control-group" id="group-dynamics" data-group="dynamics">
+      <summary>
+        <span class="group-name">Dynamics and level</span>
+        <span class="group-changed" hidden></span>
+        <span class="group-what">What holds the loud parts back and lifts the quiet ones, and how much room the master leaves itself.</span>
+      </summary>
+      <div class="controls">
+<label class="control">
+        <span>Duck under vocal</span>
+        <input type="range" id="vocal-duck" min="0" max="6" step="0.5" value="3" />
+        <output id="vocal-duck-out">3.0 dB</output>
+      </label>
+<label class="control" title="Harmonics through the body of the sound rather than above it — the other end of the spectrum from Sparkle. Fills a mix out and rounds transients on the way, which is most of what 'glue' means. Deliberately gentle — about 1% harmonic distortion at the lowest setting and 2.5% at the highest, oversampled 4× so it cannot alias. A master wants no audible distortion; if you can hear it working, it is too high.">
+        <span>Saturation</span>
+        <input type="range" id="saturation" min="0" max="2" step="0.25" value="0" />
+        <output id="saturation-out">off</output>
+      </label>
+<label class="control" title="A heavily compressed copy blended underneath, which lifts whatever is quiet — room, decay, the ends of notes. Level-matched before blending, so this is a balance and not a volume.">
+        <span>Parallel glue</span>
+        <input type="range" id="parallel" min="0" max="25" step="5" value="0" />
+        <output id="parallel-out">off</output>
+      </label>
+<label class="control">
+        <span>Extra headroom</span>
+        <input type="range" id="headroom" min="0" max="4" step="0.5" value="0" />
+        <output id="headroom-out">off</output>
+      </label>
+<label class="control" title="Cuts below the lowest note anything plays — a bass guitar's E is 41 Hz. What lives down there is rumble and handling noise: inaudible on most systems, but the limiter hears it and spends headroom on it.">
+        <span>Cut subsonics</span>
+        <input type="range" id="subsonic" min="0" max="60" step="5" value="0" />
+        <output id="subsonic-out">off</output>
+      </label>
+      </div>
+    </details>
+    <details class="control-group" id="group-export" data-group="export">
+      <summary>
+        <span class="group-name">Export options</span>
+        <span class="group-changed" hidden></span>
+        <span class="group-what">How the file is built, and what else goes into it.</span>
+      </summary>
+<div class="drumkit">
       <label class="toggle">
         <input type="checkbox" id="preserve-source" checked />
         <span><strong>Keep the original underneath</strong>
@@ -471,8 +504,7 @@
         </span>
       </label>
     </div>
-
-    <div class="drumkit" id="drumkit">
+<div class="drumkit" id="drumkit">
       <label class="toggle">
         <input type="checkbox" id="kit-on" />
         <span><strong>Lay a kit over the drums</strong>
@@ -499,6 +531,23 @@
       </div>
       <p class="muted small" id="kit-note" hidden></p>
     </div>
+    </details>
+    <details class="control-group" id="group-about" data-group="about">
+      <summary>
+        <span class="group-name">What these do</span>
+        <span class="group-what">The short version of why each control exists.</span>
+      </summary>
+      <p class="muted small" style="margin:14px 0 20px;max-width:72ch">
+      Brightness is a shelf on top of the matched tone — the match can only give you the
+      reference's top end, not more of it. Width spreads everything above 250 Hz and leaves
+      the bass centred, so it survives a mono system. Extra headroom sits further under the
+      reference; the master already stops short of over-driving its own limiter.
+    </p>
+    </details>
+
+    
+
+    
 
     <div class="actions">
       <button class="primary" id="master-btn">Master and export MP3</button>
@@ -540,6 +589,22 @@
             <span id="compare-end"></span>
           </div>
           <p class="muted small" id="compare-note"></p>
+        </div>
+
+        <div id="master-spectrum" hidden>
+          <div class="row-between">
+            <h4 class="sub" style="margin:0">How the tone lines up</h4>
+            <span class="spectrum-views">
+              <button class="chip on" data-view="balance">Balance</button>
+              <button class="chip" data-view="difference">Difference</button>
+            </span>
+          </div>
+          <div class="spectrum-key" id="spectrum-key"></div>
+          <div class="spectrum-chart">
+            <canvas id="spectrum-canvas"></canvas>
+          </div>
+          <p class="small spectrum-readout" id="spectrum-readout">&nbsp;</p>
+          <p class="muted small" id="spectrum-note"></p>
         </div>
 
         <div id="master-finishing" hidden></div>
@@ -628,6 +693,8 @@
 <script src="monitor.js"></script>
 <script src="app.js"></script>
 <script src="instruments.js"></script>
+<script src="spectrum.js"></script>
+<script src="groups.js"></script>
 <script src="library.js"></script>
 <script src="profiles.js"></script>
 <script src="help.js"></script>

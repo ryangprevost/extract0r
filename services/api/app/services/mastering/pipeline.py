@@ -26,6 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
+from app.services.mixdown.dither import describe
 from app.domain.notes import StemKind
 from app.services.mastering.base import MasteringReport
 from app.services.mastering.dsp import (
@@ -164,6 +165,11 @@ class MasterRequest:
     #: Which drums to trigger, and how far to lean on the samples against the originals.
     drum_targets: tuple[str, ...] = ("kick", "snare")
     drum_blend: float = 0.5
+    #: Split the drums stem into kick/snare/cymbals/toms before laying samples over it,
+    #: so a trigger lands on the drum it is named after. Needs the DrumSep weights; falls
+    #: back to the band-rise classifier when they are not there, and says so in the log.
+    drumsep: bool = False
+    models_dir: Path | None = None
     #: Air, width and headroom - the finishing moves a reference match cannot make.
     polish: Polish = field(default_factory=Polish)
     export_wav: bool = False
@@ -178,6 +184,54 @@ class MasterResult:
     duration_s: float = 0.0
     stem_adjustments: list[StemAdjustment] = field(default_factory=list)
     vocals: VocalReport | None = None
+    #: How the float mix was turned into integers on the way out. Reported because it is
+    #: the one stage of mastering with no control attached: the user cannot choose it, so
+    #: the least the export can do is say what happened.
+    quantisation: str = ""
+
+
+def _drum_hits(request, samples, sample_rate: int, work_dir: Path, report) -> list:
+    """Where to put the kit samples: from separated drums if we can, labels if we cannot.
+
+    Two routes to the same list, and they differ in how much they can be trusted.
+    Separation gives a stroke in the kick file, which *is* a kick. The classifier compares
+    band rises on a summed stem, which on real material puts a quarter of the kicks within
+    a few decibels of the snare line - the flicker that `kit.replaceable` exists to stop
+    reaching the speakers.
+
+    Falling back rather than refusing: the weights are a 167 MB download that a fresh
+    clone will not have, and reinforced drums with an occasional wrong trigger beat a
+    feature that will not run. The log says which route was taken, because "the drums
+    sound different on this machine" is otherwise unexplainable.
+    """
+    from app.services.drums.detect import find_hits
+
+    if not request.drumsep or request.models_dir is None:
+        return find_hits(samples, sample_rate)
+
+    from app.services.drums import separate as drumsep
+
+    if not drumsep.available(request.models_dir):
+        log.info("per-drum separation unavailable: %s",
+                 drumsep.why_unavailable(request.models_dir))
+        return find_hits(samples, sample_rate)
+
+    try:
+        report(0.16, "separating the drums")
+        staged = work_dir / "drums-in.wav"
+        write_wav(staged, samples, sample_rate)
+        stems = drumsep.separate(staged, work_dir / "drumsep", request.models_dir)
+        if not stems:
+            raise RuntimeError("drumsep produced no stems")
+        hits = drumsep.hits_from_stems(stems)
+        log.info("per-drum separation found %d strokes across %s",
+                 len(hits), ", ".join(sorted(stems)))
+        return hits
+    except Exception:
+        # A second separation pass is an enhancement to drum replacement, not a
+        # precondition for it. Falling back loses precision; failing loses the master.
+        log.warning("per-drum separation failed, using the classifier", exc_info=True)
+        return find_hits(samples, sample_rate)
 
 
 def audible(settings: list[StemSetting]) -> list[StemSetting]:
@@ -256,14 +310,14 @@ def run(
         if setting.stem is StemKind.DRUMS and request.drum_kit:
             # Before anything else: the samples should be panned, widened and reverbed
             # along with the drums they are reinforcing, not bolted on afterwards.
-            from app.services.drums.detect import find_hits
             from app.services.drums.kit import layer
 
             report(0.15, "finding the drums")
+            hits = _drum_hits(request, samples, sample_rate, work_dir, report)
             samples = layer(
                 samples,
                 sample_rate,
-                find_hits(samples, sample_rate),
+                hits,
                 kit=request.drum_kit,
                 drums=tuple(request.drum_targets),
                 blend=request.drum_blend,
@@ -462,6 +516,7 @@ def run(
     write_mp3(
         mp3_path, final.samples, final.sample_rate, request.bitrate_kbps, request.tags
     )
+    quantisation = describe(dither=True, noise_shaping=True)
 
     wav_path = None
     if request.export_wav:
@@ -472,6 +527,7 @@ def run(
     return MasterResult(
         mp3_path=mp3_path,
         wav_path=wav_path,
+        quantisation=quantisation,
         report=master_report,
         included=[s.stem for s in chosen],
         duration_s=final.duration_s,

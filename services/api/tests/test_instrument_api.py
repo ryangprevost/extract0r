@@ -347,3 +347,150 @@ def test_every_field_the_page_reads_off_per_stem_is_present(client, compared):
             "stem", "gain_db", "width_factor", "eq_bands", "notes", "matched",
             "proportional", "user_gain_db",
         } <= set(entry)
+
+
+# --- the same comparison, from a saved profile instead of a reference -------------------
+#
+# The point of the whole feature: separate a reference once, keep what its instruments
+# measure, and every song afterwards gets instrument-by-instrument advice from one split
+# instead of two. These prove the route accepts a profile where it used to demand stems,
+# and that what comes back is the same advice rather than a thinner version of it.
+
+
+def test_a_profile_saved_from_a_separated_reference_keeps_its_instruments(
+    client, compared, settings, tmp_path
+):
+    settings.profile_dir = tmp_path / "profiles"
+    saved = client.post(
+        f"/api/v1/tracks/{compared}/reference/profile", json={"name": "Split Target"}
+    )
+    assert saved.status_code == 201, saved.text
+    body = saved.json()
+    assert body["per_stem"] is True
+    assert body["instruments"], "the reference was separated, so its stems should be here"
+
+    # Still small. Seven numbers per stem is not what makes a file big.
+    assert body["bytes"] < 20000
+
+    listed = client.get("/api/v1/tracks/reference/profiles").json()["profiles"][0]
+    assert listed["per_stem"] is True
+    assert listed["instruments"] == sorted(body["instruments"])
+
+
+def test_a_second_song_compares_instruments_against_a_profile_with_no_reference_audio(
+    client, compared, sample_wav: Path, settings, tmp_path
+):
+    """One split, not two - and no reference file anywhere on the second track."""
+    settings.profile_dir = tmp_path / "profiles"
+    client.post(
+        f"/api/v1/tracks/{compared}/reference/profile", json={"name": "Split Target"}
+    )
+
+    second = _upload(client, sample_wav)
+    separated = client.post(f"/api/v1/tracks/{second}/separate")
+    assert _finish(client, separated.json()["job_id"])["state"] == "succeeded"
+
+    aimed = client.post(
+        f"/api/v1/tracks/{second}/reference/use-profile", json={"name": "Split Target"}
+    )
+    assert aimed.status_code == 200, aimed.text
+    assert aimed.json()["per_stem_available"] is True
+
+    job = client.post(f"/api/v1/tracks/{second}/reference/instruments")
+    assert job.status_code == 200, job.text
+    result = _finish(client, job.json()["job_id"])
+    assert result["state"] == "succeeded", result
+    body = result["result"]
+
+    assert body["available"] is True
+    assert body["reference_kind"] == "profile"
+    assert body["reference_name"] == "Split Target"
+
+    compared_rows = [i for i in body["instruments"] if i["in_reference"]]
+    assert compared_rows, "a profile with instruments should produce comparisons"
+    for row in compared_rows:
+        assert row["reference"] is not None
+        # The one thing a profile cannot offer, stated per row so the page never draws a
+        # play button with nothing behind it.
+        assert row["reference_audio"] is False
+        # And the half that does not come from the reference is still fully there: the
+        # tone solve is built from the user's own stem, which is real audio on disk.
+        assert row["tone_solver"] is not None
+
+
+def test_advice_from_a_profile_matches_advice_from_the_reference_it_was_saved_from(
+    client, compared, settings, tmp_path
+):
+    """Same song, same reference, two routes to the same answer.
+
+    Run against the track the profile was captured from, so the source side is identical
+    and any difference has to come from the reference side. There is none: the numbers in
+    the file are the numbers the measurement produced.
+    """
+    settings.profile_dir = tmp_path / "profiles"
+
+    direct = _finish(
+        client, client.post(f"/api/v1/tracks/{compared}/reference/instruments").json()["job_id"]
+    )["result"]
+
+    client.post(f"/api/v1/tracks/{compared}/reference/profile", json={"name": "Same"})
+    client.post(
+        f"/api/v1/tracks/{compared}/reference/use-profile", json={"name": "Same"}
+    )
+    # The track still has its reference stems, and stems win when both are present - so
+    # drop them, which is the state any *other* song aimed at this profile would be in.
+    client.registry.set_reference_stems(compared, {})
+
+    viaprofile = _finish(
+        client, client.post(f"/api/v1/tracks/{compared}/reference/instruments").json()["job_id"]
+    )["result"]
+    assert viaprofile["reference_kind"] == "profile"
+
+    def moves(body):
+        return {
+            i["stem"]: [(m["dimension"], m["band"], m["suggested"]) for m in i["moves"]]
+            for i in body["instruments"]
+        }
+
+    assert moves(viaprofile) == moves(direct)
+
+
+def test_mastering_from_a_profile_is_refused_clearly_when_whole_stem_matching_is_asked_for(
+    client, compared, sample_wav, settings, tmp_path
+):
+    """The old whole-stem match needs reference stem *audio*, and a profile has none.
+
+    This shipped broken for a day: the comparison screen was taught to run from a profile,
+    the checkbox that drives the render was enabled along with it, and pressing Master
+    then failed with a message telling the user to separate a reference they did not have.
+    The API was right to refuse; the page was wrong to ask.
+
+    The refusal is what is asserted here, because it is the contract the page depends on.
+    What the page does about it - offering the instrument panel, which needs no reference
+    audio - is checked by `test_a_second_song_compares_instruments_...` above.
+    """
+    settings.profile_dir = tmp_path / "profiles"
+    client.post(f"/api/v1/tracks/{compared}/reference/profile", json={"name": "Split Target"})
+
+    second = _upload(client, sample_wav)
+    assert _finish(
+        client, client.post(f"/api/v1/tracks/{second}/separate").json()["job_id"]
+    )["state"] == "succeeded"
+    client.post(
+        f"/api/v1/tracks/{second}/reference/use-profile", json={"name": "Split Target"}
+    )
+
+    stems = [{"stem": "vocals"}, {"stem": "drums"}, {"stem": "bass"}]
+    refused = client.post(
+        f"/api/v1/tracks/{second}/master",
+        json={"stems": stems, "bitrate_kbps": 320, "per_stem_match": True},
+    )
+    assert refused.status_code == 409
+    assert "separated" in refused.json()["detail"]
+
+    # And without it the master renders, which is the path the page actually takes.
+    job = client.post(
+        f"/api/v1/tracks/{second}/master", json={"stems": stems, "bitrate_kbps": 320}
+    )
+    assert job.status_code == 202, job.text
+    assert _finish(client, job.json()["job_id"], timeout_s=180)["state"] == "succeeded"

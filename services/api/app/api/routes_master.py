@@ -56,6 +56,7 @@ from app.services.mastering.depth import (
     MAX_SIDE_AIR_DB,
 )
 from app.services.mastering.dynamics import MAX_COMPRESSION_DB
+from app.services.mastering.instrument import BANDS as _BANDS_FOR_DISPLAY
 from app.services.mastering.instrument import MAX_APPLIED_BAND_DB
 from app.services.mastering.lowend import MAX_CENTRE_HZ, MAX_SUBSONIC_HZ
 from app.services.mastering.saturation import MAX_SATURATION_DB
@@ -392,6 +393,10 @@ def list_profiles(settings: Settings = Depends(get_config)) -> dict:
                 "seconds": p.seconds,
                 "lufs": p.lufs,
                 "true_peak_db": p.true_peak_db,
+                # So a chooser can say which profiles carry the instrument half before
+                # anyone commits to one and finds out on the comparison screen.
+                "per_stem": p.has_instruments,
+                "instruments": sorted(p.instruments),
             }
             for p in listing(settings.profile_dir)
         ],
@@ -411,6 +416,13 @@ def save_reference_profile(
     What gets written is a spectrum, a width profile, a loudness and two peaks - the whole
     of what the match ever reads from a reference. No audio, and nothing that can be turned
     back into audio.
+
+    If this track's reference has been separated, the per-instrument half is measured and
+    kept as well: seven numbers per stem, which is everything `instrument.compare` reads
+    from the reference side. That makes the profile able to drive the instrument-by-
+    instrument stage on any future song, with no second separation to wait for. It is
+    skipped silently when there are no reference stems - a whole-mix profile is worth
+    having on its own, and the response says which kind was written.
     """
     try:
         record = registry.require(track_id)
@@ -423,8 +435,18 @@ def save_reference_profile(
             status.HTTP_409_CONFLICT, "There is no reference on this track to measure."
         )
 
+    from app.services.mastering.instrument import profile_all, snapshot_all
     from app.services.mastering.profile import capture, save
     from app.services.mixdown.encode import read_audio
+
+    instruments: dict[str, dict] = {}
+    if record.reference_stems:
+        try:
+            instruments = snapshot_all(profile_all(dict(record.reference_stems)))
+        except Exception:
+            # A whole-mix profile is still worth writing. Failing the whole save because
+            # one stem would not read loses the part that was working.
+            log.warning("could not measure the reference stems for a profile", exc_info=True)
 
     audio = read_audio(reference)
     captured = capture(
@@ -432,6 +454,7 @@ def save_reference_profile(
         audio.sample_rate,
         body.name,
         getattr(record, "reference_name", "") or reference.name,
+        instruments=instruments,
     )
     path = save(captured, settings.profile_dir)
     return {
@@ -440,6 +463,8 @@ def save_reference_profile(
         "lufs": captured.lufs,
         "seconds": captured.seconds,
         "bytes": path.stat().st_size,
+        "instruments": sorted(captured.instruments),
+        "per_stem": captured.has_instruments,
     }
 
 
@@ -455,9 +480,10 @@ def use_reference_profile(
     """Aim this track at a saved profile instead of at a reference file.
 
     Covers the whole-mix stage completely - the tonal curve, the width match, the level
-    and the headroom guard all read measurements and nothing else. Per-instrument matching
-    is not available from a profile and the response says so rather than leaving someone
-    to discover it: comparing your snare with theirs needs their snare.
+    and the headroom guard all read measurements and nothing else. It covers the
+    per-instrument stage too when the profile was captured from a separated reference,
+    because that comparison reads measurements as well. The response says which, rather
+    than leaving someone to discover it by finding an empty screen.
     """
     try:
         registry.require(track_id)
@@ -476,9 +502,18 @@ def use_reference_profile(
         "captured_from": profile.captured_from,
         "lufs": profile.lufs,
         "seconds": profile.seconds,
-        "per_stem_available": False,
-        "note": "Whole-mix matching only. Comparing instrument by instrument needs the "
-        "reference's own audio, so that stays with an uploaded reference.",
+        "per_stem_available": profile.has_instruments,
+        "instruments": sorted(profile.instruments),
+        "note": (
+            "Matched on the whole mix and instrument by instrument. The reference was "
+            "separated when this profile was saved, so its stems are already measured - "
+            "your song is the only one that needs splitting."
+            if profile.has_instruments
+            else "Whole-mix matching only. This profile was saved from a reference that "
+            "had not been separated, so there are no reference instruments to compare "
+            "yours against. Load that song as a reference with instrument-by-instrument "
+            "matching on, and save the profile again to include them."
+        ),
     }
 
 
@@ -713,24 +748,44 @@ def compare_instruments(
 
     if record.separation is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Separate this track first.")
-    if not record.reference_stems:
+    # Two ways to have a reference to compare against, and the second is why this route
+    # no longer insists on stems: a saved profile carries the reference's instruments as
+    # measurements, which is all the comparison ever reads from that side. Stems win when
+    # both are present, because they came from the song the user just chose.
+    saved = getattr(record, "reference_profile", None)
+    from_profile = not record.reference_stems and saved is not None and saved.has_instruments
+
+    if not record.reference_stems and not from_profile:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "Comparing instrument by instrument needs the reference separated too. "
-            "POST /reference/separate, then try again.",
+            "Comparing instrument by instrument needs the reference separated too, or a "
+            "saved profile that was. POST /reference/separate, then try again.",
         )
 
     mine_paths = {s.kind: s.path for s in record.separation.stems}
     theirs_paths = dict(record.reference_stems)
+    theirs_saved = dict(saved.instruments) if from_profile else {}
+    reference_name = saved.name if from_profile else ""
 
     def work(handle: JobHandle) -> dict:
         from app.services.mastering.critique import STEM_WORDS
-        from app.services.mastering.instrument import compare, profile_all
+        from app.services.mastering.instrument import (
+            compare,
+            from_snapshot_all,
+            profile_all,
+        )
 
         handle.update(JobState.RUNNING, 0.05, "measuring your instruments")
         mine = profile_all(mine_paths)
-        handle.update(JobState.RUNNING, 0.55, "measuring the reference's")
-        theirs = profile_all(theirs_paths)
+        if from_profile:
+            # Already measured, once, whenever the profile was saved. This is the whole
+            # point of the feature: the half of the work that used to take longer than
+            # the user's own song did is now a dictionary lookup.
+            handle.update(JobState.RUNNING, 0.9, "reading the saved reference")
+            theirs = from_snapshot_all(theirs_saved)
+        else:
+            handle.update(JobState.RUNNING, 0.55, "measuring the reference's")
+            theirs = profile_all(theirs_paths)
         handle.update(JobState.RUNNING, 0.9, "comparing them")
 
         instruments = []
@@ -750,6 +805,10 @@ def compare_instruments(
                     "in_reference": bool(b is not None and b.present),
                     "yours": _profile_json(a),
                     "reference": _profile_json(b) if b is not None else None,
+                    # No audio behind a saved profile, so there is nothing to solo. Said
+                    # per row rather than inferred, so the page never renders a play
+                    # button that cannot do anything.
+                    "reference_audio": not from_profile,
                     # The precomputed band-to-filter solve, so the monitor runs the same
                     # EQ the render will. Sent already solved rather than as the raw
                     # matrix: the page used to invert it itself, which was correct right
@@ -777,6 +836,10 @@ def compare_instruments(
 
         return {
             "available": True,
+            # Where the reference half came from, so the page can explain a comparison
+            # with no audio behind it instead of appearing to lose a feature.
+            "reference_kind": "profile" if from_profile else "stems",
+            "reference_name": reference_name,
             "instruments": instruments,
             # The five filters the tone controls are built from, so the page can build the
             # same ones. Biquads in the browser are not the same shape as the zero-phase
@@ -835,6 +898,7 @@ def _profile_json(one) -> dict:
 def start_master(
     track_id: str,
     body: MasterJobRequest,
+    settings: Settings = Depends(get_config),
     storage: TrackStorage = Depends(get_storage),
     registry: TrackRegistry = Depends(get_registry),
     jobs: JobStore = Depends(get_jobs),
@@ -922,6 +986,11 @@ def start_master(
         drum_kit=body.drum_kit,
         drum_targets=tuple(body.drum_targets),
         drum_blend=body.drum_blend,
+        # Per-drum separation, when the weights are installed and it is switched on.
+        # `_drum_hits` falls back to the classifier rather than failing if either is
+        # missing, so this is safe to pass unconditionally.
+        drumsep=settings.drumsep_enabled,
+        models_dir=settings.models_dir,
         polish=Polish(
             air_db=body.brightness_db,
             air_hz=body.brightness_from_hz,
@@ -957,6 +1026,7 @@ def start_master(
             "download_url": f"/api/v1/tracks/{track_id}/master/download",
             "bytes": result.mp3_path.stat().st_size,
             "duration_s": round(result.duration_s, 2),
+            "quantisation": result.quantisation,
             "stems": [s.value for s in result.included],
             "matched": result.report is not None,
             "vocals": (
@@ -1254,6 +1324,136 @@ def master_peaks(
         log.debug("could not cache master peaks for %s", track_id)
 
     return payload
+
+
+@router.get("/{track_id}/master/spectrum")
+def master_spectrum(
+    track_id: str,
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Your song, your master and the reference as three tonal curves on one axis.
+
+    The report above this says what the match decided and by how much. This says whether it
+    worked - whether the master actually sits between where you started and where you were
+    aiming, or whether it overshot, or moved the wrong band. That question was previously
+    answerable only by exporting the file and opening it in something else, which is a long
+    way to go to check a claim the tool is already making in prose.
+
+    Every curve is level-matched and smoothed to a third of an octave, which is the width
+    the correction engine works at - see `spectrum_view` for why both of those are what
+    make the picture honest rather than merely pretty.
+
+    Partial answers are normal and are returned as such. Before a master is rendered there
+    are two curves rather than three, which is still the useful comparison: it is the gap
+    you are about to close.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    from app.services.mastering import spectrum_view
+
+    exports = storage.exports_dir(track_id)
+    source_path = storage.source_path(track_id)
+    mastered_path = exports / "mastered.wav"
+    mix_path = exports / "mix.wav"
+    reference_path = storage.reference_path(track_id)
+    saved = getattr(record, "reference_profile", None)
+
+    # `mastered.wav` is the mix after the reference match; `mix.wav` is the mix before it.
+    # Without a reference the pipeline never writes the first, so the second is what "your
+    # master" means, and the label says which one is on screen.
+    rendered = mastered_path if mastered_path.exists() else mix_path
+
+    curves: list[spectrum_view.Curve] = []
+
+    if (buffer := spectrum_view.read(source_path)) is not None:
+        curves.append(
+            spectrum_view.measure(buffer.samples, buffer.sample_rate, "source", "Your song")
+        )
+
+    if (buffer := spectrum_view.read(rendered)) is not None:
+        curves.append(
+            spectrum_view.measure(
+                buffer.samples,
+                buffer.sample_rate,
+                "master",
+                "Master" if rendered is mastered_path else "Your mix (not mastered yet)",
+            )
+        )
+
+    # A reference file when there is one, its saved measurements when there is not. The
+    # two are the same curve by different routes, which is the premise of a profile.
+    if (buffer := spectrum_view.read(reference_path)) is not None:
+        label = getattr(record, "reference_name", "") or "Reference"
+        curves.append(
+            spectrum_view.measure(buffer.samples, buffer.sample_rate, "reference", label)
+        )
+    elif saved is not None:
+        curves.append(spectrum_view.from_profile(saved, label=saved.name))
+
+    if len(curves) < 2:
+        return {
+            "available": False,
+            "why": "There is only one recording to draw. Add a reference, or render a "
+            "master, and this becomes a comparison.",
+            "curves": [_curve_json(c) for c in curves],
+        }
+
+    by_key = {c.key: c for c in curves}
+    low, high = spectrum_view.window(curves)
+    reference = by_key.get("reference")
+
+    return {
+        "available": True,
+        "hz": [round(float(v), 2) for v in spectrum_view.axis()],
+        "curves": [_curve_json(c) for c in curves],
+        # The vertical range every curve shares. Sent rather than computed in the browser
+        # so the axis labels and the lines cannot disagree about where 0 is.
+        "floor_db": low,
+        "ceiling_db": high,
+        # The slope taken out of every curve so a mix reads roughly level and the vertical
+        # range is spent on the departures. Sent so the axis can say what it is showing.
+        "tilt_db_per_octave": spectrum_view.DISPLAY_TILT_DB_PER_OCTAVE,
+        "tilt_pivot_hz": spectrum_view.TILT_PIVOT_HZ,
+        # The band drawn, which is also the band scaled — see `spectrum_view.LOW_HZ`.
+        # Sent so the page never has to hold a second opinion about where the chart ends.
+        "low_hz": spectrum_view.LOW_HZ,
+        "high_hz": spectrum_view.HIGH_HZ,
+        # What is left between the master and the reference, per point. The number the
+        # whole panel exists to show, so it is computed here rather than left to the page
+        # to subtract two arrays and hope it picked the right pair.
+        "remaining_db": (
+            spectrum_view.difference(by_key["master"], reference)
+            if reference is not None and "master" in by_key
+            else []
+        ),
+        "started_db": (
+            spectrum_view.difference(by_key["source"], reference)
+            if reference is not None and "source" in by_key
+            else []
+        ),
+        # The bands the per-instrument screen speaks in, so the two screens can be read
+        # against each other instead of being two unrelated pictures of the same song.
+        "bands": [
+            {"band": name, "low_hz": lo, "high_hz": hi}
+            for name, lo, hi in _BANDS_FOR_DISPLAY
+        ],
+    }
+
+
+def _curve_json(curve) -> dict:
+    return {
+        "key": curve.key,
+        "label": curve.label,
+        "db": curve.db,
+        "flat_db": curve.flat_db,
+        "lufs": curve.lufs,
+        "shifted_db": curve.shifted_db,
+        "source": curve.source,
+    }
 
 
 @router.get("/{track_id}/master/suggest")

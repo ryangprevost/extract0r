@@ -81,6 +81,65 @@ def _band_envelope(spectrum, freqs, low: float, high: float) -> np.ndarray:
     return 10.0 * np.log10(np.maximum(energy, 1e-12))
 
 
+def kinds_for(rises: dict[str, float], present: dict[str, bool]) -> list[str]:
+    """Which drums a single stroke contains, from its per-band rises.
+
+    Separated from `find_hits` so the decision can be tested against rises measured off
+    real drum stems. The alternative is synthesising audio until it misbehaves, which
+    tests the synthesiser: the fixture that was supposed to reproduce the kick-labelled-
+    as-snare bug needed a filter steep enough to ring, and the ringing then produced
+    phantom onsets louder than the thing under test.
+    """
+    kinds: list[str] = []
+    # Both tests, every time: the band jumped, and the band is actually loud.
+    kinds = []
+    # The second clause mirrors the snare rule: a stroke whose top octave jumped
+    # further than its low end did is a cymbal with some thump behind it, not a kick.
+    if (
+        rises["kick"] >= RISE_DB
+        and present["kick"]
+        and rises["kick"] >= rises["hihat"]
+    ):
+        kinds.append("kick")
+    # Rattle is the snare's signature; without it a body jump is a tom or a bass note.
+    #
+    # Two clauses then separate the snare from its neighbours, and they have the same
+    # shape: whichever band jumped *furthest* says what the stroke is.
+    #
+    # Against a hi-hat: both fill the rattle band, but a hat's energy peaks above it
+    # and a snare's peaks below, so a stroke whose top octave out-jumped its rattle is
+    # a cymbal. Without this, 38% of snare claims were hats.
+    #
+    # Against a kick: a kick is not a quiet event anywhere. Its transient click lifts
+    # the rattle band and its harmonics lift the body band, so a loud electronic kick
+    # satisfied every snare test there was, and `kit.layer` triggers one sample per
+    # label - which put a snare on top of 27 of the reference's 35 kicks. Ryan heard
+    # it before any measurement did.
+    #
+    # Measured over three drum stems, the two populations are far apart and the gap
+    # between them is empty. Taking `kick rise - rattle rise`: a genuine snare sits at
+    # -8 to -14 dB, a kick alone at +28 to +32, and the false claims at +12. Zero is
+    # the obvious place to cut and needs no constant - it is the same "which band won"
+    # test as the clause above it.
+    #
+    # A kick and a snare really struck together still yields both, which is the point
+    # of labelling a stroke with everything it contains: what that costs is a snare
+    # whose rattle is quieter than the kick underneath it, and that is a snare nobody
+    # can hear through the kick anyway.
+    if (
+        rises["snare_rattle"] >= RISE_DB
+        and present["snare_rattle"]
+        and rises["snare_body"] >= SNARE_BODY_RISE_DB
+        and present["snare_body"]
+        and rises["snare_rattle"] >= rises["hihat"]
+        and rises["snare_rattle"] >= rises["kick"]
+    ):
+        kinds.append("snare")
+    if rises["hihat"] >= RISE_DB and present["hihat"]:
+        kinds.append("hihat")
+    return kinds
+
+
 def find_hits(
     samples: np.ndarray,
     sample_rate: int,
@@ -154,32 +213,7 @@ def find_hits(
             # every drum's false-positive rate.
             rises[name] = float(loud.max() - np.median(quiet))
 
-        # Both tests, every time: the band jumped, and the band is actually loud.
-        kinds = []
-        # The second clause mirrors the snare rule: a stroke whose top octave jumped
-        # further than its low end did is a cymbal with some thump behind it, not a kick.
-        if (
-            rises["kick"] >= RISE_DB
-            and present["kick"]
-            and rises["kick"] >= rises["hihat"]
-        ):
-            kinds.append("kick")
-        # Rattle is the snare's signature; without it a body jump is a tom or a bass note.
-        # The last clause is what separates a snare from a hi-hat. Both fill the
-        # rattle band, but a hat's energy peaks above it and a snare's peaks below, so a
-        # stroke whose top octave jumped further than its rattle did is a cymbal. Without
-        # this, 38% of snare claims were hats.
-        if (
-            rises["snare_rattle"] >= RISE_DB
-            and present["snare_rattle"]
-            and rises["snare_body"] >= SNARE_BODY_RISE_DB
-            and present["snare_body"]
-            and rises["snare_rattle"] >= rises["hihat"]
-        ):
-            kinds.append("snare")
-        if rises["hihat"] >= RISE_DB and present["hihat"]:
-            kinds.append("hihat")
-
+        kinds = kinds_for(rises, present)
         if not kinds:
             continue
 

@@ -127,6 +127,10 @@ def client(settings: Settings, monkeypatch: pytest.MonkeyPatch):
 
     with TestClient(app) as test_client:
         test_client.storage = storage  # type: ignore[attr-defined]
+        # Exposed for the handful of tests that need to put a track into a state no
+        # endpoint produces - the registry is overridden per test, so reaching for
+        # `deps.get_registry()` would quietly hand back a different, empty one.
+        test_client.registry = registry  # type: ignore[attr-defined]
         yield test_client
 
     app.dependency_overrides.clear()

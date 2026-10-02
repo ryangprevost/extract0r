@@ -14,8 +14,16 @@ key. Nothing here can be played, and nothing here can be turned back into music:
 magnitudes on a log frequency axis with every phase discarded is not a lossy copy of a song,
 it is a description of one.
 
-**What a profile cannot do** is per-instrument matching. That needs the reference separated
-into stems, and stems are audio. A profile covers the whole-mix stage and says so.
+The same argument runs one level down. A per-instrument comparison reads seven numbers per
+stem from the reference side and no audio either, so a profile captured from a reference
+that *was* separated carries those too and can drive the instrument-by-instrument stage as
+well - see `instrument.snapshot`. That half is optional, because separating a reference is
+a three-minute job and a whole-mix profile is worth saving without it.
+
+**What a profile cannot do**, with or without the stem half, is play. There is no audio in
+it, so a reference stem cannot be auditioned, soloed or lined up against yours by ear. The
+advice is all there; the sound it was taken from is not, and the pages that offer listening
+say so rather than presenting a dead button.
 
 Storage lives outside `storage_dir` deliberately. The retention sweep deletes every
 directory it finds under that root once it is old enough, so a profile folder kept there
@@ -99,7 +107,24 @@ class ReferenceProfile:
     #: number, and deriving it from the bands afterwards would not give the same answer.
     stereo_width: float = 0.0
 
+    #: One entry per instrument the reference was separated into, in the shape
+    #: `instrument.snapshot` writes - the seven numbers a per-instrument comparison reads
+    #: from the reference side. Empty when the reference was never separated, which is the
+    #: usual case: separating a reference is a three-minute job nobody should be made to
+    #: run in order to save a whole-mix profile. Empty therefore means "this profile does
+    #: the mix stage only", not "this profile is broken", and every surface says which.
+    #:
+    #: Not version-gated. Adding an optional field does not make an older file unreadable,
+    #: which is the only thing `version` is for - a profile saved before this existed loads
+    #: exactly as it did, with an empty dict and the whole-mix behaviour it always had.
+    instruments: dict[str, dict] = field(default_factory=dict)
+
     version: int = FORMAT_VERSION
+
+    @property
+    def has_instruments(self) -> bool:
+        """Whether this profile can drive a per-instrument comparison as well as a mix."""
+        return bool(self.instruments)
 
     def spectrum(self, n_fft: int = DEFAULT_N_FFT, sample_rate: int | None = None) -> np.ndarray:
         """Rebuild an rFFT-shaped magnitude array the matcher can consume.
@@ -144,8 +169,14 @@ def capture(
     name: str,
     captured_from: str = "",
     settings: MatchSettings | None = None,
+    instruments: dict[str, dict] | None = None,
 ) -> ReferenceProfile:
-    """Measure a recording once, so it never has to be measured - or kept - again."""
+    """Measure a recording once, so it never has to be measured - or kept - again.
+
+    `instruments` is the per-stem half, from `instrument.snapshot_all`, and is optional
+    because it depends on the reference having been separated. Taken as an argument rather
+    than measured here so this module never has to know what a stem is.
+    """
     settings = settings or MatchSettings()
     audio = np.asarray(samples, dtype=np.float64)
 
@@ -174,6 +205,7 @@ def capture(
         width={k: round(float(v), 4) for k, v in width_profile(audio, sample_rate).items()},
         mono_loss_db=round(mono_loss_db(audio), 2),
         stereo_width=round(float(stereo_width(audio)), 3),
+        instruments=dict(instruments or {}),
     )
 
 

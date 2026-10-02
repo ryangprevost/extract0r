@@ -124,6 +124,40 @@ def render_voice(voice: Voice, sample_rate: int, seed: int = 0) -> np.ndarray:
     return out / peak if peak > 0 else out
 
 
+def replaceable(hit: Hit) -> list[str]:
+    """Which of a stroke's drums may have a sample laid over it.
+
+    A stroke's `kinds` is a list of everything it *contains*, which is the right answer
+    for describing it and the wrong one for replacing it. The difference only matters for
+    kick and snare, and it matters a lot.
+
+    Telling a kick from a snare on a summed drum stem means comparing how far two bands
+    rose, and on real material those two numbers are often within a decibel of each
+    other: measured on one 28-second clip, six of twenty-seven kicks sat within 6 dB of
+    the line. A hard threshold across a quantity that straddles it does not produce a few
+    wrong labels, it produces *flicker* - consecutive kicks at -0.5, +5.3 and -0.7 dB, so
+    the snare sample lands on the middle one and not its neighbours.
+
+    Ryan heard it twice: first as a snare on every kick, then, after the classifier was
+    corrected, as a snare that "comes in and out at various kick hits". The second is
+    worse to listen to than the first, because inconsistency is what an ear notices.
+
+    So for replacement a stroke is allowed one of the two, whichever band rose further,
+    and the ambiguity never reaches the speakers. What it costs is the quieter half of a
+    genuine simultaneous kick and snare - three strokes in eighty-two on that clip, and
+    the half nobody could pick out anyway.
+
+    **This is a workaround and should be read as one.** The real fix is to stop asking a
+    summed stem which drum is playing, and separate the drums into kick, snare and
+    cymbals as audio - see X0R-414.
+    """
+    kinds = list(hit.kinds)
+    if "kick" in kinds and "snare" in kinds:
+        loser = "snare" if hit.rises.get("kick", 0.0) >= hit.rises.get("snare_rattle", 0.0) else "kick"
+        kinds.remove(loser)
+    return kinds
+
+
 def layer(
     samples: np.ndarray,
     sample_rate: int,
@@ -160,7 +194,7 @@ def layer(
         start = int((hit.time_s + LATENCY_S) * sample_rate)
         if start < 0 or start >= audio.shape[0]:
             continue
-        for name in hit.kinds:
+        for name in replaceable(hit):
             sample = rendered.get(name)
             if sample is None:
                 continue

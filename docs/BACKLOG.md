@@ -4,7 +4,10 @@ Sprint-ready cards. Each is independently demoable and sized in points (1 ≈ ha
 2 ≈ a day, 3 ≈ two days, 5 ≈ most of a week, 8 ≈ split it before you start).
 
 **Status legend** — `DONE` shipped and verified · `PARTIAL` partly built, gaps named on
-the card · `TODO` not started. Individual criteria are marked ✅ done, ⏳ blocked on
+the card · `TODO` not started · `NON-GOAL` decided against, with the reason on the epic.
+A non-goal is not a card nobody got to; it is a card we are choosing not to do, and it
+stays written down so the decision does not have to be re-argued every time someone
+reads the backlog. Individual criteria are marked ✅ done, ⏳ blocked on
 another card, ❌ not started.
 
 | Epic | Theme | Points | Phase |
@@ -15,11 +18,16 @@ another card, ❌ not started.
 | [EPIC-04](#epic-04--transcription--tab) | Transcription & tab | 34 | 1 |
 | [EPIC-05](#epic-05--export) | Export formats | 13 | 1 |
 | [EPIC-06](#epic-06--legal--compliance) | Legal & compliance | 13 | 1 |
-| [EPIC-07](#epic-07--persistence--operations) | Persistence & operations | 21 | 1.5 |
-| [EPIC-08](#epic-08--reference-mastering) | Reference mastering | 21 | 2 |
+| [EPIC-07](#epic-07--persistence--operations) | Persistence & operations | ~~24~~ | `NON-GOAL` |
+| [EPIC-08](#epic-08--reference-mastering) | Reference mastering | 29 | 2 |
 | [EPIC-09](#epic-09--mix-editor) | Mix editor | 26 | 2 |
 | [EPIC-10](#epic-10--mixdown--export) | Mixdown & export | 13 | 2 |
-| [EPIC-11](#epic-11--per-instrument-matching) | Per-instrument matching | 24 | 2 |
+| [EPIC-11](#epic-11--per-instrument-matching) | Per-instrument matching | 60 | 2 |
+| [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
+
+EPIC-08 and EPIC-11 were carrying their *original* scope in this table (21 and 24) while
+cards kept being added underneath. Both are now the sum of the cards actually in them.
+Current sprint plan: [sprints/SPRINT-1.md](sprints/SPRINT-1.md).
 
 ---
 
@@ -415,6 +423,103 @@ in the timing `source` so a correction is never silent.
 
 ---
 
+### X0R-412 · Sample-accurate hit times, separately from triggering · 2 · `TODO`
+**As a** developer measuring groove **I want** onset times that mean what they say **so that**
+a figure derived from them is about the music and not about the detector.
+
+`drums/detect.find_hits` calls librosa with `backtrack=True`, which walks every onset back
+to a local minimum of the envelope by a variable amount. That is the right choice for what
+it was written for — triggering a replacement sample wants the start of the transient — and
+it is fatal for anything that reads the *time*.
+
+Measured during the pr0ducer Experiment 1: re-placing the same kick events at sample
+accuracy moved one track's hit spread from 7.67 ms to 6.83 and another's from 8.48 to 4.29.
+**The ranking of the two reversed.** The detector was contributing 1–7 ms to a figure whose
+whole signal is a few milliseconds, which is why "programmed versus played" could not be
+measured honestly and was cut from that epic.
+
+Nothing shipping is wrong today, because nothing yet reads these times for their own sake.
+This is a card so that the next thing to try does not rediscover it.
+
+**Acceptance criteria**
+- A way to get hit times without backtracking, alongside the triggering-oriented ones.
+- The two documented against each other, with the measured difference, so the choice is
+  made deliberately rather than by whichever was imported first.
+- A test that a synthesised click track's hits land within a millisecond of where they
+  were placed.
+
+---
+
+### X0R-414 · Separate the drums into kick, snare and cymbals · 5 · `DONE`
+**As a** person replacing drums **I want** each drum as its own audio **so that** a kick
+sample lands on kicks and a snare sample lands on snares, every time.
+
+Asked for directly: *"any drum replacement should happen per-drum. kick for kick, snare
+for snare"*, and then, after the classifier was corrected, *"snare still seems to come in
+and out at various kick hits."*
+
+Both reports have one cause. `drums/detect` asks a *summed* drum stem which drum is
+playing, by comparing how far two frequency bands rose. On real material those numbers are
+often within a decibel of each other — measured on one 28-second clip, **six of
+twenty-seven kicks sat within 6 dB of the line**, with consecutive kicks at -0.5, +5.3 and
+-0.7 dB. A hard threshold across a straddling quantity does not give a few wrong labels,
+it gives flicker, and flicker is what an ear picks out.
+
+`kit.replaceable` currently stops the flicker reaching the speakers by allowing one drum
+per stroke. That is a workaround and says so. **No threshold fixes this**, because the
+information needed to decide is not in the summed stem.
+
+What does fix it is a second separation pass: drums in, kick/snare/cymbals out, as audio.
+Then replacement is per-drum by construction and needs no classifier at all — and the
+per-instrument comparison gains three more things it can compare.
+
+**Two models exist and both are real:**
+
+- **[DrumSep](https://github.com/inagoy/drumsep)** — a Hybrid Demucs fine-tune, **MIT
+  licensed**, four stems (kick, snare, cymbals, toms). Same architecture family as the
+  separator already installed, so it is the same runtime, the same torch, and very nearly
+  the same code path. An ONNX build also exists, and `onnxruntime` is already a
+  dependency. **Start here.**
+- **[LarsNet](https://github.com/polimi-ispl/larsnet)** — five stems including hi-hat
+  separately from cymbals, five parallel U-Nets, faster than real time on CPU. Two
+  caveats that matter: the pretrained weights are **CC BY-NC 4.0**, and it was trained on
+  StemGMD, which is *synthesized* from MIDI — so a domain gap against real recordings is
+  likely and should be measured rather than assumed.
+
+**Acceptance criteria**
+- ✅ A drums stem separates into kick, snare, cymbals and toms behind the existing
+  separation seam, as an opt-in second pass — `app.services.drums.separate`,
+  `DRUMSEP_ENABLED`, default off.
+- ✅ `kit.layer` triggers from the separated stems. Measured on a 28 s clip: **zero**
+  strokes carry more than one drum, where the classifier put kick *and* snare on three.
+- ⚠️ `replaceable` is **kept**, not deleted — see below.
+- ✅ Measured against the classifier on the same clip. Classifier: 82 strokes, 24
+  kick+hihat, 19 snare+hihat, 3 claiming both kick and snare. Separation: 164 strokes —
+  60 kick, 56 cymbals, 24 snare, 24 toms, none ambiguous. The kick count is the telling
+  one: 60 strokes at every gate from −6 to −30 dB, which is a programmed
+  four-on-the-floor and exactly what the record is.
+- ✅ Licence recorded in [models/README.md](../models/README.md): MIT, © 2024 Iñaki
+  Goyeneche. LarsNet was considered and rejected on its CC BY-NC weights and its
+  synthesised training set.
+- ✅ Opt-in and costed: ~16 s on CPU for a 30 s clip, about half the audio's length again
+  on top of the main separation.
+
+**Why `replaceable` stays.** The card asked for it to be deleted. Deleting it would mean
+that a machine without the 167 MB weights — a fresh clone, or anyone who has not
+downloaded them — gets the flicker back, because the fallback is still the band-rise
+classifier. The workaround now guards only that fallback rather than the main path, which
+is the useful half of "deleted". Its docstring points here.
+
+**One thing the model made visible.** Onset detection on an isolated stem finds far more
+strokes than on a summed one, and most of the extra are bleed: the snare file carried 103
+strokes in 28 seconds where a backbeat at 125 BPM allows about 29. `QUIET_STROKE_DB`
+gates each drum against its own loudest stroke. The threshold is a judgement and the
+module says so — the kick has no knee because every stroke is the same, the cymbals have
+one at about −14 dB, and the snare has none at all, sloping smoothly from backbeat into
+bleed.
+
+---
+
 ## EPIC-05 — Export
 
 ### X0R-501 · Plain-text tab export · 1 · `DONE`
@@ -523,9 +628,47 @@ runs in a worker thread so a large storage directory cannot block the event loop
 
 ---
 
-## EPIC-07 — Persistence & operations
+## EPIC-07 — Persistence & operations · `NON-GOAL`
 
-### X0R-701 · Postgres-backed track and job records · 5 · `TODO`
+**Decided against on 2026-10-01.** Every card below assumes a hosted, multi-user service:
+a database behind the registry, a queue behind the jobs, object storage behind the files,
+accounts in front of all of it. extract0r is not that. It is a local-first tool that runs
+on one machine, holds one person's music, and deliberately keeps `profiles/` and
+`storage/` off the network entirely — which is the privacy posture the app's own terms
+describe, not an implementation detail waiting to be upgraded.
+
+Building this would not make the tool better at the thing it is for. It would add an
+install story, a migration story and a login screen to an application whose current
+install story is "run two scripts", in service of a scaling problem that does not exist
+for one person mastering their own songs.
+
+The seams stay where they are. `TrackRegistry`, `JobStore` and `TrackStorage` are already
+interfaces, and the retention sweep already honours a window. If this ever becomes a
+hosted product, these cards are the plan and nothing here forecloses them.
+
+**Two pieces worth keeping, re-homed rather than lost:**
+
+- **Structured logging with a correlation id** (part of X0R-705) is useful on one machine
+  too — when a separation fails at 60%, a log line that names the job is the difference
+  between a diagnosis and a guess. Carried forward as X0R-707 below.
+- **Live job progress** (X0R-706) already exists in a different form: the Studio polls and
+  shows a progress bar with a running clock. The card describes replacing that with a
+  stream in `lib/api.ts`, a file belonging to the retired Next.js front end.
+
+---
+
+### X0R-707 · Structured logs with a job correlation id · 2 · `TODO`
+The one part of EPIC-07 that pays off on a single machine. Kept out of the non-goal above.
+
+**Acceptance criteria**
+- Every log line emitted during a job carries that job's id.
+- A failed separation can be traced from the error shown in the browser to the backend
+  lines that produced it, without raising the log level.
+- Local files, no shipping anywhere — this is for reading, not for monitoring.
+
+---
+
+### X0R-701 · Postgres-backed track and job records · 5 · `NON-GOAL`
 Replaces the in-memory `TrackRegistry` and `JobStore`.
 
 **Acceptance criteria**
@@ -534,7 +677,7 @@ Replaces the in-memory `TrackRegistry` and `JobStore`.
 
 ---
 
-### X0R-702 · Redis/RQ worker · 5 · `TODO`
+### X0R-702 · Redis/RQ worker · 5 · `NON-GOAL`
 **Acceptance criteria**
 - Jobs survive an API restart and run in a separate worker process.
 - Workers scale horizontally; `MAX_CONCURRENT_JOBS` becomes a worker-count concern.
@@ -542,7 +685,7 @@ Replaces the in-memory `TrackRegistry` and `JobStore`.
 
 ---
 
-### X0R-703 · Object storage · 3 · `TODO`
+### X0R-703 · Object storage · 3 · `NON-GOAL`
 **Acceptance criteria**
 - S3/R2 behind the same `TrackStorage` interface, selected by config.
 - Downloads use pre-signed URLs; the API never proxies audio bytes.
@@ -550,14 +693,14 @@ Replaces the in-memory `TrackRegistry` and `JobStore`.
 
 ---
 
-### X0R-704 · Accounts and track history · 5 · `TODO`
+### X0R-704 · Accounts and track history · 5 · `NON-GOAL`
 **Acceptance criteria**
 - Email magic-link auth; anonymous use still works with a shorter retention window.
 - Signed-in users see their previous tracks and can re-download exports.
 
 ---
 
-### X0R-705 · Observability · 3 · `TODO`
+### X0R-705 · Observability · 3 · `NON-GOAL`
 **Acceptance criteria**
 - Structured JSON logs with a request/job correlation id.
 - Metrics: job duration by kind, failure rate by backend, queue depth.
@@ -565,7 +708,7 @@ Replaces the in-memory `TrackRegistry` and `JobStore`.
 
 ---
 
-### X0R-706 · Live job updates over WebSocket/SSE · 3 · `TODO`
+### X0R-706 · Live job updates over WebSocket/SSE · 3 · `NON-GOAL`
 **Acceptance criteria**
 - Replaces the polling loop in `lib/api.ts` with a stream, falling back to polling.
 - A dropped connection reconnects and resyncs without losing progress state.
@@ -658,7 +801,58 @@ but normalised as though there were a synthesis window too, making every master 
 ### X0R-807 · Mastering quality report · 3 · `TODO`
 **Acceptance criteria**
 - Downloadable report: source/reference/result LUFS, true peak, LRA, spectrum overlay.
+  ⏳ the spectrum overlay itself shipped as X0R-808; this card is the downloadable report
 - Warnings for inter-sample peaks and for LRA collapse.
+
+---
+
+### X0R-808 · Three songs on one axis · 3 · `PARTIAL`
+**As a** user **I want** to see my mix, my master and the reference on one set of axes **so
+that** I can tell whether the master actually moved toward the reference.
+
+Asked for directly: *"i want to see the EQ band displayed for both the original file,
+updated song, and reference song to see how they align."*
+
+**Built, tested, and not yet verified in a browser — X0R-1123 is that gate.**
+`app/services/mastering/spectrum_view.py`, `apps/studio/wwwroot/spectrum.js`,
+`GET /{track_id}/master/spectrum`.
+
+**Acceptance criteria**
+- ✅ Three curves — source, master, reference — on one log-frequency axis, 160 points.
+- ✅ Each curve shifted by its own integrated loudness before drawing, and the shift
+  reported per curve. Three songs at three loudnesses sit at three heights and the eye
+  reads that offset as tone; what is left after the shift is balance.
+- ✅ Smoothed to a third of an octave, the same width `matching_curve` uses, so a difference
+  visible here is one the correction engine can act on.
+- ✅ A Balance view and a Difference view, and a hover readout per curve. (Independently the
+  same pair REFERENCE 2 offers — the curve needed to match, or the inverted difference.)
+- ✅ This module decides nothing. It measures three recordings the same way; every other
+  module in the package makes a judgement.
+- ❌ Verified in a browser. → X0R-1123
+
+---
+
+### X0R-809 · The target as a range, not a line · 3 · `TODO`
+**As a** user **I want** to be told whether my tone is inside the target **so that** I am
+not asked to compare three overlapping curves by eye.
+
+From Tonal Balance Control 2, which offers a Broad View of four bands with the target drawn
+as a range and your mix as a single line, and a Fine View across the full spectrum. The
+instruction collapses to "move until the line is inside the band", which costs far less
+reading than three curves do.
+
+**Deliberately held back from sprint 1.** X0R-808 shipped days ago, to a direct request,
+and has not been through QA. Redesigning it before it has been looked at is the churn Ryan
+named. Do this once X0R-808 is verified and has been lived with.
+
+**Acceptance criteria**
+- A broad view over the five bands the rest of the app already uses, with the reference
+  drawn as a tolerance range rather than a curve.
+- The source and the master each read as inside or outside per band, in words as well as
+  graphically.
+- The existing three-curve view stays, as the fine view. One control switches between them.
+- The tolerance is derived from something measurable and stated on screen, not picked to
+  look generous.
 
 ---
 
@@ -1021,15 +1215,118 @@ cannot become one.
 
 ---
 
-### X0R-1108 · Basic and advanced modes · 3 · `TODO`
-**As a** user **I want** a black box that matches the reference **and** the option to open
-it **so that** I am not forced to understand a channel strip to get a good master.
+### X0R-1125 · Per-instrument measurements in a profile · 3 · `PARTIAL`
+**As a** user **I want** a saved profile to remember its instruments **so that** aiming at
+it later costs one split instead of two.
+
+**Built, tested, and not yet verified in a browser — X0R-1123 is that gate.**
+
+X0R-1122 stored a profile's whole-mix measurements and refused per-instrument matching
+outright, because that needs the reference's stems and stems are audio. That refusal was
+one level too broad. The *comparison* does not read the reference's audio either; it reads
+seven numbers per stem from it. A profile captured while the reference was separated can
+carry those, and then a later song gets the full instrument-by-instrument screen from one
+split rather than two.
 
 **Acceptance criteria**
-- Basic: upload, reference, "match it", master. Suggestions opted into as a group.
-- Advanced: every manual slider, including per-stem tone, compression and drive on the
-  mixer lanes rather than only on the comparison screen.
-- The choice persists, and switching does not silently discard settings.
+- ✅ `snapshot` / `from_snapshot` / `SNAPSHOT_FIELDS` in
+  `app/services/mastering/instrument.py` round-trip exactly the fields `instrument.compare`
+  reads from the reference side — no more, so the profile cannot drift from the comparison.
+- ✅ A profile captured from an unseparated reference stays whole-mix-only, and both the
+  save box and the picker row say which kind it is *before* the click.
+- ✅ A profile saved before this change still drives the whole-mix match, and does not
+  offer an instrument comparison it has no data for.
+- ✅ Auditioning the reference side is absent rather than disabled, with the reason stated
+  above the cards: a profile keeps the measurements, not the music.
+- ❌ Verified in a browser. → X0R-1123
+
+---
+
+### X0R-1123 · Verify the unreviewed work in a browser · 2 · `TODO` *(sprint 1)*
+**As the** developer **I want** the unreviewed work walked through in a browser **so that**
+committing it is a decision rather than a hope.
+
+About 1,080 lines across 15 files pass 759 tests and have never been opened in a browser by
+anyone but their author. Five of those files are browser-facing. The riskiest changes are
+conditional UI paths and a backward-compatibility path that unit tests structurally cannot
+reach. Full criteria in [sprints/SPRINT-1.md](sprints/SPRINT-1.md).
+
+**Acceptance criteria**
+- The two profile kinds (with and without instruments) are distinguishable in the picker
+  and announced before saving.
+- An instrument-carrying profile reaches the comparison screen with no second split.
+- A profile saved before the change still masters end to end and never shows an empty or
+  broken comparison.
+- The three-way spectrum panel draws three in-bounds named curves, both views switch, and
+  the hover readout tracks.
+
+**Out of scope.** A regression sweep of the rest of the app. The pytest segfault fix in
+`demucs.py` — it has no user-visible surface and a clean suite exit is its verification.
+
+---
+
+### X0R-1124 · Hear one band, on both sides · 3 · `TODO` *(sprint 1)*
+**As a** mixer **I want** to hear just the band a finding is about **so that** I can decide
+whether the suggestion is real before I take it.
+
+A tone finding names one of five bands. The audition plays the whole stem, so the band the
+sentence is about is buried in everything else. Borrowed from Metric AB, whose filter bank
+solos Sub / Bass / Low Mid / Mid / High on the mix *and* the reference at the same time —
+the one feature the competitor survey turned up that this product clearly should have.
+
+Cheap because the parts exist: five bands in `instrument`, per-side auditions from
+X0R-1106, and each side already starting at its own busiest stretch from X0R-1116.
+
+**Acceptance criteria**
+- Band chips appear on an instrument's card only while that card is auditioning, and
+  disappear when it stops.
+- Selecting a band restricts playback to it within a second, without restarting from zero.
+- The selection follows the audition across sides: picked on "yours", still applied on
+  "theirs".
+- "All" restores the full stem, and stopping clears the selection so nothing is silently
+  filtered next time.
+- Chips carry the same five band names the findings text uses, with the frequency range on
+  hover.
+
+**Out of scope.** Adjustable crossovers and filter slopes — Metric AB has both and they are
+a mastering engineer's controls, not a "is this finding real" control. Band soloing at the
+whole-mix stage or on the finished master.
+
+---
+
+### X0R-1108 · One page, four decisions, and a door · 5 · `TODO` *(sprint 1, re-scoped)*
+**As a** user **I want** the mastering page to ask me four things **so that** I am not
+reading nineteen sliders to find out that fifteen of them are optional.
+
+**Re-scoped from "Basic and advanced modes" (3 pts).** The original card specified two
+modes, and its own third criterion — "switching does not silently discard settings" —
+exists because two modes are a trap. Progressive disclosure on one page delivers the same
+outcome with no second rendering path and no state-loss bug to prevent. Re-sized to 5: it
+touches `index.html`, `styles.css` and `app.js`, and must not desync the live monitor.
+
+**Measured, in `apps/studio/wwwroot/index.html`:** between the comparison card and the
+export button sit 19 labelled controls in one flat grid — 16 sliders, 5 dropdowns, 9
+checkboxes, 17 buttons including 7 "Start from" presets. Every competitor surveyed puts
+between 0 and 8 controls in front of the user and the rest behind one door; this page has
+no door.
+
+**Acceptance criteria**
+- At most six interactive controls visible on a freshly loaded page: Start from
+  (Suggested / Flat), Match strength, Vocal presence, Bitrate, Master.
+- The other thirteen live in four named groups — Tone, Space and stereo, Dynamics and
+  level, Export options — each closed on load and each carrying one line saying what it is
+  for without being opened.
+- Every one of the 19 controls appears in the default view or exactly one group. None
+  missing, none duplicated, none changed in range, default, readout or tooltip.
+- A group whose values have moved off default says so on its header.
+- Which groups are open survives a reload.
+- The live monitor still responds to a tone slider moved inside a group, with no re-render.
+- A master exported with every group closed is byte-identical to one exported today at
+  defaults.
+
+**Out of scope.** No second mode and no separate code path. No change to any control's
+range, default, wording or DSP. Control `id`s stay as they are — this card moves DOM and
+adds disclosure, nothing more.
 
 ---
 
@@ -1047,6 +1344,10 @@ it **so that** I am not forced to understand a channel strip to get a good maste
 - ✅ Motion is additive: nothing is hidden behind an animation that might not run.
 - ❌ Recorded audio narration. No text-to-speech is available here — see the note on
   X0R-1120.
+- ❌ Reachable from the control it explains, not only from the topbar. Carried over from
+  this card's first draft, which asked for a panel per control. The tour and the reference
+  sections cover the *content*; what is still missing is help attached to the thing it is
+  about. X0R-1108's group descriptions are the natural place for it.
 
 ---
 
@@ -1063,12 +1364,6 @@ timed in `docs/WALKTHROUGH.md`, so the remaining work is recording rather than a
 - A screen recording of a real session, from upload through export.
 - Narration recorded over it, or generated from `docs/WALKTHROUGH.md`.
 - Hosted rather than bundled, so the page weight does not grow.
-
----
-**Acceptance criteria**
-- An openable panel explaining each control and what each measurement means.
-- Grown as functionality is added, rather than written once and left to rot.
-- Reachable from the control it explains, not only from a menu.
 
 ---
 
@@ -1092,5 +1387,193 @@ timed in `docs/WALKTHROUGH.md`, so the remaining work is recording rather than a
 ### X0R-1112 · Name the application "extract0r studio" · 1 · `TODO`
 **Acceptance criteria**
 - Consistent in the title, the brand mark, the About page and the export metadata.
+
+---
+
+### X0R-1127 · Decline to match a stem your own mix does not contain · 2 · `TODO`
+**As a** person whose song has no guitar **I want** the matcher to leave it alone **so that**
+a reference's separation residue cannot become 9 dB of audible nothing in my master.
+
+`stem_match.has_counterpart` asks only whether the *reference* contains the instrument.
+There is no symmetric check on the source, so the case where **your** stem is empty and
+theirs is residue goes straight through the level match.
+
+Measured during pr0ducer Experiment 2, on a real pair. The source has no guitar (−59.73 LU,
+`present=False`). *Bounce* has no guitar either — but its guitar stem is residue at −22.74
+LU, which clears the −30 LU threshold, so `has_counterpart` returns true and every one of
+six bounces carried `wanted +37.0 dB, capped at +9.0 dB` on a guitar that does not exist.
+
+Inaudible in that instance because the stem sat at −50.7 LU even after the lift. The
+mechanism is not bounded by that: a quiet *real* guitar against a reference's residue gets
+an audible 9 dB lift of the wrong thing, and the louder the user's part, the louder the
+mistake.
+
+This is the same −30 LU threshold finding Experiment 1 made about *reporting*, appearing
+in the *processing* path. `instrument.compare` already gets this right — it returns nothing
+when `not mine.present or not theirs.present`. The two paths disagree.
+
+**Acceptance criteria**
+- `match_stem` declines when the source stem is absent, as it already does for the
+  reference's, with a note saying which side was empty.
+- The same threshold and the same rule as `instrument.compare`, named once rather than
+  implemented twice.
+- A test with an empty source stem and a residue reference stem asserting no gain is
+  applied.
+
+---
+
+## EPIC-12 — What a mastering suite has that this does not (Phase 3)
+
+Written after comparing the app feature by feature against iZotope Ozone, which is the
+thing people reach for when they want this job done. The comparison is worth stating
+carefully, because most of it does not go the way you would expect.
+
+**Where this tool is already ahead.** Ozone's Master Rebalance guesses at vocal, bass and
+drum levels inside a finished stereo file using source separation it does not expose. This
+app separates properly, six ways, and lets each stem be measured, compared and moved on its
+own — which is why the per-instrument comparison can exist at all. Ozone has no equivalent
+of comparing *your snare* with *their snare*; its Match EQ works on the summed mix. Nor does
+it have anything like reference profiles: a reference in Ozone is a file you must still
+have. And the explanations are not a side feature — every suggestion here says what was
+measured, what is being asked for, and why it is a fraction of the gap.
+
+**Where the gap is real.** Ozone is twenty years of DSP, and the missing pieces below are
+missing for good reasons — mostly that each one is a serious build. They are listed in the
+order they would actually improve a master, not in the order Ozone lists them.
+
+Two things deliberately *not* on this list. Codec preview (hearing what a streaming service's
+AAC does to a master) is genuinely useful and out of reach without an encoder round-trip this
+project does not have. Vintage-modelled EQ and compressor emulations are character effects,
+and character is what a reference is for.
+
+---
+
+### X0R-1201 · Dither on export · 1 · `TODO` *(sprint 1)*
+**As a** person exporting a master **I want** the quantisation noise shaped rather than
+truncated **so that** fades and quiet passages do not gain a gritty edge.
+
+The smallest real gap on this list and the least glamorous. Every float sample currently
+becomes a 16-bit integer by truncation, which correlates the error with the signal — audible
+as a crackle under anything quiet. TPDF dither with noise shaping is about thirty lines.
+
+**Acceptance criteria**
+- TPDF dither applied on the float-to-int conversion in `encode`, at the last stage.
+- Optional noise shaping, default on, defeatable for anyone re-importing the file.
+- A test measuring the noise floor of a dithered fade against a truncated one.
+- Off for 32-bit float output, where it would be meaningless.
+
+---
+
+### X0R-1202 · True-peak limiting with lookahead · 3 · `TODO`
+**As a** person whose master will be streamed **I want** peaks held under the ceiling after
+codec conversion **so that** the encoder does not clip what the limiter let through.
+
+The current limiter rides a one-pole envelope with no lookahead, and its own docstring
+admits the consequence: "a few samples of a sharp attack can still poke through, which is
+why the ceiling defaults below 0 dBFS rather than at it". A default of -1 dBFS is a
+workaround for the missing lookahead, and it costs a decibel of loudness on every export.
+
+Worse, the ceiling is enforced on *sample* peaks. Inter-sample peaks after lossy encoding
+routinely run 1-2 dB higher, which is what `true_peak_db` already measures and the limiter
+already ignores.
+
+**Acceptance criteria**
+- A lookahead delay of a few milliseconds so gain reduction begins before the transient.
+- The ceiling enforced on the 4x-oversampled true peak, not the sample peak.
+- Default ceiling raised to -0.3 dBFS once it can actually be held.
+- A test driving a 0 dBFS square-edged transient and asserting the true peak of the result.
+
+---
+
+### X0R-1203 · Dynamic EQ, or resonance taming · 5 · `TODO`
+**As a** person with one boomy note or one harsh cymbal **I want** it pulled down only when
+it happens **so that** the rest of the song keeps its tone.
+
+This is the single biggest *sonic* gap, and the reason is structural. Everything the tonal
+match does is static: one curve for the whole song. A mix whose low E rings 6 dB hot for two
+bars gets a permanent 6 dB cut at 82 Hz, which fixes those bars and hollows out every other
+one. Ozone's Stabilizer and Spectral Shaper both exist for exactly this.
+
+The measurement side is already here — `dynamics` computes dynamic range per band, and
+`instrument` already reasons in five bands. What is missing is a per-band detector driving a
+per-band gain, rather than a single number applied once.
+
+**Acceptance criteria**
+- A per-band detector with its own threshold, attack and release.
+- Suggested from the measured *variance* of a band, not its average — a band that is
+  consistently loud wants static EQ, and a band that is intermittently loud wants this.
+- The distinction stated on screen, because offering both without explaining which is which
+  is how a user ends up applying the wrong one.
+
+---
+
+### X0R-1204 · Multiband dynamics · 5 · `TODO`
+**As a** person whose bass is squashing the whole mix **I want** compression applied per band
+**so that** a loud kick stops ducking the vocal.
+
+Compression here is broadband and per stem. That covers most of what a mix needs, and it
+leaves out the thing a mastering compressor is for: a kick that pumps the top end because one
+detector sees the whole spectrum. Related to X0R-1203 and worth building on the same per-band
+detector rather than twice.
+
+**Acceptance criteria**
+- Crossovers at the existing five band edges, so this speaks the same language as the rest.
+- Per-band threshold, ratio and make-up, with the dial being an outcome in dB as
+  `dynamics.compress` already does rather than a ratio nobody can predict.
+- Suggested from a comparison with the reference's per-band dynamic range, which is measured
+  already and currently only reported.
+
+---
+
+### X0R-1205 · Metering worth the name · 3 · `TODO`
+**As a** person deciding whether a master is finished **I want** to see what it is doing over
+time **so that** I am not judging a four-minute song by four numbers.
+
+Integrated LUFS, true peak and dynamic range are all measured and all shown as single figures
+for the whole song. What is missing is everything time-varying: short-term and momentary
+loudness, a loudness-range plot, and phase correlation — the last of which matters most,
+because the width matching and the bass centring can both push a mix toward mono cancellation
+and nothing currently warns about it.
+
+**Acceptance criteria**
+- Short-term (3 s) and momentary (400 ms) loudness over time, on the existing time axis
+  beside the before/after envelopes.
+- Phase correlation over time, with anything sustained below zero called out.
+- A loudness-range figure computed the EBU way, distinct from the crest figure already shown.
+- Reuses the peaks endpoint's caching, which already solves the "recompute on every load"
+  problem this would otherwise have.
+
+---
+
+### X0R-1206 · Genre target curves · 3 · `TODO`
+**As a** person without a reference to hand **I want** a sensible target for the kind of song
+this is **so that** the tool is useful before I have found something to aim at.
+
+Ozone's Tonal Balance Control ships target curves. This app has something better in kind — a
+profile captured from a song you actually admire — and nothing at all when you have not made
+one. A handful of built-in profiles would cover the gap, and the format already exists:
+`ReferenceProfile` is the whole mechanism, so a genre target is a profile with no audio behind
+it and a different provenance.
+
+**Acceptance criteria**
+- Built-in profiles shipped with the app, marked as targets rather than as captured songs.
+- Derived from measurements that can be published, and honest in the UI about being averages
+  rather than any particular record.
+- Offered on the first screen beside saved profiles, clearly separated from them.
+
+---
+
+### X0R-1207 · Mid/side processing across the board · 3 · `TODO`
+**As a** person with a wide mix **I want** to treat the middle and the sides differently
+**so that** I can brighten the sides without brightening the vocal.
+
+`to_mid_side` and `from_mid_side` exist in `dsp` and are used only by the width code. Every
+EQ move in the app is applied to both channels equally. The classic mastering moves — cut the
+bass out of the sides, lift the air only on the sides — are not expressible.
+
+**Acceptance criteria**
+- The tonal match and the polish stage both able to target mid, side or both.
+- Per-band width already does the level half of this; this is the tone half, and the two
+  should read as one idea rather than two controls in different places.
 
 ---

@@ -10,6 +10,7 @@ the API still boots on a machine without torch.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
@@ -46,6 +47,9 @@ _PERCENT = re.compile(r"(\d{1,3})%\|")
 # How many stderr lines to keep so a failure can be reported with context.
 _STDERR_TAIL = 20
 
+# Importing torch takes seconds on a cold filesystem; this only has to beat a hang.
+_PROBE_TIMEOUT_S = 120
+
 # Windows reports crashes as large unsigned exit codes. A bare "exit 3221225477" tells
 # nobody anything; naming it points straight at the cause.
 _WINDOWS_EXIT_CODES = {
@@ -54,6 +58,38 @@ _WINDOWS_EXIT_CODES = {
     0xC00000FD: "stack overflow",
     0xC000013A: "interrupted (Ctrl+C)",
 }
+
+
+@functools.cache
+def demucs_is_importable() -> bool:
+    """True when a fresh interpreter can import demucs and torch.
+
+    Asked in a subprocess rather than here, for two reasons. ``separate`` shells out to
+    ``python -m demucs.separate`` anyway, so a subprocess is the only thing whose answer
+    actually matters - an in-process check can say yes to a torch that the child then
+    fails on, or the reverse.
+
+    And a failed ``import torch`` is not free. Torch loads its native DLLs (torch_cpu,
+    torch_python, c10, libiomp5md) before the failing part of its ``__init__`` runs, and
+    Python dropping the half-built module does not unload them. Their teardown at process
+    exit then faults inside CPython - a NULL write in ``python312.dll`` during
+    DLL_PROCESS_DETACH. Found with a torch whose install was missing ``torchgen``: every
+    test passed, then the interpreter died with an access violation before pytest could
+    print its summary or write its JUnit XML, so the suite could not report success at
+    all. Probing out-of-process keeps those DLLs out of the web and test processes.
+
+    Cached because it costs a process start, and the answer cannot change while we run.
+    """
+    try:
+        probe = subprocess.run(
+            [sys.executable, "-c", "import demucs, torch"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=_PROBE_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return probe.returncode == 0
 
 
 def describe_exit_code(code: int) -> str:
@@ -117,12 +153,7 @@ class DemucsSeparator:
         return max(1, min(4, (os.cpu_count() or 2) // 2))
 
     def available(self) -> bool:
-        try:
-            import demucs  # noqa: F401
-            import torch  # noqa: F401
-        except ImportError:
-            return False
-        return True
+        return demucs_is_importable()
 
     def separate(
         self,

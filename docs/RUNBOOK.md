@@ -158,6 +158,59 @@ maths internally, so one job is not one core.
 
 On Linux or macOS, or in the Docker image, `-j` is safe and worth setting.
 
+## The test suite segfaults after the last test passes
+
+Symptom: every test passes, the warnings summary prints, and then the process dies with
+an access violation (exit 139 under a POSIX shell, `3221225477` under `cmd`) *before*
+pytest writes `N passed in NNs`. `--junitxml` does not help either — the crash beats the
+XML to disk, so there is no machine-readable result and nothing can gate on the run.
+
+The cause is a **half-completed `import torch`**. Torch loads its native DLLs —
+`torch_cpu`, `torch_python`, `c10`, `libiomp5md` — early in its `__init__`. If a later
+line of that `__init__` raises, Python discards the module but the DLLs stay mapped, and
+their teardown at process exit faults inside CPython: a write to NULL in `python312.dll`
+during `DLL_PROCESS_DETACH`. It is genuinely a teardown bug, not a test bug — the tests
+have already passed by then, and `os._exit()` does not dodge it, because Windows still
+runs detach handlers on the way out.
+
+`DemucsSeparator.available()` used to run exactly that import, purely to decide whether
+to skip the `ml` tests. It now probes in a subprocess (`demucs_is_importable()`), which
+answers the question that actually matters — `separate()` shells out to
+`python -m demucs.separate` anyway — and keeps torch's DLLs out of the web and test
+processes entirely.
+
+The trigger here was a broken torch install: `torch/` on disk and importable far enough
+to load its DLLs, but missing `torchgen`, with `torch-*.dist-info` stripped of its
+`METADATA` and `RECORD` (so `pip list` reports its version as `None`). If `pip list`
+shows that, reinstall or fully uninstall torch — the ML tests are skipping regardless,
+and a half-installed torch will keep finding new ways to bite.
+
+**If this ever comes back**, the shape is the same for any native library: something
+imported far enough to map its DLLs and then failed. Two things narrow it quickly.
+
+Get the faulting module with a vectored exception handler, which still runs when
+faulthandler can only report `<no Python frame>`:
+
+```python
+k32.AddVectoredExceptionHandler(1, handler)  # log ExceptionAddress, then
+k32.GetModuleHandleExW(0x4 | 0x2, addr, byref(hmod))  # resolve it to a DLL
+```
+
+And list what is actually mapped, which is not the same as what `sys.modules` admits to:
+
+```python
+kernel32.K32EnumProcessModules(...)  # torch DLLs show up here after a failed import
+```
+
+Until it is fixed, a run can still be judged by counting outcome characters out of the
+progress lines — ugly, but it distinguishes a pass from a failure when the summary never
+prints:
+
+```bash
+pytest -q > out.txt 2>&1
+grep -aE '^[.sFExX]+ +\[ *[0-9]+%\]$' out.txt | tr -d ' []0-9%' | fold -w1 | sort | uniq -c
+```
+
 ## Model weights
 
 Demucs downloads its checkpoint on first use (~80 MB for `htdemucs`, ~300 MB for

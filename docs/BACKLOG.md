@@ -2054,6 +2054,41 @@ notch and re-run when it changes.
 the two actually moves anything. Removing a control a user may be relying on is a separate
 decision.
 
+### The budget reaches the vocal guard, and that guard has its own ceiling
+
+Found by rendering a real 3-minute song at both notches, identical settings, and reading
+the progress log:
+
+    nudge:   restoring 1.3 dB of vocal range · vocal lifted +1.9 dB to sit at -4.5 LU
+    further: restoring 3.4 dB of vocal range · vocal lifted +1.5 dB to sit at -4.5 LU
+
+**This is designed behaviour, not a side effect**, and the first explanation of it was
+wrong. It is not that a wider budget changes the vocal's measured dynamic range. The
+compensation curve *is the match's own cut inverted* - `vocals.match_compensation_curve`
+hands the vocal back exactly what the match took out of 150 Hz to 4 kHz, band by band. The
+budget scales the match curve, so the give-back scales with it automatically. A deeper cut
+needing a bigger give-back is correct.
+
+**What is worth watching is the ceiling it is heading for.** `MAX_VOCAL_COMPENSATION_DB`
+is **4.0**, and Further reached **3.4 on a real song - 85% of it**. The budget does not
+scale that cap and nothing says it should: it exists because "past a few decibels the
+honest answer is that the two mixes disagree rather than that the vocal needs help."
+
+So at a wide budget on a reference much darker than the source, the match keeps cutting and
+the give-back stops, and the vocal thins out - which is the exact failure
+`match_compensation_curve` was written to prevent. Nobody has hit it yet; Further on one
+real pair came within 0.6 dB.
+
+Two consequences, both for whoever touches this next:
+
+- **A third reason the ×3 notch was right to remove.** It would have pushed the
+  compensation into the cap on ordinary material, and the symptom - a thin vocal at the
+  widest setting - would have read as the budget being bad rather than as two ceilings
+  disagreeing.
+- **If a wider notch is ever wanted, `MAX_VOCAL_COMPENSATION_DB` has to be part of the
+  conversation**, and the question is a product one rather than a number: at what point
+  does "the reference is darker than you" stop being something to correct for.
+
 ---
 
 ### X0R-1307 · Suggestions the fingerprint makes possible · 2 · `TODO`

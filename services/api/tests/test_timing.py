@@ -327,7 +327,10 @@ def test_the_catch_window_stops_widening_with_the_period():
         period = 60.0 / bpm
         assert min(period * 0.15, MAX_TOLERANCE_S) <= MAX_TOLERANCE_S
     # Slow enough that the fraction would have exceeded the cap, so the cap is load-bearing.
-    assert (60.0 / 64.6) * 0.15 > MAX_TOLERANCE_S
+    # The measured quantity on the left and the limit on the right, which is the
+    # order the comment above reads in. Reversing it to satisfy the rule would
+    # leave an assertion that no longer matches its own explanation.
+    assert (60.0 / 64.6) * 0.15 > MAX_TOLERANCE_S  # noqa: SIM300
 
 
 def test_a_genuinely_slow_song_is_still_found():

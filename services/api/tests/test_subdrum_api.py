@@ -95,9 +95,9 @@ def test_a_track_with_no_reference_says_so_rather_than_naming_the_model(
     separated = client.post(f"/api/v1/tracks/{track_id}/separate")
     _finish(client, separated.json()["job_id"])
 
-    from app.services.mastering.subdrum import DRUMS  # noqa: F401  (import guard)
     from app.api.routes_master import _per_drum_capability
     from app.config import Settings
+    from app.services.mastering.subdrum import DRUMS  # noqa: F401  (import guard)
 
     record = client.registry.require(track_id)
     capability = _per_drum_capability(
@@ -163,8 +163,8 @@ def test_a_split_drum_is_served_and_honours_a_range(client, compared, tmp_path):
     """Put a sub-stem on the record by hand - no endpoint produces one without the
     weights - and check the route serves it the way the reference stems are served.
     Without ranges a browser re-downloads the file on every seek."""
-    import soundfile as sf
     import numpy as np
+    import soundfile as sf
 
     kick = tmp_path / "kick.wav"
     sf.write(str(kick), np.zeros((44100, 2)), 44100)
@@ -186,8 +186,8 @@ def test_one_side_being_split_does_not_forget_the_other(client, compared, tmp_pa
     """`set_drum_stems` replaces one side. The reference's pass and yours happen minutes
     apart, and the second overwriting the first would silently halve the cache - which
     shows up as the comparison being slow again rather than as an error."""
-    import soundfile as sf
     import numpy as np
+    import soundfile as sf
 
     for side in ("source", "reference"):
         path = tmp_path / f"{side}-kick.wav"
@@ -225,8 +225,8 @@ def test_the_picker_can_tell_which_profiles_carry_the_drums(client, compared):
 def test_a_saved_profile_picks_up_drums_that_were_already_split(client, compared, tmp_path):
     """Saving a profile never *starts* a separation - it should cost what it has always
     cost. What it does do is keep the measurements a pass already produced."""
-    import soundfile as sf
     import numpy as np
+    import soundfile as sf
 
     rng = np.random.default_rng(1)
     for drum, amplitude in (("kick", 0.4), ("snare", 0.2)):

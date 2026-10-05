@@ -1,0 +1,48 @@
+{
+  "eval_set": "timing only",
+  "eval_source": "a real 28.0 s recording from the Experiment 2 pair, laid end to end",
+  "eval_licence": "Ryan's own copy; not redistributed and not part of the repository",
+  "separation_model": "htdemucs_6s",
+  "separation_backend": "demucs",
+  "transcription_backend": "auto",
+  "versions": {
+    "demucs": "4.1.0",
+    "torch": "2.13.0+cpu",
+    "librosa": "1.0.0",
+    "mir_eval": "0.8.2",
+    "numpy": "2.5.2",
+    "onnxruntime": "1.29.0",
+    "soundfile": "0.14.0"
+  },
+  "commit": "3650ca8 (working tree dirty)",
+  "machine": "Windows 11, Intel64 Family 6 Model 140 Stepping 1, GenuineIntel, Python 3.12.10",
+  "ran_at": "2026-10-05T14:18:08+00:00",
+  "tracks": [
+    {
+      "track_id": "three-minutes",
+      "seconds": 180.0,
+      "separation": [],
+      "drums": [],
+      "transcription": [],
+      "speeds": [
+        {
+          "label": "separation",
+          "audio_seconds": 180.0,
+          "wall_seconds": 145.67,
+          "realtime_multiple": 1.236,
+          "notes": []
+        }
+      ],
+      "reconstruction_db": -21.69,
+      "skipped": [],
+      "caveats": [
+        "a 28.0 s recording repeated to 180 s; timing is valid, nothing else is"
+      ]
+    }
+  ],
+  "gaps": [
+    "No track has two or more ground-truth stems, so there is no SDR, SIR or SAR. Put the stems in `<track>/stems/<vocals|drums|bass|...>.wav`.",
+    "No track has a ground-truth note list, so there is no note F1 and no cents accuracy. Put one in `<track>/notes/<stem>.csv` as `onset_s,offset_s,midi`. A DI part played to a click gives this exactly.",
+    "No track has isolated drums, so DrumSep's per-stem bleed stays unmeasured - which is the figure every per-drum finding in sprint 2 is currently caveating without. Put close-miked kick, snare, cymbals and toms in `<track>/drums/`, or record four passes of one kit."
+  ]
+}

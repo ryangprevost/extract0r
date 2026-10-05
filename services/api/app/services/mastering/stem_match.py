@@ -26,9 +26,6 @@ from pathlib import Path
 
 import numpy as np
 
-from app.services.mastering.presence import ABSENT_BELOW_LU
-from app.services.mastering.presence import is_present as _present
-from app.services.mastering.presence import why_not
 from app.domain.notes import StemKind
 from app.services.mastering.dsp import (
     MatchSettings,
@@ -40,6 +37,14 @@ from app.services.mastering.dsp import (
     stereo_width,
 )
 from app.services.mastering.loudness_meter import integrated_loudness
+
+# Re-exported, not unused: callers read the threshold through this module's namespace,
+# and `presence` exists so that there is exactly one of it. See X0R-1127.
+from app.services.mastering.presence import (
+    ABSENT_BELOW_LU,  # noqa: F401
+    why_not,
+)
+from app.services.mastering.presence import is_present as _present
 from app.services.mixdown.encode import mix_buffers, read_audio
 
 log = logging.getLogger(__name__)

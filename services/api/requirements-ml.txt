@@ -23,5 +23,25 @@ matchering>=2.0
 # basic-pitch's actual runtime dependencies (it is installed with --no-deps).
 onnxruntime>=1.19
 pretty_midi>=0.2.9
-mir_eval>=0.7
+# Pinned below 0.9 on purpose, and the pin is a decision rather than caution.
+#
+# `mir_eval.separation` - BSS Eval, where the benchmark's SDR/SIR/SAR come from - is
+# deprecated in 0.8 and removed in 0.9, with upstream recommending sigsep-museval.
+# Floating past that would not fail at install time; it would fail the first time anybody
+# re-ran the benchmark, which is the one moment the numbers are supposed to be
+# reproducible.
+#
+# Museval is not taken because the only thing it buys is numbers on the MUSDB18
+# leaderboard's convention, and nothing this project scores is MUSDB18. It would add a
+# MUSDB dataset loader to a repository that will never load MUSDB, in order to obtain a
+# metric function it already has. (An earlier version of this comment said it drags
+# ffmpeg in. That over-claimed: `ffmpeg-python` is a pure-Python wrapper and pip installs
+# no binary.)
+#
+# **Unpin when either of these is true, and read X0R-308 first:**
+#   1. MUSDB18-HQ is on disk and has actually been run through `tools/benchmark.py`.
+#   2. This pin stops resolving, because something else wants mir_eval 0.9+.
+#
+# The BSS call is one function, `_bss` in `app/services/benchmark/metrics.py`.
+mir_eval>=0.7,<0.9
 resampy<0.4.3

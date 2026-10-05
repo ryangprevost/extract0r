@@ -173,7 +173,8 @@ def replaceable(hit: Hit) -> list[str]:
     """
     kinds = list(hit.kinds)
     if "kick" in kinds and "snare" in kinds:
-        loser = "snare" if hit.rises.get("kick", 0.0) >= hit.rises.get("snare_rattle", 0.0) else "kick"
+        kick_rise = hit.rises.get("kick", 0.0)
+        loser = "snare" if kick_rise >= hit.rises.get("snare_rattle", 0.0) else "kick"
         kinds.remove(loser)
     return kinds
 

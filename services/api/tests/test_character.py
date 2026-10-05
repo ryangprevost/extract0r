@@ -347,3 +347,18 @@ def test_neither_side_singing_says_nothing_at_all():
 
     both_spoken = _as_moves(StemKind.VOCALS, _glide(), _glide())
     assert not [m for m in both_spoken if m.dimension == "tuning"]
+
+
+def test_the_tuning_headline_agrees_with_its_subject():
+    """"The reference's vocals sits closer to the grid" - caught by reading the
+    generated text rather than by any assertion, which is the argument for generating
+    the demo through the real code instead of writing it by hand."""
+    from app.domain.notes import StemKind
+    from app.services.mastering.character import observations
+
+    loose, tight = _sung(18.0, seed=60), _sung(2.0, seed=61)
+    plural = observations(StemKind.VOCALS, "vocals", True, loose, tight, SR)
+    assert "vocals sit closer" in next(m for m in plural if m.dimension == "tuning").headline
+
+    single = observations(StemKind.VOCALS, "vocal", False, loose, tight, SR)
+    assert "vocal sits closer" in next(m for m in single if m.dimension == "tuning").headline

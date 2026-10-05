@@ -447,10 +447,16 @@ function buildMove(stem, move) {
   const band = move.band ? ' <span class="band">' + BAND_RANGES[move.band] + "</span>" : "";
   // The band chip belongs on the headline's line, not under it: it is part of naming the
   // difference, not a second sentence about it.
+  // The caution belongs on a row you could act on. "Worth hearing before you take it"
+  // under a finding with no dial is advice about a decision nobody is being offered -
+  // it was already wrong on `punch`, and the two observations added for X0R-1320 and
+  // X0R-1321 would have inherited it four more times.
   text.innerHTML =
     "<strong>" + move.headline + band + "</strong>" +
     "<em>" + move.detail + "</em>" +
-    (move.confident ? "" : '<em class="caution">Worth hearing before you take it.</em>');
+    (move.confident || !move.control
+      ? ""
+      : '<em class="caution">Worth hearing before you take it.</em>');
   row.appendChild(text);
 
   const action = document.createElement("div");

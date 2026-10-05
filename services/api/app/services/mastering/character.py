@@ -43,7 +43,7 @@ def observations(
 
     out.extend(_density(stem, name, plural, mine, theirs, sample_rate))
     if stem in TUNED_STEMS:
-        out.extend(_tuning(stem, name, mine, theirs, sample_rate))
+        out.extend(_tuning(stem, name, plural, mine, theirs, sample_rate))
     return out
 
 
@@ -77,7 +77,7 @@ def _density(stem, name, plural, mine, theirs, sample_rate) -> list[InstrumentMo
     ]
 
 
-def _tuning(stem, name, mine, theirs, sample_rate) -> list[InstrumentMove]:
+def _tuning(stem, name, plural, mine, theirs, sample_rate) -> list[InstrumentMove]:
     """Whether each side's vocal sits on a grid, and how tightly.
 
     Reported as a comparison and never as a verdict on one side alone: separation and
@@ -133,7 +133,7 @@ def _tuning(stem, name, mine, theirs, sample_rate) -> list[InstrumentMove]:
             stem=str(stem),
             dimension="tuning",
             headline=(
-                f"The reference's {name} sits "
+                f"The reference's {name} {'sit' if plural else 'sits'} "
                 f"{'closer to' if tighter else 'further from'} the grid than yours"
             ),
             detail=(

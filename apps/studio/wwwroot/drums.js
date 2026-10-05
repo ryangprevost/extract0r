@@ -490,7 +490,10 @@ const PerDrum = (() => {
     text.innerHTML =
       "<strong>" + escapeHtml(move.headline) + chip + "</strong>" +
       "<em>" + escapeHtml(move.detail) + "</em>" +
-      (move.confident ? "" : '<em class="caution">Worth hearing before you take it.</em>');
+      // Only where there is a dial to take - see the same note in instruments.js.
+      (move.confident || !move.control
+        ? ""
+        : '<em class="caution">Worth hearing before you take it.</em>');
     row.appendChild(text);
 
     const action = document.createElement("div");

@@ -871,6 +871,11 @@ def compare_instruments(
                 continue
             words = STEM_WORDS.get(kind, (kind.value, False))
             moves = compare(kind, a, b, words, limits=ceilings) if b is not None else []
+            # Two observations with no dial: how close to the grid a vocal sits, and how
+            # often each part plays. They need the audio rather than the profile, so a
+            # comparison drawn from a saved profile has the source half only and emits
+            # nothing - a profile keeps measurements, not music.
+            moves = moves + _character(kind, words, mine_paths, theirs_paths)
             instruments.append(
                 {
                     "stem": kind.value,
@@ -986,6 +991,34 @@ def _drum_shapes(wanted, available: dict[str, Path]) -> dict:
         fields.pop("drum")
         shapes[one.drum] = StemShape(**fields)
     return shapes
+
+
+def _character(kind, words, mine_paths, theirs_paths) -> list:
+    """The contour and onset observations for one stem, or nothing.
+
+    Wrapped in its own try: these read audio a second time and are the newest code on
+    this path, and a comparison that lost its six instrument cards because a pitch
+    tracker raised would be a bad trade for two extra rows.
+    """
+    from app.services.mastering.character import observations
+    from app.services.mixdown.encode import read_audio
+
+    def audio(paths):
+        path = paths.get(kind)
+        if path is None or not Path(path).exists():
+            return None, 0
+        buffer = read_audio(Path(path))
+        return buffer.samples, buffer.sample_rate
+
+    try:
+        mine, rate = audio(mine_paths)
+        if mine is None:
+            return []
+        theirs, _ = audio(theirs_paths)
+        return observations(kind, words[0], words[1], mine, theirs, rate)
+    except Exception:
+        log.info("could not read the character of %s", kind, exc_info=True)
+        return []
 
 
 def _move_json(move) -> dict:

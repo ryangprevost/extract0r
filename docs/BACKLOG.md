@@ -2277,7 +2277,7 @@ choosing and the fitting, not in librosa's onset envelope.
 
 ---
 
-### X0R-1320 · Is their vocal tuned, and to what · 3 · `TODO`
+### X0R-1320 · Is their vocal tuned, and to what · 3 · `DONE`
 **As a** person comparing my vocal with a record's **I want** to know whether that record
 was pitch-corrected **so that** I stop trying to reach a sound that came from an editor.
 
@@ -2327,7 +2327,50 @@ segmentation. X0R-306 is what would let the card state a confidence instead of a
 
 ---
 
-### X0R-1321 · How much space their parts leave · 2 · `TODO`
+**Shipped 2026-10-05 as `mastering/tuning.py`, and the card's own method does not work.**
+
+The card quotes its figures "@2c" and budgets 30 s a stem for it. Running pYIN at
+`resolution=0.02` **destroys its voicing decision**: two real vocal stems come back 39% and
+38% voiced at the default resolution and **3.2% and 0.2%** at 0.02. Finer bins spread the
+observation probability thinner and the HMM's unvoiced state wins. The first build reported
+77 and 6 voiced frames on loud vocals sitting 5 dB under their own mix, and would have
+abstained on every record for entirely the wrong reason.
+
+Voicing therefore comes from pYIN at its **default** resolution, where it is robust, and the
+pitch from `librosa.yin`, which interpolates and returns a continuous f0 - 919 distinct
+values against pYIN's 165 on the same frames. It is also **four times faster**: about 5 s a
+stem for both passes, against the 30 the card budgeted for one that did not work.
+Cross-checked against the probe, which measured a rapped vocal at 26.0 cents: this route
+gives **24.4** on the same recording, by a different estimator.
+
+**The sung/not-sung gate is R, the resultant length of the circular mean** over
+cents-modulo-a-semitone - 1 when every frame sits on one point of the semitone, 0 when they
+spread evenly, which is what speech looks like. Measured: a rapped vocal **0.027**, an
+electro vocal **0.130**, a synthesised line 15 cents loose **0.672**, one dead on pitch
+**0.911**. It earns its place twice, because it is also the confidence in the tuning
+reference: at R = 0.027 the estimated A4 came back 36 cents sharp and meaningless, since a
+circular mean over a uniform distribution points nowhere.
+
+**The threshold moved once and there is a grey zone.** It was 0.35 until a singer
+scattering 22 cents measured 0.26 and was told it was a rap - the card's named harm pointed
+the other way. 0.25 clears both measured raps with margin, and corresponds to about 26 cents
+of scatter, which is exactly where the probe's rap sat. **A vocal between roughly 20 and 30
+cents could be a loose singer or a melodic rap and nothing here separates them.** X0R-306's
+eval set is what would.
+
+A `SAME_CENTS = 3.0` threshold was missing from the first build and showed up as a track
+compared against *itself* reporting that the reference's vocal sat further from the grid
+than its own, by zero cents. Every other dimension had one.
+
+**The profile route cannot carry either observation**, because both read audio a second
+time - a pitch contour and an onset list - and a profile has no audio. Advice that can be
+*taken* is still identical from either side; the two rows that cannot be taken are absent
+from the profile route. Noted here rather than hidden, and the natural home for fixing it
+is X0R-1317's snapshot.
+
+---
+
+### X0R-1321 · How much space their parts leave · 2 · `DONE`
 **As a** person comparing arrangements **I want** to know how often each part plays **so
 that** "their mix sounds less busy" becomes a number.
 
@@ -2349,6 +2392,20 @@ between consecutive onsets**.
 - Observation only, no dial.
 - Absent stems abstain rather than reporting the onset count of separation residue — the
   X0R-1127 rule.
+
+---
+
+**Shipped 2026-10-05 as `mastering/density.py`.** Both observations render as findings with
+an empty `control`, which is the shape `punch` already uses, so the page needed no change
+and there is one way a finding looks.
+
+One thing the probe did not say, found by a test fixture rather than by music: **an abrupt
+amplitude discontinuity is an onset, and the detector is right to call it one.** A test
+click truncated at 13% of full scale produced two detections 58 ms apart, every click train
+reported a 58 ms median whatever its real spacing, and five tests failed pointing at the
+metric. The metric was fine. With the discontinuity removed a 250 ms train reads 255 ms and
+a 450 ms train reads 453. It matters outside the test too: a chopped or gated sample really
+does contain that extra event, and this measurement counts it.
 
 **Out of scope.** **Note length, legato and staccato are refused**, not deferred. Measured
 legato ratios came back at exactly 1.000 on one record (a ceiling artefact of abutting

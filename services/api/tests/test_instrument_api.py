@@ -173,6 +173,11 @@ def test_a_track_compared_against_itself_finds_nothing_to_change(client, compare
     ]
     assert moves == [], f"comparing a track with itself suggested changes: {moves}"
 
+    # And nothing that merely *observes* either, which is a separate promise. A row
+    # explaining why there is no tuning comparison is not a suggestion, but on a track
+    # against itself it is still something appearing where nothing should.
+    assert not any(i["moves"] for i in body["instruments"]), body["instruments"]
+
 
 # --- hearing both sides ---------------------------------------------------------------
 
@@ -447,8 +452,17 @@ def test_advice_from_a_profile_matches_advice_from_the_reference_it_was_saved_fr
     assert viaprofile["reference_kind"] == "profile"
 
     def moves(body):
+        # The dialled moves only. A profile carries the seven numbers `compare` reads,
+        # which is everything behind a suggestion - but the two observations added for
+        # X0R-1320 and X0R-1321 read the *audio* a second time, for a pitch contour and
+        # an onset list, and a profile has no audio. So advice that can be taken is
+        # identical from either side, and the two rows that cannot be taken are absent
+        # from the profile route. That gap is real and is noted on X0R-1317; narrowing
+        # this assertion is not hiding it.
         return {
-            i["stem"]: [(m["dimension"], m["band"], m["suggested"]) for m in i["moves"]]
+            i["stem"]: [
+                (m["dimension"], m["band"], m["suggested"]) for m in i["moves"] if m["control"]
+            ]
             for i in body["instruments"]
         }
 

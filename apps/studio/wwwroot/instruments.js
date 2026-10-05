@@ -133,7 +133,8 @@ async function loadInstrumentComparison() {
   // them: measured at 4.3 s from a profile and 5.0 s from a pair of split references.
   $("instrument-working").textContent = state.profileHasInstruments
     ? "Reading your stems and comparing them with the saved profile. A moment."
-    : "Reading every stem on both sides, end to end. A few seconds.";
+    : "Reading every stem on both sides, end to end, and tracking the vocal's pitch. " +
+      "About twenty seconds.";
   $("instrument-working").hidden = false;
   button.disabled = true;
 
@@ -305,6 +306,9 @@ function summariseMoves(instrument) {
     else if (move.dimension === "width") {
       parts.push(move.suggested > 1 ? "a wider spread" : "a tighter spread");
     }
+    // `tuning` and `density` are deliberately not listed here. The summary names things
+    // a user could take, and neither has a control - putting "a tighter vocal" in a
+    // sentence that reads "could use..." would promise a dial that does not exist.
   }
 
   if (!parts.length) {

@@ -118,13 +118,13 @@ A set is a folder. Only `mixture.wav` is required.
 
 `manifest.json` carries the provenance, which is not optional in any sense that matters.
 Six months from now the only question about an SDR of 6.1 dB is *on what*, and a number
-whose source and licence are not written beside it cannot be reproduced or defended.
+whose source and license are not written beside it cannot be reproduced or defended.
 
 ```json
 {
   "name": "di-parts-2026",
   "source": "DI bass and guitar recorded 2026-10-12, drums from a sample kit",
-  "licence": "mine; not redistributed",
+  "license": "mine; not redistributed",
   "notes": "Bass tuned to A=440. Note times from the DAW, so exact.",
   "tracks": [
     { "id": "one", "seconds": 184.0, "caveats": ["the guitar take has bleed from the room"] }
@@ -132,7 +132,7 @@ whose source and licence are not written beside it cannot be reproduced or defen
 }
 ```
 
-A set with no manifest still runs. It gets an empty `source` and `licence`, and the report
+A set with no manifest still runs. It gets an empty `source` and `license`, and the report
 says so rather than letting an unattributed number through looking like an attributed one.
 
 ### What to record, in the order it is worth doing

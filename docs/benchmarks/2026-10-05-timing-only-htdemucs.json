@@ -1,7 +1,7 @@
 {
   "eval_set": "timing only",
   "eval_source": "a real 28.0 s recording from the Experiment 2 pair, laid end to end",
-  "eval_licence": "Ryan's own copy; not redistributed and not part of the repository",
+  "eval_license": "Ryan's own copy; not redistributed and not part of the repository",
   "separation_model": "htdemucs",
   "separation_backend": "demucs",
   "transcription_backend": "auto",

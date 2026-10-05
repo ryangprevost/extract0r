@@ -21,7 +21,7 @@ Six dimensions, and the honest status of each:
 * **Punch** - crest within the loud material. What compression changes *differently*:
   two stems can share a dynamic range and have completely different transients.
 * **Panning** - stereo balance. Offered quietly, because a reference stem sitting off
-  centre is usually a deliberate arrangement choice rather than a mistake to copy.
+  center is usually a deliberate arrangement choice rather than a mistake to copy.
 * **Width** - how far the instrument spreads. Never applied to bass.
 
 **Saturation is not in the list, and cannot be.** Distortion adds harmonics at multiples
@@ -895,7 +895,7 @@ def compare(
                 f"{'right' if pan_gap > 0 else 'left'}",
                 detail=f"Theirs balances at {_side(theirs.pan)} against yours at "
                 f"{_side(mine.pan)}. Worth a listen before taking it: a part sitting off "
-                f"centre on a record is usually a decision about that arrangement rather "
+                f"center on a record is usually a decision about that arrangement rather "
                 f"than something yours is getting wrong.",
                 severity="slight",
                 yours=mine.pan,
@@ -955,7 +955,7 @@ def _hz(value: float) -> str:
 
 def _side(pan: float) -> str:
     if abs(pan) < 0.03:
-        return "centre"
+        return "center"
     return f"{abs(pan) * 100:.0f}% {'right' if pan > 0 else 'left'}"
 
 

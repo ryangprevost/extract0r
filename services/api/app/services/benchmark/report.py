@@ -51,7 +51,7 @@ class BenchmarkRun:
 
     eval_set: str
     eval_source: str = ""
-    eval_licence: str = ""
+    eval_license: str = ""
     separation_model: str = ""
     separation_backend: str = ""
     transcription_backend: str = ""
@@ -176,7 +176,7 @@ def to_markdown(run: BenchmarkRun) -> str:
     add(f"**Separation:** {run.separation_backend} `{run.separation_model}`  ")
     add(f"**Transcription:** {run.transcription_backend}  ")
     add(f"**Recordings:** {run.eval_source or '*not stated*'}  ")
-    add(f"**Licence:** {run.eval_licence or '*not stated*'}")
+    add(f"**Licence:** {run.eval_license or '*not stated*'}")
     add("")
     add("| package | version |")
     add("|---|---|")

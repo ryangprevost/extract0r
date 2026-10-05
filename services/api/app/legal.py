@@ -16,18 +16,18 @@ COPYRIGHT_NOTICE = (
     "underneath it, are usually protected by copyright. Separating a recording into "
     "stems, transcribing it, and re-mixing it all create derivative works. Do not "
     "upload material you do not own or have permission to use, and do not distribute "
-    "what Extract0r produces from someone else's recording without a licence."
+    "what Extract0r produces from someone else's recording without a license."
 )
 
 UPLOAD_GATE_TEXT = (
-    "By uploading, you confirm that you own this recording, have a licence for it, or "
+    "By uploading, you confirm that you own this recording, have a license for it, or "
     "that your use is otherwise permitted by law, and that you will use the output for "
     "personal study, practice, or other lawful purposes."
 )
 
 FAIR_USE_NOTE = (
     "In the United States, transcribing a recording for private study or practice is "
-    "often argued to be fair use, but fair use is a defence decided case by case, not "
+    "often argued to be fair use, but fair use is a defense decided case by case, not "
     "a permission slip. Other countries treat private copying differently. Extract0r "
     "cannot tell you whether your specific use is lawful."
 )

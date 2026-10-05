@@ -119,7 +119,7 @@ def centre_bass(
     if report is not None:
         report.width_after = round(side_to_mid(centred), 3)
         report.notes.append(
-            f"bass centred below {hz:.0f} Hz"
+            f"bass centered below {hz:.0f} Hz"
             + ("" if amount >= 0.999 else f" ({amount:.0%})")
         )
     return centred + high

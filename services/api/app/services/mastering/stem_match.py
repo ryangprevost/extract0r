@@ -228,7 +228,7 @@ def match_stem(
         if abs(factor - 1.0) < 0.02:
             adjustment.width_factor = 1.0
     elif source.stem in NEVER_WIDEN:
-        adjustment.notes.append("kept centred - widening the low end thins it")
+        adjustment.notes.append("kept centered - widening the low end thins it")
 
     return out, adjustment
 

@@ -250,7 +250,7 @@ const HELP_REFERENCE = [
         silence a part you actually played.</p>`,
   },
   {
-    heading: "The reference is analysed, never sampled",
+    heading: "The reference is analyzed, never sampled",
     body: `
       <p>Its tonal balance, loudness and stereo image are measured. No audio from it
         reaches your export. You can play its separated stems to compare them with yours,

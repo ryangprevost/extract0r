@@ -199,7 +199,7 @@ def probe(path: Path) -> AudioInfo:
             return info
     raise UnreadableAudioError(
         f"Could not read {path.name}. Neither libsndfile nor the bundled ffmpeg "
-        "libraries recognise it, so it is either corrupt or not the format its "
+        "libraries recognize it, so it is either corrupt or not the format its "
         "extension claims."
     )
 
@@ -261,7 +261,7 @@ def normalize(source: Path, out_path: Path) -> AudioInfo:
         import soundfile as sf
     except ImportError as exc:
         raise UnreadableAudioError(
-            "soundfile and numpy are required to normalise audio at ingest"
+            "soundfile and numpy are required to normalize audio at ingest"
         ) from exc
 
     out_path.parent.mkdir(parents=True, exist_ok=True)

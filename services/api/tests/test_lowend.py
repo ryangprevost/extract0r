@@ -117,7 +117,7 @@ def test_the_report_says_what_happened():
     report = LowEndReport()
     centre_bass(_wide(80.0), SR, 150.0, 1.0, report)
     assert report.width_before > report.width_after
-    assert any("centred" in note for note in report.notes)
+    assert any("centered" in note for note in report.notes)
 
 
 # --- subsonics ------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Feature extraction for tempo, metre, and key.
+"""Feature extraction for tempo, meter, and key.
 
 Analysis runs on the **full mix**, once, and the result is applied to every stem. That is
 deliberate: a bass stem and a hi-hat stem will not agree on a tempo if asked separately,
@@ -38,7 +38,7 @@ class TimingAnalyser:
         return True
 
     def analyse(self, audio: Path) -> TimingEstimate:
-        """Full-mix tempo, metre, and key. Never raises — a bad read falls back to 120."""
+        """Full-mix tempo, meter, and key. Never raises — a bad read falls back to 120."""
         if not self.available():
             return TimingEstimate(tempo_bpm=120.0, source="default (librosa missing)")
 
@@ -62,7 +62,7 @@ class TimingAnalyser:
             float(t)
             for t in librosa.frames_to_time(onset_frames, sr=sr, hop_length=HOP_LENGTH)
         ]
-        # Onset *strength* at each detected onset. Metre detection needs this: what marks
+        # Onset *strength* at each detected onset. Meter detection needs this: what marks
         # a bar is that beat one is louder, not that something happens on it.
         strengths = [
             float(onset_env[min(int(f), len(onset_env) - 1)]) for f in onset_frames
@@ -93,7 +93,7 @@ class TimingAnalyser:
             source=f"{self.name} (librosa reported {reported:.1f})",
         )
         log.info(
-            "timing: %.1f BPM %d/%d, key %s (tempo conf %.2f, metre conf %.2f, "
+            "timing: %.1f BPM %d/%d, key %s (tempo conf %.2f, meter conf %.2f, "
             "librosa said %.1f)",
             estimate.tempo_bpm, estimate.beats_per_bar, estimate.beat_unit,
             key.name, estimate.confidence, metre_confidence, reported,

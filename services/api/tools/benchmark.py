@@ -261,7 +261,7 @@ def main() -> int:
     run = report.BenchmarkRun(
         eval_set=loaded.name if loaded else "no eval set",
         eval_source=loaded.source if loaded else "",
-        eval_licence=loaded.licence if loaded else "",
+        eval_license=loaded.license if loaded else "",
         separation_model=settings.demucs_model,
         separation_backend=settings.separation_backend,
         transcription_backend=settings.transcription_backend,

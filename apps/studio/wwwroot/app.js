@@ -878,7 +878,7 @@ async function loadTiming() {
     state.timing = null;
   }
   if (!state.timing) {
-    $("timing-note").textContent = "grid not analysed — defaults to 120 BPM in 4/4";
+    $("timing-note").textContent = "grid not analyzed — defaults to 120 BPM in 4/4";
     $("tempo-input").value = 120;
     return;
   }
@@ -1671,7 +1671,7 @@ function describeDrumRoute(route) {
       "extra pass over the drums, about half their length again."
     : "<strong>On this machine the drums are not split</strong>, so which drum a " +
       "stroke belongs to is decided by comparing how far two frequency bands rose on " +
-      "the whole stem. That is a judgement, and on a bright kick it goes wrong — heard " +
+      "the whole stem. That is a judgment, and on a bright kick it goes wrong — heard " +
       "as a snare coming and going between consecutive kicks rather than as a few " +
       "wrong labels. " + escapeHtml(route.reason || "");
   line.hidden = false;
@@ -1699,7 +1699,7 @@ const MODES = {
   flat: {
     label: "Flat",
     why: "The tone, width and dynamics dials off — whatever the reference match decides, " +
-         "and nothing else. Sparkle, centred bass and the subsonic cut are left where " +
+         "and nothing else. Sparkle, centered bass and the subsonic cut are left where " +
          "you set them: they are repairs rather than taste, and a preset that silently " +
          "undid them would put back a problem you had already fixed.",
     dials: { brightness: 0, brightnessHz: 8000, warmth: 0, bass: 0, width: 100, headroom: 0,
@@ -1742,7 +1742,7 @@ const MODES = {
     label: "Wider",
     why: "Spreads everything above <b>250 Hz</b> to 125%, adds sheen at 12 kHz, and puts " +
          "<b>2 dB</b> on the sides above 6 kHz with <b>1%</b> of room — width the ear " +
-         "reads as space rather than as a wider pan. The bass stays centred so it " +
+         "reads as space rather than as a wider pan. The bass stays centered so it " +
          "survives a mono system.",
     dials: { brightness: 1.5, brightnessHz: 12000, warmth: 0, bass: 0, width: 125, headroom: 0,
              saturation: 0, ambience: 10, parallel: 0, sideAir: 2 },
@@ -2344,14 +2344,14 @@ const MODALS = {
     <p class="small" style="color:var(--warn)">Placeholder copy written by engineers.
       Have a lawyer review it before anyone but you uploads to this.</p>
     <h3>What you promise when you upload</h3>
-    <p>That you own the recording, hold a licence covering this use, or that your use is
+    <p>That you own the recording, hold a license covering this use, or that your use is
       otherwise permitted by law; that you did not obtain the file by circumventing DRM or
       breaching a streaming service's terms; and that you will not distribute extract0r's
       output from someone else's recording without permission.</p>
     <h3>What extract0r does not give you</h3>
-    <p>No licence, no permission, and no legal opinion. A transcription of a copyrighted
+    <p>No license, no permission, and no legal opinion. A transcription of a copyrighted
       song is itself a derivative work of that composition. Private study is often argued
-      to be fair use in the United States, but fair use is a defence decided case by case,
+      to be fair use in the United States, but fair use is a defense decided case by case,
       not a permission slip, and other countries treat private copying differently.</p>
     <h3>How long your audio is kept</h3>
     <p>Uploads and everything derived from them are deleted automatically after
@@ -2364,7 +2364,7 @@ const MODALS = {
   dmca: `
     <h2>Copyright &amp; DMCA</h2>
     <h3>Our position</h3>
-    <p>extract0r is a processing tool. It hosts no catalogue, lets nobody search or share
+    <p>extract0r is a processing tool. It hosts no catalog, lets nobody search or share
       another person's uploads, and purges everything on a schedule. Uploaders confirm
       they hold the rights to their audio before anything is processed.</p>
     <h3>Sending a notice</h3>

@@ -275,7 +275,7 @@ async def upload_reference(
 ) -> ReferenceResponse:
     """Store a reference track for tonal and loudness matching.
 
-    The reference is **analysed, never sampled**: nothing from this file ends up in the
+    The reference is **analyzed, never sampled**: nothing from this file ends up in the
     output, only measurements of it. That distinction matters legally, and the rights
     gate applies here too — uploading a commercial master is still an upload.
     """
@@ -287,7 +287,7 @@ async def upload_reference(
     if settings.require_rights_attestation and not owns_or_licensed:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Confirm you have the right to use this reference recording. It is analysed "
+            "Confirm you have the right to use this reference recording. It is analyzed "
             "only - no audio from it is copied into your master - but it is still an "
             "upload.",
         )
@@ -383,7 +383,7 @@ async def reference_from_url(
     if settings.require_rights_attestation and not body.owns_or_licensed:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Confirm you have the right to use this reference recording. It is analysed "
+            "Confirm you have the right to use this reference recording. It is analyzed "
             "only - no audio from it is copied into your master - but fetching it is "
             "still obtaining a copy.",
         )
@@ -763,7 +763,7 @@ def stream_reference_stem(
     own stems: without them a browser re-downloads the file on every seek.
 
     This serves audio from the reference, which nothing else in extract0r does. It is
-    playback only: the reference is analysed, never sampled, and no path exists from these
+    playback only: the reference is analyzed, never sampled, and no path exists from these
     bytes into a master. The rights attestation collected at upload is what makes playing
     it back the user's own recording to play.
     """
@@ -1286,7 +1286,7 @@ def stream_drum_stem(
 
     The point of the per-drum comparison is putting your kick next to that record's kick,
     and two numbers next to each other only get you so far. Same terms as the reference
-    stem route above: playback only, the reference is analysed and never sampled, and the
+    stem route above: playback only, the reference is analyzed and never sampled, and the
     rights attestation collected at upload is what makes playing it back the user's own
     recording to play.
 
@@ -2090,7 +2090,7 @@ def budgets() -> dict:
 def drum_kits(settings: Settings = Depends(get_config)) -> dict:
     """The kits available to lay over a drum track, and what they are.
 
-    Synthesised rather than sampled, for the same reason a reference is analysed and never
+    Synthesised rather than sampled, for the same reason a reference is analyzed and never
     sampled: shipping recorded hits would mean shipping someone's recordings.
 
     Also says **which of two routes this machine will take** to decide where a sample

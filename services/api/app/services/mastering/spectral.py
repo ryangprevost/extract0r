@@ -238,7 +238,7 @@ class SpectralMatchEngine:
             finish.width_after = round(stereo_width(processed), 3)
             finish.notes.append(
                 f"widened x{polish.width:.2f} above "
-                f"{polish.width_floor_hz:.0f} Hz, low end left centred"
+                f"{polish.width_floor_hz:.0f} Hz, low end left centered"
             )
 
         # Saturation before the spatial moves: it rounds transients, and a tail built

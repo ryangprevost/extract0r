@@ -250,7 +250,7 @@ def _width(result, out: list[Finding]) -> None:
             Finding("width", "slight", "Narrower than the reference",
                     f"Yours measures {mine:.2f} against the reference's {theirs:.2f}. "
                     f"The width dial spreads everything above 250 Hz and leaves the bass "
-                    f"centred.",
+                    f"centered.",
                     # Percent, because that is what the width slider reads in. Sent as a
                     # factor this silently set the slider to its minimum - so the button
                     # marked "Widen" narrowed the mix to 70%, and never lit up as applied

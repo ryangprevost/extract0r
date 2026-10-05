@@ -298,7 +298,7 @@ def _build(root: Path, with_manifest: bool = True) -> Path:
                 {
                     "name": "a test set",
                     "source": "recorded in the test",
-                    "licence": "none needed",
+                    "license": "none needed",
                     "tracks": [{"id": "song-one", "seconds": 1.0, "caveats": ["silent"]}],
                 }
             ),
@@ -310,7 +310,7 @@ def _build(root: Path, with_manifest: bool = True) -> Path:
 def test_an_eval_set_is_read_by_convention_and_described_by_manifest(tmp_path):
     loaded = eval_sets.load(_build(tmp_path))
     assert loaded.name == "a test set"
-    assert loaded.licence == "none needed"
+    assert loaded.license == "none needed"
     track = loaded.tracks[0]
     assert set(track.stems) == {"vocals", "bass", "drums"}
     assert set(track.drums) == {"kick", "snare"}
@@ -324,8 +324,8 @@ def test_a_set_with_no_manifest_still_runs_and_says_its_provenance_is_missing(tm
     to show up in the report rather than being noticed a year later."""
     loaded = eval_sets.load(_build(tmp_path, with_manifest=False))
     assert loaded.tracks and loaded.tracks[0].stems
-    assert loaded.source == "" and loaded.licence == ""
-    assert any("licence" in line for line in eval_sets.describe_missing(loaded))
+    assert loaded.source == "" and loaded.license == ""
+    assert any("license" in line for line in eval_sets.describe_missing(loaded))
 
 
 def test_what_is_missing_is_phrased_as_an_instruction(tmp_path):
@@ -410,7 +410,7 @@ def test_the_gaps_are_printed_above_the_results(tmp_path):
     assert text.index("could not measure") < text.index("SDR, SIR, SAR")
 
 
-def test_an_unstated_licence_is_marked_rather_than_left_blank():
+def test_an_unstated_license_is_marked_rather_than_left_blank():
     text = report.to_markdown(report.BenchmarkRun(eval_set="x"))
     assert "*not stated*" in text
 

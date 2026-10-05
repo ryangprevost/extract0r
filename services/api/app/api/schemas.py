@@ -17,7 +17,7 @@ class RightsAttestation(BaseModel):
     """
 
     owns_or_licensed: bool = Field(
-        description="Uploader owns the recording, has a licence, or the use is otherwise lawful"
+        description="Uploader owns the recording, has a license, or the use is otherwise lawful"
     )
     personal_use_only: bool = Field(
         description="Output will be used for study, practice, or other personal use"

@@ -102,10 +102,10 @@ class EvalSet:
     root: Path
     #: Where this audio came from, in enough detail to get it again.
     source: str = ""
-    #: What licence it carries, and therefore what may be done with it. A benchmark set
+    #: What license it carries, and therefore what may be done with it. A benchmark set
     #: that cannot be redistributed is still perfectly usable; one whose terms nobody
     #: wrote down is a problem waiting for somebody else.
-    licence: str = ""
+    license: str = ""
     notes: str = ""
     tracks: list[Track] = field(default_factory=list)
 
@@ -120,7 +120,7 @@ def load(root: Path) -> EvalSet:
 
     Convention alone is enough to run - a folder of `<track>/mixture.wav` and
     `<track>/stems/*.wav` works - but a set with no manifest gets an empty `source` and
-    `licence`, and the report says so rather than letting an unattributed number through
+    `license`, and the report says so rather than letting an unattributed number through
     looking like an attributed one.
     """
     root = Path(root)
@@ -167,7 +167,7 @@ def load(root: Path) -> EvalSet:
         name=data.get("name") or root.name,
         root=root,
         source=data.get("source", ""),
-        licence=data.get("licence", ""),
+        license=data.get("license", ""),
         notes=data.get("notes", ""),
         tracks=tracks,
     )
@@ -233,13 +233,13 @@ def describe_missing(eval_set: EvalSet | None) -> list[str]:
             "There is no eval set, so nothing here is a measurement of quality - only of "
             "speed. The fastest fix is not a dataset: record a DI bass and a DI guitar "
             "against a click, mix them with drums, and you have exact stems and exact "
-            "notes in under an hour, with no licence to accept.",
+            "notes in under an hour, with no license to accept.",
         ]
 
     missing: list[str] = []
-    if not eval_set.source or not eval_set.licence:
+    if not eval_set.source or not eval_set.license:
         missing.append(
-            f"{MANIFEST} is missing `source` or `licence`. A number whose provenance is "
+            f"{MANIFEST} is missing `source` or `license`. A number whose provenance is "
             "not written next to it cannot be reproduced or defended later."
         )
     if not any(t.scores_separation for t in eval_set.tracks):

@@ -364,7 +364,7 @@ def suggest(
                 "width",
                 f"The reference is wider — {out.reference_width:.2f} against your "
                 f"{out.source_width:.2f}. Everything above 250 Hz spreads; the bass stays "
-                f"centred so it survives a mono system.",
+                f"centered so it survives a mono system.",
             )
         )
     elif out.source_width >= out.reference_width:

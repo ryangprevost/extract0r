@@ -239,7 +239,7 @@ def suggest(
                 "area": "finish:bass-width",
                 "severity": "notable" if ratio >= 2.0 else "slight",
                 "delta_db": round(float(20 * np.log10(ratio)), 2),
-                "headline": "Your bass is spread where the reference keeps it centred",
+                "headline": "Your bass is spread where the reference keeps it centered",
                 "detail": (
                     f"Between {BASS_BAND[0]:.0f} and {BASS_BAND[1]:.0f} Hz your low end "
                     f"measures {my_bass:.2f} of side against mid where the reference "
@@ -247,11 +247,11 @@ def suggest(
                     f"usually what a muddy, loose bottom end is, and it is also why the "
                     f"bass can seem to disappear: side content cancels the moment "
                     f"anything sums to mono, so it is loud on headphones and half gone "
-                    f"on a phone. Centring it applies no EQ - nothing gets louder, more "
+                    f"on a phone. Centering it applies no EQ - nothing gets louder, more "
                     f"of it simply survives."
                 ),
                 "action": {
-                    "label": "Centre the bass",
+                    "label": "Center the bass",
                     "dials": {"centreBass": 150},
                 },
                 "clause": "a spread low end",
@@ -414,7 +414,7 @@ def suggest(
                     f"end than its reference and still sound like ticks, because cymbals "
                     f"read as splash when they ring over a bed and as ticks when they ring "
                     f"over silence.{pointer} Sparkle will not close this - it is "
-                    f"programme-dependent, so it makes harmonics only while a part is "
+                    f"program-dependent, so it makes harmonics only while a part is "
                     f"playing and cannot fill a gap. Measured on one mix, exciting each "
                     f"stem in turn moved this by under a decibel, and two of them made it "
                     f"worse. Some of any reference's continuity is also heavy limiting "

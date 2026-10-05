@@ -157,7 +157,7 @@ def test_bass_is_never_widened(tmp_path: Path):
 
     assert adjustment.width_factor == 1.0
     assert np.allclose(out[:, 0], out[:, 1]), "bass must stay centred"
-    assert any("centred" in note for note in adjustment.notes)
+    assert any("centered" in note for note in adjustment.notes)
 
 
 def test_tone_matching_reports_the_bands_it_moved(tmp_path: Path):

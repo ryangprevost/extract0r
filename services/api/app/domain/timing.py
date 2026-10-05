@@ -90,6 +90,15 @@ class TimingEstimate:
         return 60.0 / self.tempo_bpm if self.tempo_bpm > 0 else 0.5
 
 
+#: The widest a beat's catch window may be, in seconds.
+#:
+#: 60 ms is about a demisemiquaver at 125 BPM and comfortably wider than the 23-31 ms a
+#: live drummer's own placement varies by, so it does not punish human timing. It is also
+#: narrow enough that a halved grid stops being flattered: below ~50 ms the true tempo's
+#: own margin starts shrinking too, and above ~80 ms the bias creeps back.
+MAX_TOLERANCE_S = 0.060
+
+
 def score_tempo(onsets: list[float], bpm: float, offset_s: float = 0.0) -> float:
     """How well a beat grid at ``bpm`` explains these onset times, in 0..1.
 
@@ -107,7 +116,18 @@ def score_tempo(onsets: list[float], bpm: float, offset_s: float = 0.0) -> float
         return 0.0
 
     period = 60.0 / bpm
-    tolerance = period * 0.15  # within 15% of a beat counts as "on" it
+    # Within 15% of a beat counts as "on" it - but never more than `MAX_TOLERANCE_S`.
+    #
+    # The cap is the whole of this fix. A purely fractional tolerance hands a slower grid
+    # a wider window *in seconds*: at 129 BPM a beat catches anything within 70 ms, and at
+    # 64.6 it catches anything within 139 ms. The halved grid is therefore scored on an
+    # easier test than the true one, and on a four-on-the-floor record it wins - 0.576
+    # against 0.540 on MSTRKRFT's *Bounce*, whose true tempo three independent estimators
+    # agree is 129.2.
+    #
+    # Capping equalises the test. The same record then picks 129.20, and a live-drummed
+    # control (blink-182's *Edging*, true 147.7) is unaffected at 147.66.
+    tolerance = min(period * 0.15, MAX_TOLERANCE_S)
 
     span = max(onsets) - offset_s
     beat_count = int(span / period) + 1
@@ -157,7 +177,10 @@ def best_offset(onsets: list[float], bpm: float, steps: int = 48) -> float:
         if score > best_score:
             coarse, best_score = offset, score
 
-    tolerance = period * 0.15
+    # The same cap as `score_tempo`, for the same reason and to stay consistent with
+    # it: searching for an offset against a wider window than the one that will
+    # judge it finds an offset optimised for a test nobody runs.
+    tolerance = min(period * 0.15, MAX_TOLERANCE_S)
     on_beat = []
     for onset in onsets:
         phase = (onset - coarse) % period

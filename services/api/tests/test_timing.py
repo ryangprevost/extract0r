@@ -269,3 +269,71 @@ def test_a_metre_only_override_keeps_the_detected_tempo():
     # Tempo was not touched, so its downbeat and confidence still apply.
     assert corrected.first_beat_s == 0.25
     assert corrected.confidence == 0.9
+
+
+# --- a slower grid must not get an easier test ------------------------------------------
+#
+# X0R-1319. `score_tempo`'s tolerance was a fraction of the beat period, so a halved grid
+# caught anything within 139 ms where the true one caught 70 — it was scored on an easier
+# test and won. On MSTRKRFT's *Bounce*, whose tempo three independent estimators agree is
+# 129.2, the shipped code returned 64.60.
+#
+# The fix is one `min()`. These tests are synthetic because the real evidence is three
+# commercial recordings nobody can commit, and they reproduce the mechanism rather than
+# the recording: a four-on-the-floor kick with offbeat eighths, which is the pattern that
+# makes a halved grid look good.
+
+
+def _four_on_the_floor(bpm: float, bars: int = 12, offbeats: bool = True) -> list[float]:
+    """Onset times for a kick on every beat, plus eighths between them."""
+    period = 60.0 / bpm
+    times = []
+    for beat in range(bars * 4):
+        times.append(beat * period)
+        if offbeats:
+            times.append((beat + 0.5) * period)
+    return times
+
+
+def test_a_halved_grid_does_not_beat_the_true_one():
+    """The bug, as the scores that produced it."""
+    from app.domain.timing import best_offset, score_tempo
+
+    onsets = _four_on_the_floor(129.2)
+    true_score = score_tempo(onsets, 129.2, best_offset(onsets, 129.2))
+    half_score = score_tempo(onsets, 64.6, best_offset(onsets, 64.6))
+    assert true_score > half_score, (
+        f"the true tempo must score higher: 129.2 -> {true_score:.3f}, "
+        f"64.6 -> {half_score:.3f}"
+    )
+
+
+def test_choose_tempo_returns_the_true_tempo_for_four_on_the_floor():
+    from app.domain.timing import choose_tempo
+
+    onsets = _four_on_the_floor(129.2)
+    assert choose_tempo(onsets, 129.2).bpm == pytest.approx(129.2, rel=0.03)
+
+
+def test_the_catch_window_stops_widening_with_the_period():
+    """The mechanism, stated directly so the cap cannot be removed as a tidy-up.
+
+    Without it the window is proportional to the beat, so every halving of the tempo
+    doubles the evidence a wrong grid is allowed to collect.
+    """
+    from app.domain.timing import MAX_TOLERANCE_S
+
+    for bpm in (60.0, 90.0, 129.2, 200.0):
+        period = 60.0 / bpm
+        assert min(period * 0.15, MAX_TOLERANCE_S) <= MAX_TOLERANCE_S
+    # Slow enough that the fraction would have exceeded the cap, so the cap is load-bearing.
+    assert (60.0 / 64.6) * 0.15 > MAX_TOLERANCE_S
+
+
+def test_a_genuinely_slow_song_is_still_found():
+    """The cap must not stop a slow tempo being chosen when it is the right one — a rule
+    that always preferred the faster reading would pass the tests above and be useless."""
+    from app.domain.timing import choose_tempo
+
+    onsets = _four_on_the_floor(72.0, bars=16, offbeats=False)
+    assert choose_tempo(onsets, 72.0).bpm == pytest.approx(72.0, rel=0.03)

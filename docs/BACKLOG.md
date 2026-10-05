@@ -25,6 +25,7 @@ another card, ❌ not started.
 | [EPIC-11](#epic-11--per-instrument-matching) | Per-instrument matching | 60 | 2 |
 | [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
 | [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 41 | 4 |
+| [EPIC-14](#epic-14--speed-and-the-feel-of-using-it) | Speed and usability | ~15 | 3 · *placeholder* |
 
 EPIC-08 and EPIC-11 were carrying their *original* scope in this table (21 and 24) while
 cards kept being added underneath. Both are now the sum of the cards actually in them.
@@ -2466,3 +2467,79 @@ shape is agreed
 **Out of scope.** Quantise, groove transfer, swing imposition, nudging anything. Note length
 (X0R-1321). Guitar, piano and `other`, which need polyphonic transcription and are refused
 in §10.5.
+
+---
+
+## EPIC-14 — Speed and the feel of using it (Phase 3) · **placeholder, not scoped**
+
+**Created 2026-10-05 at Ryan's request as a holding pen.** The cards below are seeded from
+things already measured or already filed, so that whoever scopes this is starting from
+numbers rather than from a blank page. **None of them has been through the PM**, none has
+acceptance criteria a QA pass could run, and the point total is provisional. Treat the list
+as evidence, not as a plan.
+
+Two reasons this epic is worth opening now rather than when something feels slow.
+
+**The first is that "feels slow" is finally measurable.** X0R-306 shipped a harness that
+reports wall clock as a multiple of real time and writes it to `docs/benchmarks/` with the
+model, the versions and the commit. Before that, a performance change could only be felt.
+Now a change can be scored, and a regression can be caught by a number rather than by
+somebody noticing.
+
+**The second is that the waits got longer this week, on purpose.** Three features shipped
+that each cost time, each for a good reason, and nobody has looked at the total.
+
+### The measured baseline, as of 2026-10-05
+
+All on CPU, on a three-minute track unless stated, from `docs/benchmarks/`:
+
+| | cost | measured where |
+|---|---|---|
+| Separation, `htdemucs_6s` (the default) | **1.24× real time** — a 3½-minute song takes ~3 min | `2026-10-05-timing-only-htdemucs_6s.md` |
+| Separation, `htdemucs` | 0.94× real time | `2026-10-05-timing-only-htdemucs.md` |
+| Separating the reference too | **doubles the wait** before anything is on screen | the second separation is the same cost |
+| The instrument comparison | **~5 s → ~20 s** this week, from the pitch contour on both sides | X0R-1320 |
+| Per-drum separation | ~half the audio's length again, **per side** — 29 s on a 28 s pair | X0R-1314 |
+| First call to `/tracks/drum-kits` | ~5 s, a cold subprocess probe | QA SPRINT-2 D5 |
+
+The shape of it: **a user waits about six minutes before the comparison they came for is on
+screen**, and three of those minutes are the reference, which a saved profile already
+avoids on the second song. Nothing here is obviously wrong; nothing here has been looked at
+as a whole either.
+
+### Seeded candidates — performance
+
+| id | title | pts | what is already known |
+|---|---|---|---|
+| X0R-1401 | The second song is fast, and the first one says so | 3 | A profile removes the reference separation entirely (X0R-1125, X0R-1317), and the per-drum pass with it. The machinery exists; what is missing is that nobody is *told* on their first run that the second will be three minutes shorter. Probably a product card, not a performance one. |
+| X0R-1402 | Stop paying for the drum-kit probe on the request path | 1 | `drumsep.available` shells out to a fresh interpreter, cached per process, so the first call after a restart costs ~5 s on a plain GET. Warm it at startup or move it off the request. QA SPRINT-2 D5. |
+| X0R-1403 | Measure where the comparison's 20 seconds actually goes | 2 | It is assumed to be the pitch contour, because that is what was added. Nobody has profiled it. Do this before optimising anything, or the first attempt optimises the wrong half. |
+| X0R-1404 | A progress bar that reflects the work, not the step | 2 | The job reports fractions chosen by hand (0.05, 0.55, 0.9). With the benchmark able to time each stage, they could be weighted by what each stage really costs. |
+| — | **GPU path** | 3 | **Already filed as [X0R-307](#x0r-307--gpu-path--3--todo) in EPIC-03.** Not duplicated here. It is the single largest lever on this table and is worth scoping with the rest. |
+
+### Seeded candidates — usability
+
+| id | title | pts | what is already known |
+|---|---|---|---|
+| X0R-1405 | A dial that says "Applied" was applied | 2 | **A real defect, filed and not fixed.** `refreshMoveButtons` decides by comparing the lane's value with the suggestion, so any suggestion equal to the control's rest position reads as already applied — pan is where it bites, because a centred reference offers `pan: 0` and that is also where the control does nothing. Fixed in the per-drum rows by recording what was *taken*; the lanes keep no such record, and giving them one is a change to the mixer. QA SPRINT-2 D4. |
+| X0R-1406 | Decide what happens to "Match strength" | 1 | It now sits beside a control that measurably does more (X0R-1306). Experiment 2 put its whole range at 0.56 dB, under half this project's own threshold. Leaving a working control next to one that only looks like it works is a decision, and right now it is an unmade one. **Ryan's call, not the PM's.** |
+| X0R-1407 | The comparison screen after three sprints of additions | 3 | Sprint 1 spent 5 points reducing 19 controls to 6 groups. Since then the screen has gained a per-drum expander, a band ladder, two observation rows and a budget control. R8 of sprint 2 predicted exactly this and nobody has gone back to look. |
+| X0R-1408 | Say what a run will cost before it starts, everywhere | 1 | The per-drum pass states its cost and the instrument comparison states its own; separation does not, and it is the longest wait in the application. |
+
+### What is deliberately **not** in here
+
+- **Persistence of any kind.** EPIC-07 is a `NON-GOAL` and nothing in a performance epic may
+  quietly reintroduce it. "Cache it between sessions" is a persistence decision wearing a
+  performance hat.
+- **Anything that trades honesty for speed.** Windowing the stem profiles was tried in
+  `stem_match` and abandoned on the numbers — it put parts that come and go several dB out,
+  which is enough to invent a finding. Shorter analysis is not free, and this epic does not
+  get to spend accuracy without saying so.
+- **Streaming or background rendering.** Not a speed problem, and the architecture that
+  would make it one is EPIC-07.
+
+### Before anything here is scoped
+
+Run the benchmark on a real three-minute song **through the API rather than the harness**,
+so the figures above include job overhead, I/O and the comparison, not just separation. The
+numbers in the table are the separator alone, and the user's six minutes is not.

@@ -13,7 +13,7 @@ import pytest
 import soundfile as sf
 
 from app.domain.notes import StemKind
-from app.services.mastering.dsp import set_width, stereo_width
+from app.services.mastering.dsp import DEFAULT_N_FFT, set_width, stereo_width
 from app.services.mastering.stem_match import (
     MAX_STEM_GAIN_DB,
     match_stem,
@@ -127,12 +127,17 @@ def test_a_quiet_stem_is_turned_up_towards_the_reference(tmp_path: Path):
 def test_stem_gain_is_capped_and_the_cap_is_reported(tmp_path: Path):
     source = build(tmp_path, "src.wav", tone(80, amp=0.05))
     target = build(tmp_path, "ref.wav", tone(80, amp=0.5))
-    source.relative_lufs = -40.0
+    # -25 rather than the -40 this used to use. The gap only has to exceed the cap, and
+    # -40 is now *absent* - X0R-1127 made `match_stem` decline when the source stem is
+    # residue, so the old fixture tested the cap by way of a stem that no longer gets
+    # matched at all. 25 dB is still comfortably past a 9 dB cap.
+    source.relative_lufs = -25.0
     target.relative_lufs = 0.0
 
     audio = np.stack([tone(80, amp=0.05)] * 2, axis=1)
     _out, adjustment = match_stem(audio, SR, source, target, match_tone=False)
 
+    assert adjustment.matched is True, adjustment.notes
     assert adjustment.gain_db == pytest.approx(MAX_STEM_GAIN_DB)
     assert any("capped" in note for note in adjustment.notes)
 
@@ -235,3 +240,111 @@ def test_width_changes_are_bounded(tmp_path: Path):
     nearly_mono = np.stack([tone(440), tone(440) * 1.001], axis=1)
     _widened, factor = match_width(nearly_mono, 5.0, *WIDTH_LIMITS)
     assert factor <= WIDTH_LIMITS[1]
+
+
+# --- an instrument your mix does not contain --------------------------------------------
+#
+# X0R-1127. `has_counterpart` asked only whether the *reference* had the instrument, so
+# the mirror case went straight through: your mix has no guitar, theirs has separation
+# residue that clears the threshold, and the level match asks for the difference. Measured
+# on a real pair during the pr0ducer experiments - source guitar at -59.7 LU, reference
+# guitar residue at -22.7 - matching wanted +37 dB and applied the +9 the clamp allowed,
+# to an instrument nobody played.
+#
+# Inaudible in that instance only because the stem was already 50 LU down. The mechanism
+# is not bounded by that: a quiet *real* guitar in the same position gets an audible 9 dB
+# lift of the wrong thing, and the louder the user's part the louder the mistake.
+
+
+def _profile(stem, relative_lufs, spectrum=None, sample_rate=SR):
+    from app.services.mastering.stem_match import StemProfile
+
+    return StemProfile(
+        stem=stem,
+        spectrum=spectrum if spectrum is not None else np.ones(DEFAULT_N_FFT // 2 + 1),
+        loudness_lufs=-20.0,
+        width=1.0,
+        relative_lufs=relative_lufs,
+        sample_rate=sample_rate,
+    )
+
+
+def test_a_stem_missing_from_your_mix_is_not_matched():
+    """The bug. Your side empty, their side residue that clears the threshold."""
+    from app.domain.notes import StemKind
+    from app.services.mastering.stem_match import match_stem
+
+    audio = np.zeros((SR, 2))
+    out, adjustment = match_stem(
+        audio, SR,
+        source=_profile(StemKind.GUITAR, -59.7),
+        reference=_profile(StemKind.GUITAR, -22.7),
+    )
+    assert adjustment.matched is False
+    assert adjustment.gain_db == 0.0, f"no gain on an absent instrument: {adjustment.gain_db}"
+    assert np.array_equal(out, audio), "the audio should be returned untouched"
+    assert any("your mix" in note for note in adjustment.notes), adjustment.notes
+
+
+def test_the_note_says_which_side_was_empty():
+    """Which side matters to whoever reads the report: "the reference has no piano" means
+    the tool declined to copy something, "your mix has no piano" means it declined to
+    invent one."""
+    from app.domain.notes import StemKind
+    from app.services.mastering.stem_match import match_stem
+
+    audio = np.zeros((SR, 2))
+    _, theirs_empty = match_stem(
+        audio, SR,
+        source=_profile(StemKind.PIANO, -8.0),
+        reference=_profile(StemKind.PIANO, -44.0),
+    )
+    _, mine_empty = match_stem(
+        audio, SR,
+        source=_profile(StemKind.PIANO, -44.0),
+        reference=_profile(StemKind.PIANO, -8.0),
+    )
+    assert any("reference has essentially no piano" in n for n in theirs_empty.notes)
+    assert any("your mix has essentially no piano" in n for n in mine_empty.notes)
+
+
+def test_two_instruments_both_present_still_match():
+    """The other half: a rule that declined everything would pass the tests above."""
+    from app.domain.notes import StemKind
+    from app.services.mastering.stem_match import match_stem
+
+    rng = np.random.default_rng(4)
+    audio = rng.standard_normal((SR, 2)) * 0.2
+    _, adjustment = match_stem(
+        audio, SR,
+        source=_profile(StemKind.BASS, -9.0),
+        reference=_profile(StemKind.BASS, -5.0),
+    )
+    assert adjustment.matched is True
+    assert adjustment.gain_db != 0.0, "a 4 LU gap should move the level"
+
+
+def test_every_path_asks_the_same_question():
+    """The duplication that let them disagree.
+
+    `ABSENT_BELOW_LU` was written out twice and imported from a third place. Two of the
+    three checked both sides and one checked the reference only. One definition now, and
+    this fails if anybody re-introduces a local copy that drifts.
+    """
+    from app.services.mastering import critique, instrument, presence, stem_match
+
+    assert instrument.ABSENT_BELOW_LU is presence.ABSENT_BELOW_LU
+    assert stem_match.ABSENT_BELOW_LU is presence.ABSENT_BELOW_LU
+    assert "ABSENT_BELOW_LU = -30" not in __import__("pathlib").Path(
+        critique.__file__
+    ).read_text(encoding="utf-8")
+
+
+def test_presence_is_about_one_recording_and_comparable_is_about_two():
+    from app.services.mastering.presence import comparable, is_present
+
+    assert is_present(-8.0) and not is_present(-44.0)
+    assert comparable(-8.0, -5.0)
+    assert not comparable(-8.0, -44.0), "their side empty"
+    assert not comparable(-44.0, -8.0), "your side empty"
+    assert not comparable(None, -8.0)

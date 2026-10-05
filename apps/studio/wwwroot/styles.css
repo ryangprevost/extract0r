@@ -1050,3 +1050,109 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 }
 .band-chip:hover { color: var(--text); border-color: var(--edge); }
 .band-chip.on { color: var(--ink); background: var(--accent); border-color: var(--accent); }
+
+/* ── drum by drum ─────────────────────────────────────────────────────────────
+   A second level inside the drums card: the kick, the snare, the cymbals and the
+   toms, each compared with the reference's own. Indented and tinted so it reads
+   as being *inside* the drums rather than as four more instruments — the page
+   already holds six cards and four more would read as ten. */
+.per-drum {
+  margin-top: 12px;
+  border: 1px dashed var(--edge);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--stem-drums) 5%, var(--panel));
+  padding: 10px 12px;
+}
+.per-drum > summary { list-style: none; cursor: pointer; }
+.per-drum > summary::-webkit-details-marker { display: none; }
+.per-drum-head { display: flex; flex-direction: column; gap: 2px; padding-left: 18px; position: relative; }
+.per-drum-head::before {
+  content: "▸"; position: absolute; left: 0; top: 0; color: var(--muted);
+  transition: transform 0.15s ease;
+}
+.per-drum[open] .per-drum-head::before { transform: rotate(90deg); }
+.per-drum-head strong { font-size: 13px; }
+.per-drum-sub { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.per-drum-intro { margin-top: 8px; display: grid; gap: 8px; justify-items: start; }
+.per-drum-caveat { margin: 8px 0 4px; font-size: 11.5px; }
+.per-drum-note { margin: 12px 0 0; font-size: 12px; }
+
+.subdrum {
+  border-left: 2px solid color-mix(in srgb, var(--stem-drums) 55%, transparent);
+  padding: 8px 0 8px 12px;
+  margin-top: 8px;
+}
+.subdrum > summary { list-style: none; cursor: pointer; }
+.subdrum > summary::-webkit-details-marker { display: none; }
+.subdrum-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.subdrum-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.subdrum-title strong { font-size: 13px; text-transform: capitalize; }
+.subdrum-summary { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.subdrum .players { display: flex; gap: 10px; }
+.subdrum .players button { font-size: 12px; }
+.subdrum .players button.on { color: var(--accent); font-weight: 600; }
+.subdrum-absent { margin: 6px 0 0; font-size: 12px; }
+.subdrum .moves { margin-top: 8px; }
+.subdrum .instrument-numbers { margin: 8px 0 6px; }
+
+/* The ladder: five bands, your dot and theirs, and the distance between them.
+   Where the two records agree the dots sit on top of each other, which is the
+   thing a column of numbers cannot show at a glance. */
+.ladder { display: grid; gap: 3px; margin: 10px 0 4px; }
+.ladder-row { display: grid; grid-template-columns: 62px 1fr 44px; align-items: center; gap: 8px; }
+.ladder-label { font-size: 10.5px; color: var(--muted); text-align: right; }
+.ladder-track {
+  position: relative; height: 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--edge) 70%, transparent);
+}
+.ladder-span {
+  position: absolute; top: 5px; height: 2px;
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+.ladder-row.apart .ladder-span { background: var(--warn); height: 3px; top: 4.5px; }
+.ladder-dot {
+  position: absolute; top: 3px; width: 6px; height: 6px; border-radius: 50%;
+  margin-left: -3px;
+}
+.ladder-dot.yours { background: var(--accent); }
+.ladder-dot.theirs { background: var(--stem-piano); }
+.ladder-gap {
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted); text-align: right;
+}
+.ladder-row.apart .ladder-gap { color: var(--warn); }
+.ladder-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0; font-size: 11px; }
+.ladder-legend .ladder-dot { position: static; margin: 0 2px 0 0; top: auto; }
+.ladder-legend span:last-child { margin-left: 4px; }
+
+/* No slider here yet: moving a kick inside a drums stem means taking the four
+   sub-stems apart and re-summing them, which is X0R-1315. What is shown is the
+   figure that would be offered, which is the half nothing else in any tool has. */
+.per-drum-action { flex-direction: column; align-items: flex-end; gap: 0; }
+.per-drum-action .offered {
+  font-family: var(--mono); font-size: 13px; color: var(--accent); font-weight: 600;
+}
+.per-drum-action .muted { font-size: 10px; color: var(--muted); }
+
+@media (max-width: 640px) {
+  .subdrum-head { flex-direction: column; align-items: flex-start; }
+  .ladder-row { grid-template-columns: 52px 1fr 38px; }
+}
+
+/* A drum that has been acted on, marked the way an instrument card is. */
+.subdrum.has-applied > summary .subdrum-title strong::after { content: " ✓"; color: var(--accent); }
+.per-drum.has-applied > summary .per-drum-head strong::after { content: " ✓"; color: var(--accent); }
+.per-drum-heard { margin: 6px 0; font-size: 11.5px; }
+.subdrum .move-action { padding-right: 0; }
+.subdrum .move-slider { width: 110px; }
+
+/* The headline: the two biggest differences across all four drums, in one line. It is
+   the sentence this whole feature exists to let somebody say, so it looks like one. */
+.per-drum-verdict {
+  margin: 10px 0 4px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+  border-left: 3px solid var(--stem-drums);
+  padding-left: 10px;
+}
+.subdrum-flip { color: var(--accent); }

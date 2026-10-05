@@ -96,6 +96,13 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(
         _env_file=None,
         storage_dir=tmp_path / "storage",
+        # Empty, on purpose, and for the same reason `_env_file=None` is here. The
+        # default points at the repo's `models/` folder, so whether a route reported
+        # per-drum separation as available depended on whether the developer had
+        # downloaded a 167 MB file - and the tests that would have run it would then
+        # shell out to demucs. A test that wants the weights names them itself; see
+        # `test_drum_separation`.
+        models_dir=tmp_path / "models",
         separation_backend="stub",
         transcription_backend="stub",
         drum_backend="stub",

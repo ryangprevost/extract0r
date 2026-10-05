@@ -26,6 +26,11 @@ class TrackRecord:
     timing: TimingEstimate | None = None
     #: Separated stems of the mastering reference, if it has been split.
     reference_stems: dict = field(default_factory=dict)
+    #: Each side's drums stem split into kick, snare, cymbals and toms, keyed
+    #: "source"/"reference" then by drum name. Cached here because the pass costs about
+    #: half the audio's length again per side and nothing about it changes between two
+    #: comparisons of the same pair.
+    drum_stems: dict = field(default_factory=dict)
     #: A saved reference profile standing in for reference audio, if one was chosen.
     reference_profile: object | None = None
     #: What the reference was called when it arrived. On disk it becomes "reference.mp3"
@@ -70,6 +75,13 @@ class TrackRegistry:
         with self._lock:
             if track_id in self._records:
                 self._records[track_id].reference_profile = profile
+
+    def set_drum_stems(self, track_id: str, side: str, stems: dict) -> None:
+        """Remember one side's four separated drums. Replaces that side only."""
+        with self._lock:
+            record = self._records.get(track_id)
+            if record is not None:
+                record.drum_stems = {**record.drum_stems, side: dict(stems)}
 
     def set_reference_stems(self, track_id: str, stems: dict) -> None:
         with self._lock:

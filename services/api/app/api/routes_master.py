@@ -116,8 +116,43 @@ class StemMixSetting(BaseModel):
     solo: bool = False
 
 
+class DrumMixSetting(BaseModel):
+    """A move taken on one drum inside the drums stem.
+
+    Four fewer fields than `StemMixSetting`, and the four that are missing are missing on
+    purpose. There is no mute or solo because a sub-drum is not a lane - the mixer's
+    faders are per stem and a kick has no fader of its own. There is no reverb or
+    sparkle because those are stem moves the comparison never suggests per drum.
+
+    `pan` and `width` are accepted for cymbals and toms and refused for a kick and a
+    snare, by the same rule that governs whether the comparison offers them at all. The
+    check is in the route rather than here, because a field cannot know which drum it is
+    on.
+    """
+
+    drum: str
+    gain_db: float = Field(default=0.0, ge=-12, le=12)
+    pan: float = Field(default=0.0, ge=-1, le=1)
+    width: float = Field(default=1.0, ge=0.0, le=3.0)
+    tone_low_db: float = Field(default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB)
+    tone_low_mid_db: float = Field(
+        default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB
+    )
+    tone_high_mid_db: float = Field(
+        default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB
+    )
+    tone_presence_db: float = Field(
+        default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB
+    )
+    tone_air_db: float = Field(default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB)
+    compress_db: float = Field(default=0.0, ge=0.0, le=MAX_COMPRESSION_DB)
+
+
 class MasterJobRequest(BaseModel):
     stems: list[StemMixSetting] = Field(min_length=1)
+    #: Moves taken on the four drums inside the drums stem. Ignored unless that stem has
+    #: been split, which only the per-drum comparison does.
+    drums: list[DrumMixSetting] = Field(default_factory=list)
     #: Track id of an already-uploaded reference. Omit to export without matching.
     reference_track_id: str | None = None
     #: 0 leaves the tone alone, 1 applies the full clamped correction curve.
@@ -397,6 +432,10 @@ def list_profiles(settings: Settings = Depends(get_config)) -> dict:
                 # anyone commits to one and finds out on the comparison screen.
                 "per_stem": p.has_instruments,
                 "instruments": sorted(p.instruments),
+                # And whether it carries the four drums inside the drums stem, which is
+                # a second, rarer thing a profile may hold.
+                "per_drum": p.has_drums,
+                "drums": sorted(p.drums),
             }
             for p in listing(settings.profile_dir)
         ],
@@ -435,6 +474,7 @@ def save_reference_profile(
             status.HTTP_409_CONFLICT, "There is no reference on this track to measure."
         )
 
+    from app.services.mastering import subdrum
     from app.services.mastering.instrument import profile_all, snapshot_all
     from app.services.mastering.profile import capture, save
     from app.services.mixdown.encode import read_audio
@@ -448,6 +488,18 @@ def save_reference_profile(
             # one stem would not read loses the part that was working.
             log.warning("could not measure the reference stems for a profile", exc_info=True)
 
+    # One level further in, and only when the reference's drums have already been split -
+    # this never *starts* a separation. Saving a profile should cost what it has always
+    # cost; the per-drum pass is a thing the user chose to run on the comparison screen,
+    # and what is written here is the measurements it already produced.
+    drums: dict[str, dict] = {}
+    sub_stems = (record.drum_stems or {}).get("reference") or {}
+    if sub_stems:
+        try:
+            drums = subdrum.snapshot_all(subdrum.profile_all(dict(sub_stems)))
+        except Exception:
+            log.warning("could not measure the reference's drums for a profile", exc_info=True)
+
     audio = read_audio(reference)
     captured = capture(
         audio.samples,
@@ -455,6 +507,7 @@ def save_reference_profile(
         body.name,
         getattr(record, "reference_name", "") or reference.name,
         instruments=instruments,
+        drums=drums,
     )
     path = save(captured, settings.profile_dir)
     return {
@@ -465,6 +518,8 @@ def save_reference_profile(
         "bytes": path.stat().st_size,
         "instruments": sorted(captured.instruments),
         "per_stem": captured.has_instruments,
+        "drums": sorted(captured.drums),
+        "per_drum": captured.has_drums,
     }
 
 
@@ -504,6 +559,11 @@ def use_reference_profile(
         "seconds": profile.seconds,
         "per_stem_available": profile.has_instruments,
         "instruments": sorted(profile.instruments),
+        # And whether it also carries the four drums inside the drums stem, which is the
+        # difference between reaching the per-drum comparison instantly and paying for a
+        # second separation of a reference that no longer exists here as audio.
+        "per_drum_available": profile.has_drums,
+        "drums": sorted(profile.drums),
         "note": (
             "Matched on the whole mix and instrument by instrument. The reference was "
             "separated when this profile was saved, so its stems are already measured - "
@@ -721,6 +781,7 @@ def stream_reference_stem(
 @router.post("/{track_id}/reference/instruments", response_model=JobResponse)
 def compare_instruments(
     track_id: str,
+    settings: Settings = Depends(get_config),
     registry: TrackRegistry = Depends(get_registry),
     jobs: JobStore = Depends(get_jobs),
 ) -> JobResponse:
@@ -814,21 +875,7 @@ def compare_instruments(
                     # matrix: the page used to invert it itself, which was correct right
                     # up until the server started damping the solve and the page did not.
                     "tone_solver": _tone_solver_json(a),
-                    "moves": [
-                        {
-                            "dimension": m.dimension,
-                            "band": m.band,
-                            "headline": m.headline,
-                            "detail": m.detail,
-                            "severity": m.severity,
-                            "yours": round(m.yours, 3),
-                            "reference": round(m.reference, 3),
-                            "suggested": m.suggested,
-                            "control": m.control,
-                            "confident": m.confident,
-                        }
-                        for m in moves
-                    ],
+                    "moves": [_move_json(m) for m in moves],
                 }
             )
 
@@ -836,6 +883,11 @@ def compare_instruments(
 
         return {
             "available": True,
+            # Whether the drums card can offer a second level, and what it would cost.
+            # Sent with the comparison rather than fetched separately so the card can be
+            # drawn in one pass - and sent even when it is unavailable, because
+            # "unavailable, and here is how to get it" is the whole of criterion 9.
+            "per_drum": _per_drum_capability(record, settings),
             # Where the reference half came from, so the page can explain a comparison
             # with no audio behind it instead of appearing to lose a feature.
             "reference_kind": "profile" if from_profile else "stems",
@@ -876,6 +928,69 @@ def _tone_solver_json(one) -> list[list[float]] | None:
         return None
 
 
+def _drum_shapes(wanted, available: dict[str, Path]) -> dict:
+    """The per-drum moves, as shapes, refusing the ones that cannot mean anything.
+
+    Two refusals, both 422 rather than a silent drop, because a dial that reports success
+    and does nothing is worse than one that says no:
+
+    * a drum that was never split out of this track's drums - there is nothing to apply
+      it to, and guessing which file was meant is how a kick move lands on a snare;
+    * a sideways move on a kick or a snare, by the same rule that stops the comparison
+      offering one. A separated kick is the most mono signal in the application, so a pan
+      on it is moving separation bleed around.
+    """
+    from app.services.mastering import subdrum
+    from app.services.mastering.instrument import NEVER_MOVE_SIDEWAYS, StemShape
+
+    shapes: dict[str, StemShape] = {}
+    for one in wanted or []:
+        if one.drum not in subdrum.DRUMS:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"{one.drum!r} is not one of {', '.join(subdrum.DRUMS)}.",
+            )
+        if one.drum not in available:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"This track's drums have not been split into a {one.drum}. Run the "
+                "drum-by-drum comparison first.",
+            )
+        if one.drum in NEVER_MOVE_SIDEWAYS and (one.pan or one.width != 1.0):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"A {one.drum} is not moved sideways: a separated {one.drum} is "
+                "effectively mono, so a pan or a width on it moves separation bleed "
+                "rather than the drum.",
+            )
+        fields = one.model_dump()
+        fields.pop("drum")
+        shapes[one.drum] = StemShape(**fields)
+    return shapes
+
+
+def _move_json(move) -> dict:
+    """One finding, in the shape the comparison screen draws.
+
+    Named once because there are two levels of comparison now - stems and the four drums
+    inside one of them - and a field added to one and not the other is a row that renders
+    differently depending on how far in you are.
+    """
+    return {
+        "dimension": move.dimension,
+        "band": move.band,
+        "headline": move.headline,
+        "detail": move.detail,
+        "severity": move.severity,
+        "yours": round(move.yours, 3),
+        "reference": round(move.reference, 3),
+        "measured": move.measured,
+        "suggested": move.suggested,
+        "control": move.control,
+        "confident": move.confident,
+    }
+
+
 def _profile_json(one) -> dict:
     """One instrument's measurements, in the shape the comparison screen draws."""
     return {
@@ -890,6 +1005,258 @@ def _profile_json(one) -> dict:
         # comparison is about rather than on the intro.
         "preview_start_s": one.preview_start_s,
     }
+
+
+# --- the four drums inside the drums stem ------------------------------------------------
+#
+# A second level, not six more stems. `subdrum`'s docstring has the reasoning; the short
+# version is that `pipeline.run` sums every separated stem and subtracts that sum from the
+# original, so sub-drums as `StemKind` members would put the drums into the mix twice.
+#
+# A route of its own rather than a flag on the comparison, for three reasons that all
+# point the same way. The pass costs about half the audio's length again *per side*, so
+# folding it in would make every comparison several times slower for a feature most runs
+# do not want. It is the only honest way to state the cost before it is paid. And it makes
+# the "no weights installed" case free: the comparison is untouched, and the drums card
+# gets one line saying what is missing.
+
+
+def _drums_path(stems) -> Path | None:
+    """The drums stem out of a separation result or a reference's stem map."""
+    if isinstance(stems, dict):
+        path = stems.get(StemKind.DRUMS)
+        return Path(path) if path else None
+    for stem in getattr(stems, "stems", []) or []:
+        if stem.kind is StemKind.DRUMS:
+            return Path(stem.path)
+    return None
+
+
+def _per_drum_capability(record, settings: Settings) -> dict:
+    """Whether the drums card can offer a second level, and what pressing it would cost.
+
+    Sent with every comparison, including when the answer is no, because "not available,
+    and here is the one command that makes it available" is more use than an expander that
+    silently is not there. Deliberately **not** gated on `drumsep_enabled`: that flag
+    exists to keep an unasked-for second pass out of a master render, and this is a button
+    with its price written on it. Gating an explicit, costed action behind an environment
+    variable as well would ship a feature nobody can find.
+    """
+    from app.services.drums import separate as drumsep
+    from app.services.mastering import subdrum
+
+    saved = getattr(record, "reference_profile", None)
+    cached = (record.drum_stems or {})
+
+    mine = _drums_path(record.separation) if record.separation else None
+    theirs = _drums_path(record.reference_stems or {})
+    # Stems win when both are there, which is the rule the stem-level comparison already
+    # follows: separated stems came from the song the user just chose, and a profile is
+    # whatever they saved some other evening. Only when there are no stems does the
+    # profile's copy stand in - which is the case it exists for.
+    from_profile = theirs is None and bool(
+        saved is not None and getattr(saved, "has_drums", False)
+    )
+
+    if mine is None:
+        return {
+            "available": False,
+            "reason": "This track has no drums stem to split - separate it first.",
+        }
+    if theirs is None and not from_profile:
+        return {
+            "available": False,
+            "reason": (
+                "Comparing drum by drum needs the reference's drums as well. Separate "
+                "the reference, or aim at a saved profile that carries them."
+            ),
+        }
+    if not drumsep.available(settings.models_dir):
+        return {
+            "available": False,
+            "reason": drumsep.why_unavailable(settings.models_dir),
+        }
+
+    seconds = getattr(record.audio, "duration_s", 0.0) or 0.0
+    sides = 0 if "source" in cached else 1
+    if not from_profile and "reference" not in cached:
+        sides += 1
+
+    return {
+        "available": True,
+        "reason": "",
+        "drums": list(subdrum.DRUMS),
+        # Zero once both sides are cached, which is what makes opening the expander a
+        # second time instant.
+        "sides": sides,
+        "estimate_s": subdrum.estimate_seconds(seconds, sides),
+        "reference_kind": "profile" if from_profile else "stems",
+        # No audio behind a profile, so there is no "their kick" to play. Said here rather
+        # than inferred on the page, same rule the stem rows already follow.
+        "reference_audio": not from_profile,
+        "cached": sides == 0,
+    }
+
+
+@router.post("/{track_id}/reference/drums", response_model=JobResponse)
+def compare_drums(
+    track_id: str,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """Your kick against their kick, and the snare, the cymbals and the toms.
+
+    The drums row is the one place in the six where the stem is not an instrument: told
+    "the reference's drums have more weight", nobody can tell whether that is the kick's
+    sub or the snare's body, and those are opposite moves. This splits both sides' drums
+    again and runs the same seven-dimension comparison on each drum, so the advice arrives
+    in the only form it can be taken in.
+
+    Four dimensions on a kick and a snare, six on cymbals and toms - see
+    `instrument.NEVER_MOVE_SIDEWAYS`, which kick and snare join. A separated kick is the
+    most mono signal this application handles and a pan finding on it would be reporting
+    separation bleed.
+
+    Cached per side on the track, because nothing about a split changes between two
+    comparisons of the same pair, and read from a saved profile when the reference came
+    from one - which is the whole reason a profile carries the four drums.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    capability = _per_drum_capability(record, settings)
+    if not capability["available"]:
+        raise HTTPException(status.HTTP_409_CONFLICT, capability["reason"])
+
+    saved = getattr(record, "reference_profile", None)
+    from_profile = capability["reference_kind"] == "profile"
+    mine_drums = _drums_path(record.separation)
+    theirs_drums = _drums_path(record.reference_stems or {})
+    theirs_saved = dict(saved.drums) if from_profile else {}
+    reference_name = saved.name if from_profile else ""
+    cached = dict(record.drum_stems or {})
+    models_dir = settings.models_dir
+
+    def split(side: str, drums_path: Path, handle: JobHandle, at: float) -> dict:
+        """One side's drums, split into four - or the split that already happened."""
+        have = cached.get(side)
+        if have and all(Path(p).exists() for p in have.values()):
+            return {k: Path(v) for k, v in have.items()}
+
+        from app.services.drums import separate as drumsep
+
+        handle.update(JobState.RUNNING, at, f"splitting the {side} drums into four")
+        stems = drumsep.separate(
+            Path(drums_path), storage.drum_stems_dir(track_id, side), models_dir
+        )
+        if not stems:
+            raise RuntimeError(f"the {side} drums produced no sub-stems")
+        registry.set_drum_stems(track_id, side, {k: str(v) for k, v in stems.items()})
+        return stems
+
+    def work(handle: JobHandle) -> dict:
+        from app.services.mastering import subdrum
+
+        handle.update(JobState.RUNNING, 0.05, "splitting your drums")
+        mine_stems = split("source", mine_drums, handle, 0.05)
+        mine = subdrum.profile_all(mine_stems)
+
+        if from_profile:
+            # Measured once, whenever that profile was saved. Half the cost of this
+            # feature, gone, for every song ever aimed at the same record.
+            handle.update(JobState.RUNNING, 0.85, "reading the saved reference's drums")
+            theirs = subdrum.from_snapshot_all(theirs_saved)
+        else:
+            theirs_stems = split("reference", theirs_drums, handle, 0.5)
+            handle.update(JobState.RUNNING, 0.85, "measuring the reference's drums")
+            theirs = subdrum.profile_all(theirs_stems)
+
+        handle.update(JobState.RUNNING, 0.95, "comparing them, drum by drum")
+        moves = subdrum.compare_all(mine, theirs)
+
+        drums = []
+        for name in subdrum.DRUMS:
+            a = mine.get(name)
+            if a is None:
+                continue
+            b = theirs.get(name)
+            label, plural = subdrum.words(name)
+            drums.append(
+                {
+                    "drum": name,
+                    "label": label,
+                    "plural": plural,
+                    "in_reference": bool(b is not None and b.present),
+                    "in_yours": bool(a.present),
+                    # One sentence naming which side is empty and the figures behind it,
+                    # or empty when both sides really play it.
+                    "absent_reason": subdrum.why_absent(a, b),
+                    "yours": _profile_json(a),
+                    "reference": _profile_json(b) if b is not None else None,
+                    "reference_audio": not from_profile,
+                    # The band-to-filter solve for this drum, so a tone dial moved while
+                    # that drum is auditioning runs the same EQ the render will.
+                    "tone_solver": _tone_solver_json(a),
+                    "moves": [_move_json(m) for m in moves.get(name, [])],
+                }
+            )
+
+        return {
+            "available": True,
+            "reference_kind": "profile" if from_profile else "stems",
+            "reference_name": reference_name,
+            "measured": len(drums),
+            # Repeated here so a caveat shown on screen and a caveat written into a
+            # finding's detail cannot say two different things.
+            "bleed_caveat": subdrum.BLEED_CAVEAT,
+            "drums": drums,
+        }
+
+    return to_response(jobs.submit("compare-drums", track_id, work))
+
+
+@router.get("/{track_id}/drums/{side}/{drum}/audio")
+def stream_drum_stem(
+    track_id: str,
+    side: str,
+    drum: str,
+    request: Request,
+    registry: TrackRegistry = Depends(get_registry),
+):
+    """One separated drum, from either side, on its own.
+
+    The point of the per-drum comparison is putting your kick next to that record's kick,
+    and two numbers next to each other only get you so far. Same terms as the reference
+    stem route above: playback only, the reference is analysed and never sampled, and the
+    rights attestation collected at upload is what makes playing it back the user's own
+    recording to play.
+
+    `side` and `drum` are both matched against fixed lists before either reaches a path.
+    """
+    from app.services.mastering import subdrum
+
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    if side not in ("source", "reference") or drum not in subdrum.DRUMS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown drum.")
+
+    path = ((record.drum_stems or {}).get(side) or {}).get(drum)
+    if path is None or not Path(path).exists():
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Those drums have not been split into four, or have no such drum.",
+        )
+
+    from app.api.routes_audio import ranged_file
+
+    return ranged_file(Path(path), request)
 
 
 @router.post(
@@ -947,6 +1314,12 @@ def start_master(
                 "POST /reference/separate, then try again.",
             )
 
+    drum_stems = {
+        name: Path(path)
+        for name, path in ((record.drum_stems or {}).get("source") or {}).items()
+    }
+    drum_shapes = _drum_shapes(body.drums, drum_stems)
+
     presence = None
     if body.vocal_presence:
         try:
@@ -991,6 +1364,12 @@ def start_master(
         # missing, so this is safe to pass unconditionally.
         drumsep=settings.drumsep_enabled,
         models_dir=settings.models_dir,
+        # Moves taken on one drum inside the drums stem. Both empty is the usual case
+        # and costs exactly nothing: `_apply_per_drum` reads no audio and returns the
+        # drums it was handed, so a master with no per-drum move is the same file it
+        # always was.
+        drum_stems=drum_stems,
+        drum_shapes=drum_shapes,
         polish=Polish(
             air_db=body.brightness_db,
             air_hz=body.brightness_from_hz,
@@ -1627,19 +2006,29 @@ def suggest_settings(
 
 
 @router.get("/drum-kits")
-def drum_kits() -> dict:
+def drum_kits(settings: Settings = Depends(get_config)) -> dict:
     """The kits available to lay over a drum track, and what they are.
 
     Synthesised rather than sampled, for the same reason a reference is analysed and never
     sampled: shipping recorded hits would mean shipping someone's recordings.
+
+    Also says **which of two routes this machine will take** to decide where a sample
+    goes, because they are not the same feature and they fail differently. With the
+    DrumSep weights installed, a stroke in the kick file is a kick and there is nothing
+    to get wrong. Without them, a band-rise classifier decides, and on real material a
+    quarter of the kicks sit within a few dB of the line that separates kick from snare -
+    which is heard as a snare that comes and goes between consecutive kicks. The panel
+    used to describe both with one sentence. (X0R-1316.)
     """
-    from app.services.drums.kit import DRUMS, KITS
+    from app.services.drums import separate as drumsep
+    from app.services.drums.kit import DRUMS, KITS, VOICE_FOR_STEM
 
     descriptions = {
         "tight": "Short and controlled. Modern rock and pop.",
         "roomy": "Longer decays, more air around each hit.",
         "punchy": "Fast and forward, with more attack.",
     }
+    per_drum = drumsep.available(settings.models_dir)
     return {
         "drums": list(DRUMS),
         "kits": [
@@ -1650,4 +2039,13 @@ def drum_kits() -> dict:
             }
             for name, voices in KITS.items()
         ],
+        "per_drum": {
+            "available": per_drum,
+            "reason": "" if per_drum else drumsep.why_unavailable(settings.models_dir),
+            # What a separated stem is called against what it drives. The hi-hat box is
+            # fed by the cymbals stem, which holds hats, rides and crashes together -
+            # the model that splits them apart was rejected on its licence - so the box
+            # has to say "cymbals" when this route is the one running.
+            "voices": dict(VOICE_FOR_STEM),
+        },
     }

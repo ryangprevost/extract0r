@@ -119,12 +119,30 @@ class ReferenceProfile:
     #: exactly as it did, with an empty dict and the whole-mix behaviour it always had.
     instruments: dict[str, dict] = field(default_factory=dict)
 
+    #: The four drums inside the reference's drums stem, in the same shape as
+    #: `instruments` and written by the same `instrument.snapshot`. One level further in,
+    #: and for a stronger reason: separating a drums stem into kick, snare, cymbals and
+    #: toms costs about half the audio's length again on CPU, per side, and the
+    #: comparison reads seven numbers per drum and no audio at all. So the reference half
+    #: of a per-drum comparison is paid for once, ever - see `subdrum`.
+    #:
+    #: Optional for the same reason `instruments` is, and not version-gated for the same
+    #: reason: an older profile loads with an empty dict and behaves exactly as it did.
+    drums: dict[str, dict] = field(default_factory=dict)
+
     version: int = FORMAT_VERSION
 
     @property
     def has_instruments(self) -> bool:
         """Whether this profile can drive a per-instrument comparison as well as a mix."""
         return bool(self.instruments)
+
+    @property
+    def has_drums(self) -> bool:
+        """Whether it can drive the per-drum comparison too, with no separation to wait
+        for. Strictly more than `has_instruments`: a profile can carry six stems and not
+        the four drums inside one of them, which is the usual case."""
+        return bool(self.drums)
 
     def spectrum(self, n_fft: int = DEFAULT_N_FFT, sample_rate: int | None = None) -> np.ndarray:
         """Rebuild an rFFT-shaped magnitude array the matcher can consume.
@@ -170,12 +188,15 @@ def capture(
     captured_from: str = "",
     settings: MatchSettings | None = None,
     instruments: dict[str, dict] | None = None,
+    drums: dict[str, dict] | None = None,
 ) -> ReferenceProfile:
     """Measure a recording once, so it never has to be measured - or kept - again.
 
     `instruments` is the per-stem half, from `instrument.snapshot_all`, and is optional
-    because it depends on the reference having been separated. Taken as an argument rather
-    than measured here so this module never has to know what a stem is.
+    because it depends on the reference having been separated. `drums` is the same thing
+    one level in, from `subdrum.snapshot_all`, and depends on the reference's drums stem
+    having been separated again. Both are taken as arguments rather than measured here so
+    this module never has to know what a stem is.
     """
     settings = settings or MatchSettings()
     audio = np.asarray(samples, dtype=np.float64)
@@ -206,6 +227,7 @@ def capture(
         mono_loss_db=round(mono_loss_db(audio), 2),
         stereo_width=round(float(stereo_width(audio)), 3),
         instruments=dict(instruments or {}),
+        drums=dict(drums or {}),
     )
 
 

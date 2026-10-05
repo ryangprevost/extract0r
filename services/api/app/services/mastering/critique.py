@@ -285,7 +285,8 @@ def balance(
     Levels are relative to each mix, never absolute — otherwise this would only be
     measuring which file is louder.
     """
-    from app.services.mastering.stem_match import ABSENT_BELOW_LU, profile_stems
+    from app.services.mastering.presence import ABSENT_BELOW_LU
+    from app.services.mastering.stem_match import profile_stems
 
     mine = profile_stems(source_stems)
     theirs = profile_stems(reference_stems)

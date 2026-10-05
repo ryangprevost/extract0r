@@ -91,6 +91,16 @@ class TrackStorage:
         """Where the reference's own separated stems live."""
         return self.track_dir(track_id) / "reference_stems"
 
+    def drum_stems_dir(self, track_id: str, side: str) -> Path:
+        """Where one side's drums stem gets split into the four drums inside it.
+
+        Under the track directory like everything else, so the retention sweep takes it
+        with the rest and the promise that deleting a row deletes the audio stays true.
+        `side` is "source" or "reference" and is never user-supplied - the route maps a
+        validated literal onto it - because it lands in a path.
+        """
+        return self.track_dir(track_id) / "drum_stems" / side
+
     def reference_path(self, track_id: str) -> Path | None:
         directory = self.track_dir(track_id)
         if not directory.is_dir():

@@ -192,13 +192,31 @@ function renderInstruments(data) {
     }
   }
 
+  // Whether the drums card can offer a second level, and what that would cost. Sent
+  // with the comparison even when the answer is no, because "not available, and here is
+  // how" belongs on the card rather than nowhere.
+  state.perDrum = data.per_drum || null;
+
   for (const instrument of data.instruments || []) {
     const lane = state.lanes.get(instrument.stem);
     // The band-to-filter solve for this stem, already inverted by the server, so the
     // monitor runs the same EQ the export will.
     if (lane && instrument.tone_solver) lane.toneSolver = instrument.tone_solver;
 
-    host.appendChild(buildInstrumentCard(instrument));
+    const card = buildInstrumentCard(instrument);
+    // The drums stem is the one place where the stem is not an instrument, so it gains a
+    // disclosure holding the four drums inside it. Appended after the card is built, and
+    // below the drums' own findings rather than instead of them: those findings are real
+    // and they are the ones with a fader behind them today.
+    // `typeof`, not `window.PerDrum`. `PerDrum` is a top-level `const` in drums.js, and
+    // a top-level `const` in a classic script lives in the script scope rather than on
+    // `window` - so the property test was always false and the panel was never built.
+    // Every harness passed, because a harness calls `PerDrum.panel()` by name.
+    if (instrument.stem === "drums" && typeof PerDrum !== "undefined") {
+      const panel = PerDrum.panel(instrument);
+      if (panel) card.appendChild(panel);
+    }
+    host.appendChild(card);
   }
   wireInstrumentCards();
 }
@@ -705,9 +723,22 @@ function referencePlayer(stem) {
  * bands, an audition per side, and a Web Audio chain to hang filters on.
  */
 function buildBandStrip(stem) {
+  const strip = buildBandChips((band) => selectBand(stem, band));
+  strip.dataset.stem = stem;
+  return strip;
+}
+
+/**
+ * The five chips plus "all", wired to whatever wants to hear one band.
+ *
+ * Split out from `buildBandStrip` for the per-drum level, which solos a kick rather than
+ * a stem and so cannot use the lane key the stem version is built around. The chips, the
+ * labels and the frequency titles are the same five bands either way, and two copies of
+ * that list is how one of them comes to be missing a band.
+ */
+function buildBandChips(select) {
   const strip = document.createElement("div");
   strip.className = "band-strip";
-  strip.dataset.stem = stem;
 
   const bands = state.instruments?.bands ?? [];
   const chips = [
@@ -725,7 +756,7 @@ function buildBandStrip(stem) {
     button.dataset.band = chip.band;
     button.textContent = chip.label;
     button.title = chip.title;
-    button.addEventListener("click", () => selectBand(stem, chip.band));
+    button.addEventListener("click", () => select(chip.band));
     strip.appendChild(button);
   }
   return strip;

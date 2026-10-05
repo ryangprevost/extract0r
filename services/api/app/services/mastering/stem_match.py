@@ -26,6 +26,9 @@ from pathlib import Path
 
 import numpy as np
 
+from app.services.mastering.presence import ABSENT_BELOW_LU
+from app.services.mastering.presence import is_present as _present
+from app.services.mastering.presence import why_not
 from app.domain.notes import StemKind
 from app.services.mastering.dsp import (
     MatchSettings,
@@ -56,7 +59,7 @@ NEVER_WIDEN = (StemKind.BASS,)
 # stem at -60 LU or worse, and matching to it would ask for a -60 dB cut - silencing an
 # instrument the user does have because the reference happens not to. Below this
 # threshold the stem is treated as absent and left alone.
-ABSENT_BELOW_LU = -30.0
+
 
 # How far stereo width may be moved. Narrower than the level clamp on purpose: collapsing
 # a part to a quarter of its width is a drastic, obvious change, and separation artefacts
@@ -99,9 +102,13 @@ def has_counterpart(reference: StemProfile | None) -> bool:
 
     Separation returns a stem for everything the model knows, so "the reference has no
     piano" shows up as a piano stem tens of LU below its own mix rather than as a missing
-    file.
+    file. See `presence` for the threshold and for why it is written down once.
+
+    Asks about the reference alone, which is what its callers want when they are deciding
+    whether there is anything to copy. It is **not** enough to decide whether to match:
+    that needs both sides, and `match_stem` checks both.
     """
-    return reference is not None and reference.relative_lufs >= ABSENT_BELOW_LU
+    return reference is not None and _present(reference.relative_lufs)
 
 
 def profile_stems(
@@ -165,15 +172,29 @@ def match_stem(
     adjustment = StemAdjustment(stem=source.stem)
     out = np.asarray(samples, dtype=np.float64)
 
+    # Both sides, and it used to be one.
+    #
     # A reference that does not contain this instrument cannot say anything useful about
-    # it. Matching anyway would quietly delete a part the user actually played. The
-    # caller normally checks has_counterpart() first and mixes the stem proportionally
-    # instead; this is the backstop.
-    if not has_counterpart(reference):
+    # it, and matching anyway would quietly delete a part the user played. That half was
+    # here. The other half was not: a *source* that does not contain it has nothing for a
+    # correction to land on, and the correction is a gain. Measured on a real pair - the
+    # user's song has no guitar at -59.7 LU, the reference's guitar stem is residue at
+    # -22.7 which clears the threshold - matching asked for +37 dB and applied the +9 the
+    # clamp allowed, to an instrument nobody played. It was inaudible there only because
+    # the stem was already 50 LU down; a quiet real guitar in the same position gets an
+    # audible 9 dB of the wrong thing.
+    #
+    # `instrument.compare` and `critique` both already declined on either side. This was
+    # the one path that did not, which is why the rule now lives in `presence` instead of
+    # being written out three times.
+    reason = why_not(
+        source.relative_lufs,
+        reference.relative_lufs if reference is not None else None,
+        source.stem.value,
+    )
+    if reason:
         adjustment.matched = False
-        adjustment.notes.append(
-            f"the reference has essentially no {source.stem.value}"
-        )
+        adjustment.notes.append(reason)
         return out, adjustment
 
     if match_tone:

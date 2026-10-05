@@ -86,6 +86,26 @@ KITS: dict[str, dict[str, Voice]] = {
 
 DRUMS = ("kick", "snare", "hihat")
 
+#: Which kit voice a separated drum stem drives, where the names differ.
+#:
+#: `detect` labels a stroke "hihat" because it is deciding what the stroke contains.
+#: `separate` returns a stem called "cymbals" because that is honestly what DrumSep gives
+#: back - hats, rides and crashes together, in one file. Both names are right for what
+#: produced them, and `layer` renders only voices it has, so without this map a user who
+#: ticked hi-hat with per-drum separation on got **silence**, and every cymbal stroke the
+#: separation found was discarded.
+#:
+#: Pointing cymbals at the hat voice is a reinforcement of the cymbal family rather than a
+#: hi-hat replacement, and it is not free of compromise: a closed-hat sample laid over a
+#: crash is wrong. It is the right trade at this kit's resolution - the alternative is
+#: nothing at all, most cymbal onsets in a dense pattern are hats, and `blend` keeps the
+#: original underneath either way. Splitting hats from crashes needs a model that returns
+#: them separately, which LarsNet does and which was rejected on its licence.
+#:
+#: Toms have no voice in any kit, so a separated toms stem drives nothing and is left out
+#: rather than mapped to something it is not.
+VOICE_FOR_STEM = {"cymbals": "hihat"}
+
 
 def render_voice(voice: Voice, sample_rate: int, seed: int = 0) -> np.ndarray:
     """One drum hit, built from a swept tone and filtered noise."""
@@ -195,7 +215,7 @@ def layer(
         if start < 0 or start >= audio.shape[0]:
             continue
         for name in replaceable(hit):
-            sample = rendered.get(name)
+            sample = rendered.get(VOICE_FOR_STEM.get(name, name))
             if sample is None:
                 continue
             end = min(start + sample.size, audio.shape[0])

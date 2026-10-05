@@ -24,10 +24,11 @@ another card, ❌ not started.
 | [EPIC-10](#epic-10--mixdown--export) | Mixdown & export | 13 | 2 |
 | [EPIC-11](#epic-11--per-instrument-matching) | Per-instrument matching | 60 | 2 |
 | [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
+| [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 41 | 4 |
 
 EPIC-08 and EPIC-11 were carrying their *original* scope in this table (21 and 24) while
 cards kept being added underneath. Both are now the sum of the cards actually in them.
-Current sprint plan: [sprints/SPRINT-1.md](sprints/SPRINT-1.md).
+Current sprint plan: [sprints/SPRINT-2.md](sprints/SPRINT-2.md).
 
 ---
 
@@ -256,6 +257,12 @@ and X0R-405 and X0R-406 both have acceptance criteria parked waiting on this.
 Recording a few DI bass and guitar parts gives exact ground truth faster than licensing
 anything, and sidesteps the copyright question entirely.
 
+**One item added 2026-10-02**, from the Melodyne probe: **pitch accuracy in cents on a
+separated stem**, not only note-level F1. X0R-1320 reports how far a vocal sits from its own
+tuning reference and measured 4.0 / 14.0 / 26.0 cents across three records; it ships that as
+a caveated upper bound because nothing says what pYIN's own error through Demucs is. A DI
+bass and a sung DI vocal answer it at the same time as the note-level criteria above.
+
 ---
 
 ### X0R-307 · GPU path · 3 · `TODO`
@@ -440,6 +447,24 @@ measured honestly and was cut from that epic.
 
 Nothing shipping is wrong today, because nothing yet reads these times for their own sake.
 This is a card so that the next thing to try does not rediscover it.
+
+**Re-checked for sprint 2 and deliberately not sprinted.** The path that matters avoids it:
+`drums/separate._onsets` runs `backtrack=False` on purpose, with the reason in its docstring,
+and `find_hits`' backtracking remains correct for the triggering it was written for. Nothing
+in EPIC-13's stage 3B reads a hit time for measurement — the per-drum comparison reads
+continuous band energy and level from the sub-stem audio. This card is needed by the first
+card that measures *groove* (hat placement, swing, pattern comparison, programmed versus
+played), and it stays here as the tripwire for that card rather than as work to do now.
+
+**Re-measured 2026-10-02 on *pitched* stems, and it is four times worse there.**
+`PyinTranscriber.transcribe` calls the same detector with the same `backtrack=True`, so every
+note start it produces inherits this. Pairing the same onsets with and without backtracking
+across three records: bass moves a median 14–17 ms (SD 6–9, max 41) and **vocals a median
+23–29 ms (SD 13–17, max 75)**, against the 7 ms `DETECTOR_JITTER_MS` set from drums and a
+real microtiming signal of 5–50 ms. It is larger than the thing being measured and the SD
+says it cannot be subtracted as a constant. This card is therefore a **blocker**, not a
+dependency, for the pitched half of X0R-1322. See
+[PR0DUCER.md §10.4(b)](proposals/PR0DUCER.md).
 
 **Acceptance criteria**
 - A way to get hit times without backtracking, alongside the triggering-oriented ones.
@@ -1390,7 +1415,45 @@ timed in `docs/WALKTHROUGH.md`, so the remaining work is recording rather than a
 
 ---
 
-### X0R-1127 · Decline to match a stem your own mix does not contain · 2 · `TODO`
+### X0R-1318 · Compare instruments without being asked twice · 1 · `DONE`
+**As a** person who ticked instrument-by-instrument on the first screen **I want** the
+comparison already done when I arrive **so that** I am not asked for a decision I have
+already made.
+
+Reported directly: *"i want you to compare instruments automatically if i select it from
+the first screen. i dont want to have to click the button again on the second page."*
+
+**It is meant to work and it does not, for a one-line reason.** `upload()` computes
+
+```js
+const comparing =
+  (state.referenceSeparated && !state.usingProfile) || ...
+```
+
+at `app.js:512`, and `state.referenceSeparated` is assigned in exactly one place —
+`refreshPerStemState`, `app.js:1174` — which runs inside `afterReferenceUpload()` **ten
+lines later**. So on the upload path the flag is still at its initial `false` when the
+decision is made, the auto-run is skipped, and the user lands on a master page with an
+un-pressed button.
+
+The saved-profile path works, which is why this was not spotted: `state.profileHasInstruments`
+is set in the use-profile branch, before `comparing` is read.
+
+**Acceptance criteria**
+- Upload a song and a reference with instrument-by-instrument ticked. On arrival at the
+  master page the instrument cards are **already populated** — no button press, and the
+  "Compare instruments" button reads "Compare again".
+- The same is still true for a saved profile carrying instruments.
+- A reference loaded *without* instrument-by-instrument still does **not** auto-compare:
+  it costs a second separation the user declined.
+- Loading a reference later, from the master page, behaves as it does today.
+- The flag is read after it is written, or the ordering is removed as a thing to get
+  right. A second `state` field that has to be set before another one is read is how this
+  happened once.
+
+---
+
+### X0R-1127 · Decline to match a stem your own mix does not contain · 2 · `DONE` *(sprint 2)*
 **As a** person whose song has no guitar **I want** the matcher to leave it alone **so that**
 a reference's separation residue cannot become 9 dB of audible nothing in my master.
 
@@ -1577,3 +1640,571 @@ bass out of the sides, lift the air only on the sides — are not expressible.
   should read as one idea rather than two controls in different places.
 
 ---
+## EPIC-13 — pr0ducer (Phase 4)
+
+Proposed in [proposals/PR0DUCER.md](proposals/PR0DUCER.md) and re-scoped there on 2026-10-02
+after X0R-414 shipped. Two experiments were run before any card was written and both changed
+the shape: [Experiment 1](proposals/EXPERIMENT-1-RESULTS.md) (the fingerprint, read cold)
+cut stage 1 from 8 points to 5 and deleted its user-facing card;
+[Experiment 2](proposals/EXPERIMENT-2-RESULTS.md) measured that **processing gets you tone,
+never groove** — the drum layer moves the tonal gap to a reference by at most 0.09 dB and
+places zero new grid positions.
+
+**The epic's governing sentence, so no card in it drifts:** this is a *re-production*, not a
+remix. Every move is a stated fraction of a stated measured gap, with the sentence that
+produced it. The thing that literally does "remix the source in that style" is Suno's Cover
+feature; it ships, it replaces your recording with a new one, and this is not it.
+
+**Not in this epic, reasons on the proposal:** a genre label (§3 — genre has no acoustic
+referent, and the precedent is this project's refusal to measure saturation), guitar or vocal
+re-performance (§4 — synthesis cannot reach an amplified guitar), re-sequencing or tempo
+change (§1(c) — measuring where the reference's kick sits is a measurement, moving the user's
+kick there is composition), and shipping recorded samples (the licensing position in
+`kit.py`).
+
+| Stage | What | Pts | State |
+|---|---|---|---|
+| 0 | X0R-306, the benchmark | 5 | `TODO`, in EPIC-03. Gates stage 5 only. |
+| 1 | The reference fingerprint | 5 | `TODO`, deferred twice. Conditional on X0R-1307/1308. |
+| 2 | Genre as a hedge | 5 | `NON-GOAL`. Three documents running. |
+| 3 | Re-produce: the processing half | 8 | `TODO`. X0R-1306 holds the measured headroom. |
+| **3B** | **Compare drum to drum** | **11** | **sprint 2** |
+| 4 | Re-perform: drums only | 6 | `TODO`. Ungated as of X0R-414, re-scoped. |
+| 5 | Re-perform: bass only | 6 | `TODO`, gated on X0R-306 passing. |
+| **6** | **Note-level comparison** (the Melodyne ask) | **15** | `TODO`. 5 of it buildable today; see below. |
+
+**Stage 6 was added 2026-10-02**, on Ryan's request for *"comparisons with functionality from
+melodyne"*. [PR0DUCER.md §10](proposals/PR0DUCER.md) carries the research and a probe of its
+own. The short version: Melodyne's headline — DNA Direct Note Access — is patented, has no
+open equivalent, and is **not needed**, because its required input is a single-instrument
+recording, which separation already produces. What the ask is actually worth is the
+*representation*: notes with a position, a pitch and a length. Of four candidate comparisons,
+two are reachable now (**X0R-1320**, 3, and **X0R-1321**, 2), one is the most valuable card in
+the epic and is blocked (**X0R-1322**, 5), and the blocker is a grid that the probe measured to
+be wrong on both live-drummed records it tried (**X0R-1319**, 5). Note length, vibrato, key
+agreement, polyphonic note comparison, pitch correction and quantising are all refused, with
+reasons, in §10.5.
+
+Sprint 2 is 13 points: this stage's 11 plus X0R-1127 (2), which belongs to EPIC-11 and is
+pulled in because it is the presence rule stage 3B mirrors four ways.
+
+Stage 3B is the sprint-2 work: [sprints/SPRINT-2.md](sprints/SPRINT-2.md) carries its three
+design decisions (sub-drums are a nested level and **not** `StemKind` members; four
+dimensions per drum rather than six; the profile carries them) and the full acceptance
+criteria.
+
+---
+
+### X0R-1314 · Your kick against their kick · 5 · `DONE` *(sprint 2)*
+**As a** person comparing my drums with a record's **I want** my kick measured against their
+kick **so that** the advice is about an instrument rather than about a sum.
+
+The drum bus is three instruments playing different things in different registers, averaged
+into one number that describes none of them. "The reference's drums have 2.1 dB more weight"
+cannot say whether the kick needs sub or the snare is too thin, which is the only form in
+which the advice can be taken. X0R-414 returns kick, snare, cymbals and toms as audio, so
+`instrument.compare` can go one level in — and that comparison is the thing this product is
+uniquely good at. Ozone cannot compare your snare with their snare at all; this goes a level
+below the snare.
+
+**Sub-drums are a nested level inside the drums row, not `StemKind` members.** `StemKind` is
+load-bearing in 21 modules under `app/`: the separation backends map a model's outputs onto
+it, the transcription backends are chosen by it, `domain/tab/x0r.py` writes it into every
+export, `StemSetting` is keyed by it. One consequence decides it on its own — `pipeline.run`
+builds an `untouched` sum of *every* separated stem and `_apply_as_correction` subtracts it
+from the original, so sub-drums as members would put the drums into that sum twice.
+
+**Four dimensions, not six.** Level (relative to the drums stem, so it reads as balance
+inside the kit), tone in the five existing bands with `QUIET_BAND_DB` refusing a lift into a
+band the drum does not live in, dynamics, and punch — crest is the most diagnostic figure on
+a kick, click against thud, and it is precisely what a bus comparison destroys by averaging.
+**Pan and width are offered on cymbals and toms only.** `NEVER_MOVE_SIDEWAYS` exists because
+a bass belongs in the middle; a kick and a snare belong there for the same reason, and
+`MIN_MEANINGFUL_WIDTH` already refuses a ratio between two near-mono stems.
+
+**Presence is a criterion, not an afterthought.** A record with no toms still yields a toms
+stem: 24 tom strokes in 28 seconds were measured on a programmed electro-house record, which
+is residue. A sub-drum is called present on its energy relative to the drums stem — the same
+rule `ABSENT_BELOW_LU` applies against the mix — and **never on a stroke count**, because
+`separate.QUIET_STROKE_DB` has no knee on the snare, whose counts run from 4 to 45 across the
+gate's range.
+
+**Acceptance criteria** (full text in the sprint plan; all checkable in a browser, and none
+of them asks QA to listen)
+- The Drums card shows a closed, named expander saying how many drums were measured.
+- Opening it reveals four sub-rows with their own findings and dials, or a stated reason for
+  having none; the drums stem's own findings stay unchanged above them.
+- Every number on a sub-row matches the comparison job's JSON for that sub-drum.
+- No pan or width row on kick or snare, under any pair.
+- A sub-drum absent on either side names which side and offers no dials.
+- "▶ yours" and "▶ theirs" play that drum alone; the X0R-1124 band chips apply to it.
+- Every finding carries the bleed caveat with its own figure.
+- Without the weights the Drums card behaves exactly as it does today.
+- A profile captured from a per-drum-separated reference contains the four sub-drums'
+  measurements.
+
+---
+
+### X0R-1315 · Take a per-drum suggestion · 3 · `DONE` *(sprint 2)*
+**As a** person who agrees with a per-drum finding **I want** to take it **so that** the
+comparison is advice rather than trivia.
+
+Moving the kick inside a summed drums stem means the four sub-stems plus the residual that
+separation left behind: apply each sub-drum's accepted move to its own sub-stem with the
+existing `StemShape`, re-sum with the residual, and hand the result to the pipeline as the
+drums stem. The same "apply the change, not the sum" approach `_apply_as_correction` uses for
+the six-way split, one level further in.
+
+**Acceptance criteria**
+- The master report names the sub-drum a move was made on and the dB applied.
+- The export differs in the drums from one with that dial at zero, and the other three
+  sub-drums measure unchanged in a fresh comparison of the export.
+- **A master with every per-drum dial at zero is identical to one exported with per-drum
+  off.** Reconstruction must not change the drums when nothing was asked for. Not negotiable.
+- Per-drum dials clamped by the same limits the stem dials are.
+- A sub-drum called absent has no dial at all, rather than a dial at zero.
+- The live monitor responds to a per-drum dial, or the card says the dial is render-only.
+  Silently doing nothing is not acceptable.
+
+---
+
+### X0R-1317 · A profile remembers their kick · 2 · `DONE` *(sprint 2)*
+**As a** person who keeps coming back to one reference **I want** its drums measured once
+**so that** I do not pay a second separation every time I aim a song at it.
+
+The reference side of a per-drum comparison costs a DrumSep pass — about half the audio's
+length again on CPU. `snapshot` / `from_snapshot` / `SNAPSHOT_FIELDS` is the mechanism that
+already avoids this for stems, and X0R-1125 is the card that did it. This is the same card
+one level in. X0R-1314 puts the sub-drums into the snapshot *format*; this one is the capture
+and reuse flow, so that dropping it costs the convenience and not the format.
+
+**Acceptance criteria**
+- The save box states, before the click, whether per-drum measurements will be included, and
+  how to change it when they will not.
+- A profile holding them says so in its picker row, distinct from "N instruments" and from
+  "whole mix only".
+- A fresh song aimed at such a profile reaches the per-drum comparison with **no** separation
+  of the reference, and all four sub-rows show findings and dials.
+- "▶ theirs" is absent on the sub-rows — not present-and-disabled — with one line saying a
+  profile keeps measurements, not music. Same rule the stem rows already follow.
+- A profile saved before this change still drives the whole-mix and per-stem comparison, and
+  the per-drum expander is absent or refused with a reason. Never empty, never broken.
+
+---
+
+### X0R-1316 · The drum panel says which drums it found · 1 · `DONE` *(sprint 2)*
+**As a** person laying a kit over my drums **I want** to know which mechanism ran and what it
+cannot do **so that** I am not waiting for the groove to change.
+
+X0R-414 shipped behind `DRUMSEP_ENABLED` with no surface at all. The panel still says the kit
+"finds each kick, snare and hi-hat in the drum stem", which is one sentence describing two
+mechanisms with different failure modes — separation where the weights are present, the
+band-rise classifier where they are not.
+
+**And a defect against X0R-414, recorded here rather than as its own card.** The hi-hat
+checkbox is dead on the separated path: `kit.DRUMS` is `("kick", "snare", "hihat")`,
+`separate.STEM_NAMES` produces `cymbals`, and `kit.layer` renders only names present in both.
+A user who ticks hi-hat with per-drum separation on gets silence, and the 56 cymbal and 24 tom
+strokes found per 28 seconds are all discarded. The fix belongs with this card because the
+honest label and the working box are the same question.
+
+**Acceptance criteria**
+- The panel says which route it took on this machine and what that changes.
+- When per-drum separation is unavailable it says what is missing, in the words
+  `separate.why_unavailable` already produces.
+- The hi-hat box is honestly labelled for what the cymbals stem contains, or disabled with the
+  reason. A ticked box producing no sound is a defect against this criterion.
+- The panel states that laying a kit reinforces the strokes already there and moves none of
+  them, with the measured figure behind it.
+
+---
+
+### X0R-1301 · Rhythmic fingerprint of a reference · 3 · `TODO`
+Kick, snare and hat times placed against a beat grid re-derived from the drums. Counts and
+percentages, never adjectives. Prototyped in `app/services/analysis/fingerprint.py`
+(`grid_from_drums`, `refine_grid`) during Experiment 1 and wired to nothing.
+
+**Two constraints the proposal did not carry, both found by experiment.** The grid must be
+re-derived from the kicks and snares rather than the mix — `choose_tempo` on the whole mix
+returned 64.6 BPM against a true 128.9, and the documented tie-break is why. And any figure
+compared *between* two files must be read against **one** grid: six bounces of the same audio
+re-estimated six different tempos at confidences of 0.60–0.67. Drop "snare on N of M
+backbeats" from the card text until the snare detector earns it — a snare claimed on 73% of
+all beats is cross-triggering.
+
+**Blocked on X0R-1319 as of 2026-10-02.** The Melodyne probe took the grid work prototyped
+here to two live-drummed records and it failed on both: 66.30 BPM against ~132.7, metre 3/4
+on a 4/4 record, and a flat kick histogram at every octave. Experiment 1's octave fix works
+because a halved four-on-the-floor grid has empty beats; a rock backbeat fills them. Every
+rhythmic figure in this card is downstream of that. See
+[PR0DUCER.md §10.4(a)](proposals/PR0DUCER.md).
+
+---
+
+### X0R-1302 · Instrumentation census · 1 · `TODO`
+Which of the six stems carry real content, in dB relative to the mix, with the threshold
+stated and the residue caveat written on the card. The −30 LU threshold is right for its job
+in `instrument.py` ("do not match to residue") and wrong for the census's job ("say what is
+on the record"): it called guitar present on a record with no guitar.
+
+**The programmed-versus-played half is cut.** It cannot be measured honestly — the detector
+contributes 1–7 ms to a figure whose whole signal is a few milliseconds, and the ranking of
+two records reversed when the timestamps were fixed. Shipping it would be the X0R-407 failure
+the proposal cites as the house precedent.
+
+---
+
+### X0R-1303 · The fingerprint card · ~~2~~ 0 · `NON-GOAL`
+Cut by Experiment 1. Read cold, the card is four lines of things you already knew plus one
+line that is wrong. The two figures that carried information — hat placement, and whether the
+bass plays through the kick — are *inputs to processing*, not reading material.
+
+---
+
+### X0R-1304 · The fingerprint travels in a reference profile · 1 · `TODO`
+Extend `ReferenceProfile`. All scalars, so `profile.py`'s "a profile contains no audio and
+cannot be played" argument is untouched.
+
+---
+
+### X0R-1305 · Three guesses and a score · 5 · `NON-GOAL`
+A genre classifier. Feasible on the `onnxruntime` already installed, and feasibility is not
+the question: genre is a social and commercial category, not an acoustic property, and
+"Electronic / House, 0.82" is a well-calibrated statement about a Discogs field that a user
+will read as a measurement of their audio. The same call this project already made about
+saturation, and genre is the weaker case. Neither experiment wanted a label, and the two
+figures that carried information are both ones a label would have obscured.
+
+---
+
+### X0R-1306 · A strength budget instead of a constant · 3 · `TODO`
+`CLOSE_FRACTION`, `MAX_LEVEL_DB`, `MAX_BAND_DB` and `WIDTH_LIMITS` become one user-set
+budget; today's values are the default and labelled *nudge*, and each wider notch says in dB
+what it permits. `LIKELY_ARRANGEMENT_DB` stays a flag at every setting.
+
+**It must be the clamps, not `match_strength`.** Experiment 2 measured both: the whole
+`match_strength` sweep from 0.4 to 1.0 buys 0.56 dB of mean spectral distance against this
+project's own 1.2 dB threshold for a meaningful gap, because `strength` scales an
+already-clamped curve and is clipped at 1.0. Doubling the clamps buys 1.07 dB more, removing
+them 2.15 dB. A budget slider wired to `match_strength` would ship a control that cannot do
+anything, and it is the obvious way to build this card wrong.
+
+---
+
+### X0R-1307 · Suggestions the fingerprint makes possible · 2 · `TODO`
+Observations the app cannot currently make because it never looked: the reference's offbeat
+hats sit 19 ms ahead of the beat midpoint and yours sit 7 ms behind; the reference's bass is
+ducked to its kick and yours is written in the gaps. In the existing card form, each with its
+measurement attached.
+
+It gains a reason from Experiment 2: these figures are now *proven* to be ones no control in
+the pipeline can act on, so reporting them is the only honest thing available. The card
+should say that rather than implying a dial is coming.
+
+---
+
+### X0R-1308 · Sidechain duck from the measured kick · 3 · `TODO`
+The most genre-defining process the app lacks, and measurable: kick times, with depth and
+recovery from comparing the reference's bass envelope around its own kicks against the
+source's — against a control measurement at kick-free grid positions, without which the
+figure is mostly note envelope.
+
+**Design the abstention in as the common path.** The figure abstained on one of two tracks in
+Experiment 1 and on six of seven files in Experiment 2, because the per-kick dips varied by 8
+to 18 dB, more than one compressor would produce. X0R-414 gives it cleaner kick times, which
+is not why it abstained, so this is improved and not fixed.
+
+---
+
+### X0R-1309 · Kits chosen by fingerprint, not by dropdown · 2 · `TODO`
+Picks one of the three kits and sets `drum_blend` from the reference's measured drum
+character — decay length, transient sharpness, sub energy — and says in a sentence why. The
+dropdown stays. Needs stage 1. Ungated as of X0R-414 and still not worth leading with: its
+ceiling is one of three synthesised kits, and the measured move is ~0.09 dB.
+
+---
+
+### X0R-1310 · A tom voice · 2 · `TODO`
+Re-scoped from "More voices, same synthesis · 3" on 2026-10-02. One `Voice`: toms, tuned
+against measurements the way the three existing ones were. A tom is a pitched membrane, the
+same family as the kick, and where synthesis is in its element.
+
+**Ride, crash, clap and rimshot are retracted.** DrumSep returns a single `cymbals` stem
+holding hats, rides and crashes together, so they cannot be voiced apart — the model that
+splits hi-hat out is LarsNet, rejected on its CC BY-NC weights and its synthesised training
+set (X0R-414). And a 35–130 ms filtered noise burst is a credible closed hat and not a
+credible crash: shipping one would be this epic's version of the synthesised guitar the
+proposal refuses to ship.
+
+**Parked behind X0R-1314's sub-drum presence test.** 24 tom strokes were measured in 28
+seconds on a record that has no toms. Built first, a tom voice puts synthesised toms on
+records that have none.
+
+---
+
+### X0R-1311 · Pattern observation, never pattern replacement · 2 · `TODO`
+Report the grid positions where the reference's kick lands and the source's does not, and
+offer to *add* a synthesised hit there — low blend, opt-in per position, count shown.
+
+**Buildable as of X0R-414**, where it was not before: the kick returns 60 strokes at every
+gate from −6 to −30 dB, so the count is solid. Deliberately still out of sprint 2. It is the
+only card in this epic that places a drum where the user did not play one, and it needs both
+files read against **one** grid or it measures the ruler rather than the music. Adding a
+measured hit the user accepts one at a time is a nudge; doing it in bulk is composing his
+song for him, and that is stage (c), which is out.
+
+---
+
+### X0R-1312 · A synth bass patch set · 3 · `TODO` *(gated on X0R-306)*
+Three patches in the `Voice` idiom — oscillator choice, filter envelope, glide — tuned against
+measured spectra of real bass parts the way the kicks were.
+
+---
+
+### X0R-1313 · Layer a synth bass under the transcribed line · 3 · `TODO` *(gated on X0R-306 passing)*
+Layered, never replacing, with level from the stem's own envelope so dynamics survive, and
+muted wherever pYIN's note confidence is below threshold — an uncertain passage gets the
+original bass alone rather than a confident wrong note.
+
+**Carries its own kill criterion:** if X0R-306 reports worse than 95% note accuracy or any
+octave error on clean DI bass, this card is not built. A wrong EQ move is a slightly wrong EQ
+move; a synth note at the wrong pitch is a wrong note, and no patch design rescues one.
+
+
+---
+
+### X0R-1319 · A grid that survives a live drummer · 5 · `PARTIAL` · **affects shipped tab**
+**As a** person comparing my band's record with someone else's **I want** the bar lines to be
+in the right place on both **so that** a timing figure is about the playing and not about the
+ruler.
+
+Added 2026-10-02 from the Melodyne probe in [PR0DUCER.md §10.4(a)](proposals/PR0DUCER.md),
+then **re-scoped the same day on a shipped-feature finding the probe did not look for.**
+
+**This is not only a pr0ducer prerequisite. It is a live defect in transcription.**
+`ascii_tab.py:59` and `drum_tab.py:59` both place every column with
+`quantize(start_s - first_beat_s, tempo_bpm, division)`. A wrong tempo does not degrade a
+tab, it rewrites it — every note lands in the wrong column, and at a halved tempo the bar
+lines fall in the wrong place as well.
+
+Verified independently of the probe, on the shipped path, same 28 s window:
+
+**Correction, 2026-10-03.** The probe reported Special When Lit's true tempo as ~132.7
+and concluded the error was 3:2 rather than an octave. **That ground truth does not
+hold.** Three independent estimators — onset-envelope autocorrelation,
+`librosa.feature.tempo`, and `beat_track` — agree on ~99.4 for that record once folded
+into one octave. There is no 3:2 error, `octave_variants` *does* contain the right
+answer, and a 4/3 factor would have been chasing a bug that does not exist. Both failures
+are octave errors, in opposite directions:
+
+| track | truth (3 estimators agree) | returned | confidence |
+|---|---|---|---|
+| MSTRKRFT *Bounce* (programmed) | 129.2 | **64.60** — halved | 0.576 |
+| Special When Lit (live) | 99.4 | **198.77** — doubled | 0.570 |
+| blink-182 *Edging* (live) | 147.7 | 147.66 ✅ | 0.611 |
+
+**The confidence is 0.57–0.61 on all three**, so it does not separate a right answer from
+a wrong one and nothing downstream can gate on it.
+
+**What is fixed (2026-10-03): the halving.** `score_tempo`'s tolerance was a fraction of
+the beat period, so a halved grid caught anything within 139 ms where the true one caught
+70 — the wrong grid was scored on an easier test. `MAX_TOLERANCE_S = 0.060` caps it, and
+`best_offset` uses the same cap so the offset search and the scorer agree. MSTRKRFT now
+returns **129.20**; blink is unchanged at 147.66; 43 timing tests pass, and the four new
+ones fail with the cap removed.
+
+**What is not fixed: the doubling.** Special When Lit still returns 198.77 against a
+truth of 99.4. The cap cannot help — it removes a bias toward *slower* grids, and this is
+the opposite error. Recall is supposed to punish a doubled grid for the empty beats it
+invents, and on dense material there are none: 196 onsets in 28 seconds is about two per
+beat even at the doubled tempo, so every beat is occupied either way.
+
+Strength-weighting the score was tried — a beat is where the *accented* events land, so
+at double tempo half the beats should catch only weak onsets. It did not separate them
+and it made MSTRKRFT worse. **Abandoned deliberately rather than tuned**: three
+recordings is not enough to fit a scoring function against, and the next step would have
+been overfitting. Octave ambiguity on dense material is a known-hard problem in the
+literature, and what it needs is X0R-306's eval set, not another guess.
+
+**So the honest state is one of two octave failures fixed**, and the remaining one
+measured, named, and reproducible. A user transcribing a dense live record can still get
+a doubled grid.
+
+It is a prerequisite as well: **X0R-1301, X0R-1307, X0R-1311 and X0R-1322 all read a
+grid, and on live-drummed material the grid is wrong in three different ways at once.**
+Measured on two live records and one programmed control, 28 s each:
+
+| | shipped grid | actual | grid conf | kick histogram |
+|---|---|---|---|---|
+| programmed electro | 128.91 BPM, 4/4 | 128.9 | 0.881 | `13 0 0 0 · 12 0 0 0 · 15 0 0 0 · 12 0 0 0` |
+| live rock A | **66.30 BPM** | ~132.7 | 0.486 | `3 6 7 4 · 7 4 4 6 · 5 4 3 0 · 6 5 5 4` |
+| live rock B | **147.58 BPM, 3/4** | ~147.3, 4/4 | 0.546 | twelve steps, unreadable |
+
+1. **The octave.** Experiment 1's fix — run `choose_tempo` on the kicks and snares rather
+   than the whole mix — works because a halved four-on-the-floor grid has empty beats that
+   recall punishes. A rock backbeat fills every beat of the halved grid too, so the fix does
+   not generalise and the shipped path returns half time at a confidence that clears
+   `MIN_GRID_CONFIDENCE`.
+2. **The metre.** 3/4 on a 4/4 record. X0R-407 made metre return zero *confidence* without
+   an accent; it still returns a number, and every histogram is indexed by it.
+3. **The drift, which is the part no octave fix reaches.** Fitting the drum anchors to each
+   half of the clip separately: 0.00 BPM of drift on the programmed record, 0.61 and 0.97
+   BPM on the live ones — and the median distance of a drum hit from its own best-fit
+   sixteenth is **5.7 ms programmed against 23.3 and 30.5 ms live**, on steps of about
+   110 ms. Musically meaningful microtiming is 5–50 ms, so on a live record the grid's own
+   residual is the same size as the thing a groove card would report.
+
+**Acceptance criteria**
+- A tempo per bar, not per clip — a tempo map — fitted to the drum anchors, with the
+  per-bar figure available to anything that reads a grid.
+- On a record whose tempo drifts, the median distance of a kick or snare from its nearest
+  sixteenth drops to the programmed record's order of magnitude, and the figure is reported
+  so the improvement is visible rather than asserted.
+- The octave decision is re-checked on material with a drum on every beat, and a reading it
+  cannot resolve comes back at **zero** confidence rather than at 0.486 — the X0R-407 rule,
+  applied to tempo.
+- Metre either resolves or abstains; a histogram is never rendered against an unresolved
+  metre.
+- A clip the grid cannot lock is said so plainly, and every figure downstream abstains
+  rather than being computed against it.
+- Tested against at least one live-drummed and one programmed record, with the before and
+  after numbers written down.
+
+**Out of scope.** Tempo *editing* by the user. Any timing comparison — that is X0R-1322.
+Beat tracking replaced wholesale with a different library; the failure here is in the
+choosing and the fitting, not in librosa's onset envelope.
+
+---
+
+### X0R-1320 · Is their vocal tuned, and to what · 3 · `TODO`
+**As a** person comparing my vocal with a record's **I want** to know whether that record
+was pitch-corrected **so that** I stop trying to reach a sound that came from an editor.
+
+Added 2026-10-02 from [PR0DUCER.md §10.4(c)](proposals/PR0DUCER.md), and it is the most
+reachable Melodyne-shaped comparison available: it reads pYIN's **frame-level f0 contour,
+not notes**, so it needs no note segmentation, no note offsets, no onset detector and **no
+grid**. Measured on three records at 2-cent resolution, after removing each record's own
+tuning reference:
+
+| | A4 of the record | median \|cents\| from its own tuning | IQR |
+|---|---|---|---|
+| modern major-label rock vocal | 439.8 Hz | **4.0** | 8.0 |
+| indie rock vocal | 444.9 Hz (+19 cents) | **14.0** | 26.0 |
+| rapped vocal | 442.4 Hz | 26.0 | 51.5 |
+
+2,900–4,300 voiced frames per 28 s, and the ordering is stable across a fivefold change of
+analysis resolution. **Removing the record's own tuning reference is part of the measurement,
+not a refinement** — these three records are tuned to three different A4s, and without that
+step a record tuned sharp reads as a singer who is sharp.
+
+**Acceptance criteria**
+- Both sides' pitched stems report a **tuning reference** — the record's own A4 in Hz, and
+  the cents it sits from 440 — with the frame count it came from.
+- Both sides report the spread around that reference: median and a high percentile of
+  absolute cents, with the sample size, in the existing finding form.
+- The finding is an **observation with no dial**. There is no control that acts on it, and
+  the card says so rather than implying one is coming — the X0R-1307 rule.
+- **It abstains on a vocal that is not sung.** A rapped or spoken vocal is not out of tune;
+  the gate and its threshold are stated on screen.
+- The wording is "how close to the grid this vocal sits", never "how well this person sings".
+  Vibrato and portamento inflate the figure and cannot be separated out — the probe's
+  §10.4(e) finding is that vibrato cannot be measured at all here — so the caveat ships on
+  the finding.
+- The figure is presented as an **upper bound**: separation artefacts add spread rather than
+  remove it, so *theirs is tighter than yours* is supported where *yours is 14 cents out* is
+  not.
+- The cost is stated before the run: about 5 s per pitched stem per side at the default
+  resolution, about 30 s at the 2-cent resolution the figures above used.
+
+**Out of scope.** Any correction, tuning or retuning of anything — see the refusals in
+§10.5; this is the card whose obvious sequel is off-brief. Vibrato (§10.4(e)). Per-note
+pitch; this is a contour measurement. Guitar, piano or `other` — polyphonic, and refused
+until X0R-306.
+
+**Not gated on X0R-306 to build.** It inherits pYIN's pitch accuracy and none of its note
+segmentation. X0R-306 is what would let the card state a confidence instead of a caveat.
+
+---
+
+### X0R-1321 · How much space their parts leave · 2 · `TODO`
+**As a** person comparing arrangements **I want** to know how often each part plays **so
+that** "their mix sounds less busy" becomes a number.
+
+Added 2026-10-02 from [PR0DUCER.md §10.4(d)](proposals/PR0DUCER.md). Median inter-onset
+interval per stem, both sides. Measured on bass: **186 ms** on one record, 302 on another,
+441 on a third — "their bass plays twice as often as yours" is an observation about
+arrangement density that this app has never been able to make.
+
+**Why the interval and not the note.** It needs **no grid**, so none of X0R-1319 applies to
+it, and it is robust to the error that wrecks absolute placement: the onset detector's
+`backtrack` shift is 15–31 ms on a pitched stem (§10.4(b)) and **cancels in the difference
+between consecutive onsets**.
+
+**Acceptance criteria**
+- Median inter-onset interval per stem, both sides, with the onset count it came from.
+- Onsets per bar as well, where the grid is usable, abstaining where it is not — this
+  overlaps X0R-1302's census, which is prototyped in `analysis/fingerprint.py` as
+  `_onsets_per_bar`; whichever lands second reuses the first rather than computing it twice.
+- Observation only, no dial.
+- Absent stems abstain rather than reporting the onset count of separation residue — the
+  X0R-1127 rule.
+
+**Out of scope.** **Note length, legato and staccato are refused**, not deferred. Measured
+legato ratios came back at exactly 1.000 on one record (a ceiling artefact of abutting
+notes), 0.946 with an IQR of 0.158 on another, and 0.757 with an **IQR of 0.592** on a
+third, where the spread is wider than the whole difference between legato and staccato. Note
+offsets are the least reliable quantity in transcription, which is why the field reports
+F-measure and F-measure-no-offset separately. Note *counts* are also out: they depend on
+segmentation thresholds nobody has benchmarked, and the median interval does not.
+
+---
+
+### X0R-1322 · Note timing against the grid, yours against theirs · 5 · `TODO` *(blocked on X0R-1319 and X0R-412)*
+**As a** person who can hear that a record feels tighter than mine **I want** the difference
+in milliseconds **so that** I know whether it is the playing or the production.
+
+Added 2026-10-02 from [PR0DUCER.md §10.4(a)](proposals/PR0DUCER.md). **This is the most
+valuable card in EPIC-13 and it is not buildable yet.** Experiment 2 measured that
+processing gets you tone and never groove, so note-level timing is the only route to the
+half of "sounds like that record" the product cannot currently touch. Melodyne's whole
+premise is that notes have positions; this is the comparison that premise makes possible,
+and it needs no DNA, no patent and — in its first phase — no transcription at all.
+
+**Two phases, and they have different feasibility.**
+
+*Phase one, percussive.* Per-drum onsets from the sub-stems X0R-1314 produces.
+`drums/separate._onsets` already runs `backtrack=False` deliberately, so the times mean what
+they say. Each drum's distribution of distance-from-grid, yours against theirs, with the
+sample size: *their kick sits a median 4 ms from the sixteenth, yours 19.*
+
+*Phase two, monophonic pitched.* The same figure for bass and lead vocal, which is where a
+record's push or drag lives. **This phase needs X0R-412 first and is not merely improved by
+it:** the onset detector's `backtrack` contributes 15–31 ms on a pitched stem with an SD of
+6–17 ms and a maximum of 75 ms (§10.4(b)), against `DETECTOR_JITTER_MS = 7.0` on drums and a
+real microtiming signal of 5–50 ms. It is larger than the thing being measured and it is not
+a constant that can be subtracted.
+
+**Why it is blocked on X0R-1319 as well, and this is the harder gate.** A comparison of two
+records needs two independently estimated grids — unlike Experiment 2, which compared six
+bounces of one song and could use one shared ruler. On the two live-drummed records tested
+the grid came back at half time, at the wrong metre, and with a constant-tempo residual of
+23–30 ms, which is inside the signal. Built before X0R-1319, this card reports the grid's
+error as the drummer's feel.
+
+**Acceptance criteria** — none of them writable until the two gates clear, listed so the
+shape is agreed
+- Per-drum and per-pitched-stem distance-from-grid distributions, both sides, with sample
+  sizes and the grid confidence that produced them.
+- **Abstains outright where either side's grid is unresolved**, rather than reporting a
+  figure against a grid that failed. The whole card is downstream of X0R-1319's honesty.
+- The detector's own contribution is stated alongside every figure, in the same units, so a
+  reader can see when the measurement is smaller than its error bar — the
+  `DETECTOR_JITTER_MS` precedent.
+- Observation only. **No dial, ever.** Reporting where their kick sits is a measurement;
+  moving the user's kick there is quantising, which is §1(c) and out.
+- Tested on at least one live-drummed pair, since that is the case the whole card exists for
+  and the case every grid in the codebase currently fails.
+
+**Out of scope.** Quantise, groove transfer, swing imposition, nudging anything. Note length
+(X0R-1321). Guitar, piano and `other`, which need polyphonic transcription and are refused
+in §10.5.

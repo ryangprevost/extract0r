@@ -31,7 +31,18 @@ async function refreshProfilePanels() {
   // is whole-mix-only is a worse moment than being told before the click.
   const what = document.getElementById("profile-what");
   if (what) {
-    what.innerHTML = state.referenceSeparated
+    // One level further in, and said separately because it is a separate thing the user
+    // may or may not have done: splitting the reference's drums into four happens only
+    // if they ran the drum-by-drum comparison. A profile that carries them is the
+    // difference between that comparison being instant on the next song and costing a
+    // second pass over a reference whose audio is not kept.
+    const drums = state.referenceDrumsSplit
+      ? " Its drums have been split into kick, snare, cymbals and toms, so <strong>those "
+        + "four go in as well</strong> and the next song aimed at this profile reaches "
+        + "the drum-by-drum comparison with nothing to wait for."
+      : " Its drums have not been split into four, so the drum-by-drum comparison will "
+        + "not be in it. Run that comparison on the master page first if you want it.";
+    const base = state.referenceSeparated
       ? "Measures it once and stores the numbers — a spectrum, a width profile, a "
         + "loudness, two peaks, <strong>and each of its instruments</strong>. No audio, "
         + "and enough to aim any future mix at this song — including instrument by "
@@ -41,6 +52,7 @@ async function refreshProfilePanels() {
         + "mix at this song's overall tone. This reference has not been separated, so "
         + "its instruments will not be in it; turn on instrument-by-instrument matching "
         + "above first if you want them.";
+    what.innerHTML = base + (state.referenceSeparated ? drums : "");
   }
 
   if (state.referenceLoaded) {
@@ -99,6 +111,10 @@ function describeProfile(profile) {
       ? `${profile.instruments.length} instruments`
       : "whole mix only",
   );
+  // A third state, and distinct from both of the above: six stems *and* the four drums
+  // inside one of them. Rare, so it is worth calling out rather than folding into the
+  // instrument count.
+  if (profile.per_drum) bits.push(`${profile.drums.length} drums`);
   if (profile.captured_at) bits.push(`measured ${profile.captured_at.slice(0, 10)}`);
   return bits.join(" · ");
 }
@@ -126,6 +142,11 @@ async function saveProfile() {
     // Say which kind was written. The difference is not the user's fault and not visible
     // from anything they did - it depends on whether this track's reference happened to
     // have been separated - so leaving them to discover it later would be a trap.
+    const andDrums = result.per_drum
+      ? ` Its drums are in there too, split into ${result.drums.length} — so the next `
+        + "song aimed at this reaches the drum-by-drum comparison with no second split "
+        + "of either side."
+      : "";
     saved.textContent = result.per_stem
       ? `Saved “${result.name}” — ${(result.bytes / 1024).toFixed(1)} KB of measurements, `
         + `including all ${result.instruments.length} of the reference's instruments. Any `
@@ -135,6 +156,7 @@ async function saveProfile() {
         + "Any future mix can aim at this without the audio, for overall tone. This "
         + "reference was not separated, so there are no instruments in it; separate it "
         + "and save again to include them.";
+    saved.textContent += andDrums;
     saved.hidden = false;
     input.value = "";
   } catch (error) {
@@ -164,11 +186,16 @@ async function useProfile(profile, row) {
     // is unavailable, and there is nothing new to measure, so saving is pointless.
     state.usingProfile = true;
     state.profileHasInstruments = !!result.per_stem_available;
+    // Read by the drums card: a profile that carries the four drums reaches the per-drum
+    // comparison with only this song's own drums left to split.
+    state.profileHasDrums = !!result.per_drum_available;
     state.upfrontReference = { name: result.name };
 
-    const reach = result.per_stem_available
-      ? ` · ${result.instruments.length} instruments measured`
-      : " · whole mix only";
+    const reach =
+      (result.per_stem_available
+        ? ` · ${result.instruments.length} instruments measured`
+        : " · whole mix only") +
+      (result.per_drum_available ? ` · ${result.drums.length} drums` : "");
     document.getElementById("ref-hint").textContent =
       `aiming at the saved profile “${result.name}” · ${result.lufs.toFixed(1)} LUFS${reach}`;
     document.getElementById("profile-pick").hidden = true;

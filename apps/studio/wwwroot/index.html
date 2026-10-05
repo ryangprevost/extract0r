@@ -508,10 +508,13 @@
       <label class="toggle">
         <input type="checkbox" id="kit-on" />
         <span><strong>Lay a kit over the drums</strong>
-          <em>Finds each kick, snare and hi-hat in the drum stem and triggers a sample on
-            it. The original drums stay underneath — this reinforces them rather than
-            replacing them, because taking a snare out of a drum track would mean
-            separating drums from drums.</em></span>
+          <em>Finds each drum in the drum stem and triggers a sample on it. The original
+            drums stay underneath — this reinforces them rather than replacing them,
+            because taking a snare out of a drum track would mean separating drums from
+            drums. It changes how the drums <strong>sound</strong> and never where they land:
+            measured on a real track, laying a kit put zero samples on a beat that did
+            not already have a stroke on it, so the groove is the one you played.</em>
+        </span>
       </label>
       <div class="kit-options" id="kit-options" hidden>
         <label class="control">
@@ -526,10 +529,15 @@
         <span class="kit-drums">
           <label><input type="checkbox" data-kit-drum="kick" checked /> kick</label>
           <label><input type="checkbox" data-kit-drum="snare" checked /> snare</label>
-          <label><input type="checkbox" data-kit-drum="hihat" /> hi-hat</label>
+          <label><input type="checkbox" data-kit-drum="hihat" />
+            <span id="kit-hihat-label">hi-hat</span></label>
         </span>
       </div>
       <p class="muted small" id="kit-note" hidden></p>
+      <!-- Which of the two routes this machine takes to decide where a sample goes. They
+           are different features with different failure modes and the panel used to
+           describe both with one sentence. -->
+      <p class="muted small" id="kit-route" hidden></p>
     </div>
     </details>
     <details class="control-group" id="group-about" data-group="about">
@@ -693,6 +701,7 @@
 <script src="monitor.js"></script>
 <script src="app.js"></script>
 <script src="instruments.js"></script>
+<script src="drums.js"></script>
 <script src="spectrum.js"></script>
 <script src="groups.js"></script>
 <script src="library.js"></script>

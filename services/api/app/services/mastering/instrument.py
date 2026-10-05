@@ -39,6 +39,7 @@ from pathlib import Path
 
 import numpy as np
 
+from app.services.mastering import presence
 from app.domain.notes import StemKind
 from app.services.mastering.dsp import (
     DEFAULT_HOP,
@@ -185,18 +186,32 @@ MAX_APPLIED_BAND_DB = 6.0
 WIDTH_LIMITS = (0.8, 1.35)
 
 #: Bass and kick belong in the middle whatever the reference measures.
-NEVER_MOVE_SIDEWAYS = (StemKind.BASS,)
+#:
+#: The two strings are sub-drums, which is the one place this tuple is read with something
+#: other than a `StemKind`. A separated kick is the most mono signal the application
+#: handles and a snare is next: a pan or width finding on either reports separation bleed
+#: rather than a decision anybody made. Mixing the types here rather than keeping a second
+#: list is deliberate - `StemKind` is a `StrEnum`, so membership works the same way for
+#: both, and two lists is how a rule ends up applied in one place and not the other.
+NEVER_MOVE_SIDEWAYS = (StemKind.BASS, "kick", "snare")
 
 #: A stem this far below its own mix is what separation leaves behind when the instrument
 #: is not there, not the instrument. Matching to it would delete a part the user played.
-ABSENT_BELOW_LU = -30.0
+#:
+#: Re-exported rather than defined, so the three places that ask this question cannot
+#: drift apart. They did: `stem_match` once asked it of the reference only. See
+#: `presence`.
+ABSENT_BELOW_LU = presence.ABSENT_BELOW_LU
 
 
 @dataclass(slots=True)
 class InstrumentProfile:
     """Everything measured about one stem."""
 
-    stem: StemKind
+    #: A `StemKind`, or a plain name for a level further in - the four drums inside the
+    #: drums stem are measured by exactly this code and are not `StemKind` members. See
+    #: `subdrum` for why adding them there would have been a different mixdown.
+    stem: StemKind | str
     #: Level against the mix this stem belongs to. The portable number.
     relative_lufs: float = 0.0
     loudness_lufs: float = 0.0
@@ -296,7 +311,7 @@ def balance(samples: np.ndarray) -> float:
 def profile(
     samples: np.ndarray,
     sample_rate: int,
-    stem: StemKind,
+    stem: StemKind | str,
     n_fft: int = DEFAULT_N_FFT,
     hop: int = DEFAULT_HOP,
 ) -> InstrumentProfile:
@@ -322,15 +337,15 @@ def profile(
 
 
 def profile_all(
-    paths: dict[StemKind, Path], n_fft: int = DEFAULT_N_FFT, hop: int = DEFAULT_HOP
-) -> dict[StemKind, InstrumentProfile]:
+    paths: dict, n_fft: int = DEFAULT_N_FFT, hop: int = DEFAULT_HOP
+) -> dict:
     """Measure every stem, and each one's level against their sum.
 
     Reads every stem in full. Sampling a window was tried in `stem_match` and abandoned on
     the numbers: it put the parts that come and go several dB out, which is enough to
     invent a finding.
     """
-    profiles: dict[StemKind, InstrumentProfile] = {}
+    profiles: dict = {}
     buffers: list[np.ndarray] = []
 
     for stem, path in paths.items():
@@ -339,7 +354,7 @@ def profile_all(
         try:
             buffer = read_audio(Path(path))
         except Exception:
-            log.info("could not read the %s stem for profiling", stem.value, exc_info=True)
+            log.info("could not read the %s stem for profiling", stem, exc_info=True)
             continue
         one = profile(buffer.samples, buffer.sample_rate, stem, n_fft, hop)
         if one.loudness_lufs <= -119.0:
@@ -597,7 +612,7 @@ def snapshot(one: InstrumentProfile) -> dict:
     }
 
 
-def from_snapshot(stem: StemKind, data: dict) -> InstrumentProfile:
+def from_snapshot(stem: StemKind | str, data: dict) -> InstrumentProfile:
     """Rebuild just enough of an `InstrumentProfile` for `compare` to read it.
 
     What comes back is not a whole profile and is not meant to be: there is no spectrum on
@@ -620,9 +635,9 @@ def from_snapshot(stem: StemKind, data: dict) -> InstrumentProfile:
     )
 
 
-def snapshot_all(profiles: dict[StemKind, InstrumentProfile]) -> dict[str, dict]:
+def snapshot_all(profiles: dict) -> dict[str, dict]:
     """Every measured stem, keyed by name, ready to be written to a profile file."""
-    return {stem.value: snapshot(one) for stem, one in profiles.items()}
+    return {str(stem): snapshot(one) for stem, one in profiles.items()}
 
 
 def from_snapshot_all(data: dict[str, dict]) -> dict[StemKind, InstrumentProfile]:
@@ -640,10 +655,11 @@ def from_snapshot_all(data: dict[str, dict]) -> dict[StemKind, InstrumentProfile
 
 
 def compare(
-    stem: StemKind,
+    stem: StemKind | str,
     mine: InstrumentProfile,
     theirs: InstrumentProfile,
     words: tuple[str, bool] | None = None,
+    caveat: str = "",
 ) -> list[InstrumentMove]:
     """Every difference between one instrument and its counterpart, with its dial.
 
@@ -651,11 +667,18 @@ def compare(
     with no piano yields a piano stem 40 dB under its own mix, and matching to it would
     ask for a 40 dB cut - silencing a part the user played because the record they like
     happens not to have one.
+
+    `stem` may be a plain name rather than a `StemKind`: the four drums inside a drums
+    stem are compared by this function and are not stems. `caveat` is appended to every
+    detail it writes, and exists for them - the sub-stems are not surgically clean, so a
+    low-band finding on a snare may be a kick arriving late, and that belongs on the
+    finding rather than in a help panel somewhere else.
     """
     if not mine.present or not theirs.present:
         return []
 
-    name, plural = words or (stem.value, False)
+    key = str(stem)
+    name, plural = words or (key, False)
     sits = "sit" if plural else "sits"
     verb = "are" if plural else "is"
     moves: list[InstrumentMove] = []
@@ -679,7 +702,7 @@ def compare(
         )
         moves.append(
             InstrumentMove(
-                stem=stem.value,
+                stem=key,
                 dimension="level",
                 headline=f"The reference's {name} {sits} {abs(gap):.1f} dB "
                 f"{'further forward' if back else 'further back'}",
@@ -753,7 +776,7 @@ def compare(
             )
         moves.append(
             InstrumentMove(
-                stem=stem.value,
+                stem=key,
                 dimension="tone",
                 band=band,
                 headline=f"The reference's {name} {'has' if not plural else 'have'} "
@@ -779,7 +802,7 @@ def compare(
             applied = _nudge(range_gap, MAX_COMPRESSION_DB)
             moves.append(
                 InstrumentMove(
-                    stem=stem.value,
+                    stem=key,
                     dimension="dynamics",
                     headline=f"Your {name} {verb} less even than the reference's",
                     detail=f"Yours swings {mine.dynamic_range_db:.1f} dB between its "
@@ -797,7 +820,7 @@ def compare(
         elif range_gap <= -SAME_RANGE_DB:
             moves.append(
                 InstrumentMove(
-                    stem=stem.value,
+                    stem=key,
                     dimension="dynamics",
                     headline=f"Your {name} {verb} already more even than the "
                     f"reference's",
@@ -807,6 +830,7 @@ def compare(
                     severity="slight",
                     yours=mine.dynamic_range_db,
                     reference=theirs.dynamic_range_db,
+                    measured=round(range_gap, 2),
                     suggested=0.0,
                     control="",
                 )
@@ -819,7 +843,7 @@ def compare(
         hits = "hit" if plural else "hits"
         moves.append(
             InstrumentMove(
-                stem=stem.value,
+                stem=key,
                 dimension="punch",
                 headline=f"The reference's {name} {hits} "
                 f"{'harder' if sharper else 'softer'}",
@@ -831,6 +855,13 @@ def compare(
                 severity="slight",
                 yours=mine.crest_db,
                 reference=theirs.crest_db,
+                # Set even though there is no control. `measured` is the gap that was
+                # found, not the gap something will close, and a row reading "yours
+                # 12.1, theirs 14.7, measured 0.0" is the response contradicting itself.
+                # Three rows did that: this one, pan, and the "already even" half of
+                # dynamics. Found by printing a real per-drum comparison rather than by
+                # a test, because nothing read the field until the drums card did.
+                measured=round(crest_gap, 2),
                 suggested=0.0,
                 control="",
                 confident=False,
@@ -842,7 +873,7 @@ def compare(
     if abs(pan_gap) >= SAME_PAN and stem not in NEVER_MOVE_SIDEWAYS:
         moves.append(
             InstrumentMove(
-                stem=stem.value,
+                stem=key,
                 dimension="pan",
                 headline=f"The reference's {name} {sits} further "
                 f"{'right' if pan_gap > 0 else 'left'}",
@@ -853,6 +884,9 @@ def compare(
                 severity="slight",
                 yours=mine.pan,
                 reference=theirs.pan,
+                measured=round(pan_gap, 3),
+                # An absolute position rather than a delta, because a pan control is a
+                # position. `measured` beside it is the distance travelled.
                 suggested=round(float(np.clip(mine.pan + pan_gap, -1.0, 1.0)), 3),
                 control="pan",
                 confident=False,
@@ -872,7 +906,7 @@ def compare(
             wider = ratio > 1.0
             moves.append(
                 InstrumentMove(
-                    stem=stem.value,
+                    stem=key,
                     dimension="width",
                     headline=f"The reference's {name} {verb} "
                     f"{'wider' if wider else 'narrower'}",
@@ -888,6 +922,13 @@ def compare(
             )
     elif stem in NEVER_MOVE_SIDEWAYS:
         pass  # the low end stays centred whatever the reference does
+
+    # One place, so a caveat cannot be attached to five findings and forgotten on the
+    # sixth. Every detail written above ends in a full stop, so this reads as a sentence
+    # after one rather than needing each site to know about it.
+    if caveat:
+        for move in moves:
+            move.detail = f"{move.detail} {caveat}"
 
     return moves
 

@@ -165,6 +165,13 @@ class MasterRequest:
     #: Which drums to trigger, and how far to lean on the samples against the originals.
     drum_targets: tuple[str, ...] = ("kick", "snare")
     drum_blend: float = 0.5
+    #: The source's drums stem already split into kick, snare, cymbals and toms, keyed
+    #: by drum name. Produced by the per-drum comparison and cached on the track, so a
+    #: render never pays for the split itself.
+    drum_stems: dict[str, Path] = field(default_factory=dict)
+    #: A move taken on one drum inside the drums stem, keyed by drum name. Empty is the
+    #: normal case and costs nothing at all - see `_apply_per_drum`.
+    drum_shapes: dict[str, "StemShape"] = field(default_factory=dict)
     #: Split the drums stem into kick/snare/cymbals/toms before laying samples over it,
     #: so a trigger lands on the drum it is named after. Needs the DrumSep weights; falls
     #: back to the band-rise classifier when they are not there, and says so in the log.
@@ -188,6 +195,78 @@ class MasterResult:
     #: the one stage of mastering with no control attached: the user cannot choose it, so
     #: the least the export can do is say what happened.
     quantisation: str = ""
+
+
+def _apply_per_drum(request, samples, sample_rate: int, report) -> tuple:
+    """Move one drum inside the drums stem, without disturbing the other three.
+
+    The obvious implementation is to shape the four sub-stems and sum them. It is also
+    wrong, and audibly: separation is lossy, so the four do not add up to the drums -
+    what is missing is a residual that nobody measured and nothing guarantees. Summing
+    them would quietly replace the drums with a reconstruction on every render, including
+    the ones where no per-drum move was taken at all.
+
+    So the *change* is applied rather than the sum, exactly as `_apply_as_correction` does
+    one level up: shape a sub-stem, subtract the original sub-stem, add the shaped one.
+    The residual cancels because it is in neither term, and the null case is not merely
+    close but bit-for-bit identical - a shape that does nothing is never read off disk.
+    That is X0R-1315's one non-negotiable criterion, and it is a property of this
+    arithmetic rather than a tolerance anybody has to maintain.
+
+    Returns the drums and a line per move for the report, because a user who took a dial
+    has to be able to see in the export what it did.
+    """
+    out = np.asarray(samples, dtype=np.float64)
+    notes: list[str] = []
+    if out.ndim == 1:
+        out = np.stack([out, out], axis=1)
+
+    moved = False
+    for drum, shape in request.drum_shapes.items():
+        if shape is None or shape.is_identity():
+            continue
+        path = request.drum_stems.get(drum)
+        if path is None or not Path(path).exists():
+            log.info("no %s sub-stem to apply a per-drum move to", drum)
+            notes.append(f"{drum}: asked for, but that drum was not split out")
+            continue
+        try:
+            raw = np.asarray(read_audio(Path(path)).samples, dtype=np.float64)
+        except Exception:
+            log.warning("could not read the %s sub-stem", drum, exc_info=True)
+            notes.append(f"{drum}: asked for, but that drum's audio could not be read")
+            continue
+        if raw.ndim == 1:
+            raw = np.stack([raw, raw], axis=1)
+
+        if not moved:
+            report(0.15, "moving the drums one drum at a time")
+            out = out.copy()
+            moved = True
+
+        shaped = apply_shape(raw, sample_rate, shape)
+        length = min(len(out), len(raw), len(shaped))
+        out[:length] += shaped[:length] - raw[:length]
+        notes.append(f"{drum}: {_describe_shape(shape)}")
+
+    return out, notes
+
+
+def _describe_shape(shape) -> str:
+    """What was done to one drum, in the terms the dials were labelled with."""
+    parts = []
+    if shape.gain_db:
+        parts.append(f"{shape.gain_db:+.1f} dB")
+    for band, value in shape.tone().items():
+        if value:
+            parts.append(f"{band.replace('_', ' ')} {value:+.1f} dB")
+    if shape.compress_db:
+        parts.append(f"{shape.compress_db:.1f} dB of range taken out")
+    if shape.width != 1.0:
+        parts.append(f"width x{shape.width:.2f}")
+    if shape.pan:
+        parts.append(f"panned to {shape.pan:+.2f}")
+    return ", ".join(parts) or "no change"
 
 
 def _drum_hits(request, samples, sample_rate: int, work_dir: Path, report) -> list:
@@ -289,6 +368,9 @@ def run(
     # of what the original contains, so leaving it out means never subtracting it and the
     # mute does nothing at all - which is exactly what happened before a test caught it.
     untouched: np.ndarray | None = None
+    #: One line per drum that was moved, for the report. A user who took a dial has to
+    #: see in the export what it did, and the drums row is where they will look.
+    drum_notes: list[str] = []
 
     for index, setting in enumerate(chosen):
         buffer: AudioBuffer = read_audio(request.stems[setting.stem])
@@ -307,6 +389,15 @@ def run(
         # it. Their fader is kept out of `samples` and applied at the mix bus, so it
         # stacks on top of whatever matching decides rather than being folded into the
         # measurement matching is derived from.
+        if setting.stem is StemKind.DRUMS and request.drum_shapes:
+            # Before the kit, so a layered sample lands on a kick that has already been
+            # moved - and before the stem's own shape, so "the drums need air" and "the
+            # cymbals need air" are two moves rather than the same one twice.
+            samples, per_drum_notes = _apply_per_drum(
+                request, samples, sample_rate, report
+            )
+            drum_notes.extend(per_drum_notes)
+
         if setting.stem is StemKind.DRUMS and request.drum_kit:
             # Before anything else: the samples should be panned, widened and reverbed
             # along with the drums they are reinforcing, not bolted on afterwards.
@@ -434,6 +525,18 @@ def run(
                     ],
                 )
             )
+
+    # --- say what the per-drum moves did ------------------------------------
+    #
+    # On the drums row rather than on a row of their own. They are not matching
+    # decisions, and a user who took "the kick wants 1.2 dB of weight" looks at the drums
+    # to find out whether it happened.
+    if drum_notes:
+        drums_row = next((a for a in adjustments if a.stem is StemKind.DRUMS), None)
+        if drums_row is None:
+            drums_row = StemAdjustment(stem=StemKind.DRUMS, matched=False)
+            adjustments.append(drums_row)
+        drums_row.notes.extend(f"drum by drum - {note}" for note in drum_notes)
 
     # --- place the vocal ----------------------------------------------------
     # Done after matching and before the sum, because it is a statement about the

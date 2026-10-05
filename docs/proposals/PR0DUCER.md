@@ -9,7 +9,53 @@
 > The verb in the UI is **re-produce**.
 
 
-**Status: proposal. Nothing here is in [BACKLOG.md](../BACKLOG.md) and nothing is sprinted.**
+> ## Re-scoped 2026-10-02, after X0R-414 shipped
+>
+> **Status: partly sprinted.** [sprints/SPRINT-2.md](../sprints/SPRINT-2.md) takes 12
+> points of this epic. The sprint leads with a card **this document does not contain** —
+> per-drum comparison, *your kick against their kick* — and that is the largest thing the
+> proposal got wrong.
+>
+> **The ordering is Ryan's call, not a new finding.** Given the choice between per-drum
+> comparison and drum re-production he said: *"do the per-drum comparison, that sounds more
+> valuable."* That is also what this re-scope recommended, so nothing below is a reversal —
+> but the decision is his and is recorded as his. Drum re-production is **not cancelled**:
+> it is ungated, re-scoped to 6 points, and sitting in EPIC-13 with what was learned on it.
+>
+> What changed and what it cost this document, in order of how much:
+>
+> 1. **Stage 3B is new, and it leads.** X0R-414 returns kick, snare, cymbals and toms as
+>    audio, so the per-instrument comparison can go one level in. The proposal only ever
+>    imagined the new audio being used to *trigger samples*. It is worth more as something
+>    to *measure*. → new §6 Stage 3B, and **X0R-1314 / X0R-1315 / X0R-1317 / X0R-1316**.
+> 2. **Stage 4's X0R-306 gate is retracted.** It was a gate on *classification* — drum
+>    identity came from a band-rise classifier nobody had measured. Identity and onsets now
+>    come from separation: zero ambiguous strokes on the measured clip, against three from
+>    the classifier. Nothing on that path classifies anything.
+> 3. **Stage 4 is re-scoped from 7 points to 6, and part of it is retracted.** X0R-1310's
+>    "ride, crash, clap, rimshot" cannot be built from a single cymbals stem, and a noise
+>    burst is not a crash — the proposal's own synthesised-guitar argument. X0R-1311 is now
+>    buildable and still deliberately out.
+> 4. **"Stage 4 is the cheap, exciting core" is tested and refused.** Cheap, yes. The core,
+>    no: Experiment 2 measured drum layering at ≤0.09 dB of the tonal gap, zero new grid
+>    positions, and dynamic range moving *away* from the reference. The honest sales line
+>    for drum re-production is **"your drums, re-kitted, same groove"** — different drums,
+>    not produced like that record. See SPRINT-2 §1.
+> 5. **Stage 1 slips again**, for a new reason: per-drum comparison reads none of it.
+>
+> Everything not marked below stands as written. The two experiments'
+> findings — [1](EXPERIMENT-1-RESULTS.md), [2](EXPERIMENT-2-RESULTS.md) — are unchanged by
+> X0R-414: processing gets you tone, never groove.
+>
+> **And then §10, added later the same day**, on Ryan's request for Melodyne-like
+> comparisons. It carries a probe of its own and one finding that reaches back into stage 1:
+> on the two live-drummed records tested, **the grid is wrong** — 66.30 BPM against ~132.7,
+> metre 3/4 on a 4/4 record, and a constant-tempo fit leaving drum hits a median 23–30 ms
+> from their own best-fit sixteenth against 5.7 ms on the programmed control. X0R-1301 and
+> X0R-1307 inherit that; see §10.4(a).
+
+**Original status line, kept for the record: proposal. Nothing here is in
+[BACKLOG.md](../BACKLOG.md) and nothing is sprinted.**
 The first question is not how to build this, it is whether to.
 
 Written 2026-10-01 in response to:
@@ -432,14 +478,25 @@ four ways and offers EQ, no re-performance, no reference comparison per stem.)
 Five stages. Each is independently useful, each could be the last one built, and the
 numbering continues from EPIC-12 and X0R-12xx.
 
-**34 points total**, plus X0R-306 (5) which is already in the backlog and becomes a hard
-prerequisite for stages 4 and 5.
+~~**34 points total**~~ **41 points total as re-scoped** (36 without the dead genre
+stage) — stage 1 at 5 rather than 8
+(Experiment 1), stage 3B's 12 added, stage 4 at 6 rather than 7 — plus X0R-306 (5), which is
+already in the backlog and is a hard prerequisite for ~~stages 4 and~~ stage 5 only.
 
 ### Stage 0 — the prerequisite that already exists
 
 **X0R-306 · Separation and transcription quality benchmark · 5 · `TODO`** — already written,
-already gating the transcription epic by its own text. Needed before stage 4 or 5, not before
-stages 1-3. Its result may cancel stages 4 and 5, and that is the point of running it.
+already gating the transcription epic by its own text. ~~Needed before stage 4 or 5~~
+**Needed before stage 5 only**, not before stages 1–3, 3B or 4. Its result may cancel
+~~stages 4 and~~ stage 5, and that is the point of running it.
+
+*Updated 2026-10-02.* The stage 4 gate is retracted — it was a gate on classification, and
+there is no classifier on that path any more. The card has, however, **gained** two items
+and a reason to lead the next sprint: DrumSep's per-stem bleed (which the per-drum
+comparison measures band energies through) and the band-rise classifier's F1 (which is what
+a machine without the weights still runs, since `DRUMSEP_ENABLED` defaults off). Those two
+numbers are what would retire `separate.QUIET_STROKE_DB` and the bleed caveat from being
+judgements.
 
 ### Stage 1 — The reference fingerprint · 8 points
 
@@ -521,12 +578,60 @@ around its own kicks against the source's. A real suggestion with a real number 
 *"the reference's bass dips 4.2 dB within 30 ms of each kick; yours dips 0.4 dB"* — and a
 fraction of that gap applied, like everything else.
 
-### Stage 4 — Re-perform: drums only · 7 points · gated on X0R-306
+### Stage 3B — Compare drum to drum · 11 points · not gated · **added 2026-10-02, and it leads**
+
+*Not in the original proposal at all. X0R-414 separates a drums stem into kick, snare,
+cymbals and toms as audio; this stage measures those four and compares each with its
+counterpart on the reference, instead of averaging three instruments into one number that
+describes none of them.*
+
+| Card | Title | Pts |
+|---|---|---|
+| X0R-1314 | Your kick against their kick | 5 |
+| X0R-1315 | Take a per-drum suggestion | 3 |
+| X0R-1317 | A profile remembers their kick | 2 |
+| X0R-1316 | The drum panel says which drums it found | 1 |
+| *X0R-1127* | *Decline to match a stem your own mix does not contain* — EPIC-11, pulled in | *2* |
+
+11 points in this epic, 13 in [sprint 2](../sprints/SPRINT-2.md) counting X0R-1127, which
+belongs to EPIC-11 and is pulled in because it is the presence rule stage 3B mirrors four
+ways. Full acceptance criteria in the sprint plan; the cards are in
+[BACKLOG.md](../BACKLOG.md) under EPIC-13.
+
+**Three design decisions the sprint plan takes and this section is too early to:** sub-drums
+are a nested level inside the drums row and **not** `StemKind` members — that enum is
+load-bearing in 21 modules, and `pipeline.run`'s `untouched` sum would contain the drums
+twice; **four** dimensions per drum rather than six, because `NEVER_MOVE_SIDEWAYS` and
+`MIN_MEANINGFUL_WIDTH` already say what pan and width mean on a near-mono signal; and the
+reference's sub-drums belong in a `ReferenceProfile`, so the second separation pass is paid
+once per reference rather than once per song.
+
+**Why this outranks everything else in the epic.** It is the only part whose audible output
+points *at* the reference rather than merely away from the source — every move is a stated
+fraction of a stated per-drum gap with the sentence that produced it, so it is on-brief by
+construction with no new product rule. It extends `instrument.compare`, which is the moat,
+four instruments deeper. And it is the first time in this app that one drum can be soloed
+against another record's same drum. Nothing in §5's competitor table does any of this; Ozone
+cannot compare your snare with their snare at all, and this goes a level below the snare.
+
+**What it rests on, honestly.** Two judgements, named rather than hidden:
+`separate.QUIET_STROKE_DB` (the snare has no knee between backbeat and bleed, so stroke
+counts run 4 to 45 across the gate's range — nothing in this stage may read a stroke count)
+and DrumSep's unmeasured bleed (a kick's trace in the snare file biases the snare's low
+band). X0R-306 is what would turn both into numbers, and that is a new reason for a card
+that has been deferred for three sprints.
+
+### Stage 4 — Re-perform: drums only · ~~7~~ **6 points** · ~~gated on X0R-306~~ **not gated**
+
+**Re-scoped 2026-10-02.** The X0R-306 gate is retracted: it was a gate on classification,
+and drum identity now comes from separation. Being ungated did not make this stage the core
+of the epic — Experiment 2 measured the drum layer at ≤0.09 dB of the tonal gap and zero new
+grid positions. It changes how the drums *sound*, never where they land.
 
 | Card | Title | Pts |
 |---|---|---|
 | X0R-1309 | Kits chosen by fingerprint, not by dropdown | 2 |
-| X0R-1310 | More voices, same synthesis | 3 |
+| X0R-1310 | ~~More voices, same synthesis~~ **A tom voice** | ~~3~~ 2 |
 | X0R-1311 | Pattern observation, never pattern replacement | 2 |
 
 **X0R-1309 · Kits chosen by fingerprint, not by dropdown · 2**
@@ -534,11 +639,25 @@ The three kits exist. This picks one and sets `drum_blend` from the reference's 
 character — decay length, transient sharpness, sub energy — and says in a sentence why it
 chose what it chose. The dropdown stays.
 
-**X0R-1310 · More voices, same synthesis · 3**
-Tom, ride, crash, clap, rimshot as `Voice`s, tuned against measurements the way the existing
-three were. Requires `detect.py` to classify them, which is X0R-406's one unfinished
-criterion ("toms and cymbals classified, or explicitly reported as unsupported") — so this
-card finishes an existing card rather than opening new ground.
+**X0R-1310 · ~~More voices, same synthesis · 3~~ A tom voice · 2** *(re-scoped 2026-10-02)*
+~~Tom, ride, crash, clap, rimshot as `Voice`s~~. One `Voice`: **toms**, tuned against
+measurements the way the existing three were. A tom is a pitched membrane, which is the
+same family as the kick and the place synthesis is in its element.
+
+**Ride, crash, clap and rimshot are retracted, for two reasons.** DrumSep returns a single
+`cymbals` stem holding hats, rides and crashes together, so they cannot be voiced apart —
+the model that splits hi-hat out is LarsNet, rejected on its CC BY-NC weights and its
+synthesised training set (X0R-414). And a 35–130 ms filtered noise burst is a credible
+closed hat and not a credible crash; shipping one would be this epic's version of the
+synthesised guitar §4 refuses to ship.
+
+The classification half of the original card is moot: it required `detect.py` to classify
+toms and cymbals, and separation answers that by construction. X0R-406's unfinished
+criterion is now satisfiable by pointing at `separate.py`.
+
+**This card is parked behind X0R-1314's sub-drum presence test.** Measured on the one clip:
+24 tom strokes in 28 seconds on a programmed electro-house record, which is residue, not
+toms. A tom voice built first puts synthesised toms on records that have none.
 
 **X0R-1311 · Pattern observation, never pattern replacement · 2**
 Report the grid positions where the reference's kick lands and the source's does not. Offer
@@ -546,6 +665,13 @@ to *add* a synthesised hit at those positions, at low blend, opt-in per position
 count shown. **This is the line.** Adding a measured hit the user accepts one at a time is a
 nudge. Rewriting the pattern is composing his song for him, and that is stage (c), which is
 out.
+
+*Updated 2026-10-02: this card is now **buildable** where it was not — the kick returns 60
+strokes at every gate from −6 to −30 dB, so the count is solid. It is deliberately still out
+of sprint 2. It is the only card in the epic that places a drum where the user did not play
+one, and it needs both files read against **one** grid (Experiment 2 §3) or it measures the
+ruler rather than the music. That is a decision about composing someone's song, and it
+deserves to be taken on its own rather than inside a sprint about comparison.*
 
 ### Stage 5 — Re-perform: bass only · 6 points · gated on X0R-306 *passing*
 
@@ -651,6 +777,13 @@ X0R-1124 open and EPIC-12 naming X0R-1203 (dynamic EQ) as the biggest remaining 
 sentence worth sitting with.
 
 **3. Half of it is built on a number nobody has, and this is the strongest objection.**
+*Amended 2026-10-02: a third of this objection has been answered by X0R-414 and the rest
+stands. Stage 4 does not depend on transcription accuracy and never really did — it depended
+on knowing which drum a stroke was, which separation now answers by construction. **Stage 5's
+6 points remain built on a guess**, and so do two judgement thresholds in stage 3B that
+X0R-306 would retire. Read "13 of these 34 points were never buildable" below as "6 of these
+42".*
+
 Stages 4 and 5 depend on transcription accuracy. X0R-306 has been TODO since sprint 1, is the
 self-declared gating card for the entire transcription epic, and two cards' acceptance
 criteria are parked on it. The only end-to-end run on record produced an octave error and a
@@ -703,24 +836,414 @@ survivable, and `detect.py` + `kit.py` are the two modules in the codebase most 
 extended. Bass is plausible and conditional. Everything else is either processing (already
 the product) or out of reach.
 
-**Stages 1, 3 and 4 — 23 points — are "the honest fingerprint plus the drum half", and that
-is my recommendation if the appetite is for more than 6 points and less than everything.**
+~~**Stages 1, 3 and 4 — 23 points — are "the honest fingerprint plus the drum half", and that
+is my recommendation if the appetite is for more than 6 points and less than everything.**~~
+
+*Revised 2026-10-02. The instinct — "drums are where this works" — was right and the reason
+given for it was the wrong one. The argument above is about **synthesis** being competitive
+on drums. The better reason is that drums are the one stem where the stem is not an
+instrument, and X0R-414 made its contents measurable. **Stage 3B, 11 points, is "the drum
+half" as it should have been written**, and it needs neither the fingerprint nor a single
+synthesised sample.*
 
 ---
 
 ## 9. Recommendation
 
-1. **Run experiment 1** (half a day, no cards). If the fingerprint does not tell Ryan
-   something he can act on, stop here.
-2. **Run experiment 2** (half a day, a loop). It settles whether this feature is a parameter
-   change or a rebuild, and that determines everything after.
-3. **Build stage 1** — 8 points, the fingerprint. Honest, cheap, uniquely ours, and good
-   portfolio evidence.
-4. **Build stage 3** — 8 points — if stage 1 lands and there is still appetite. X0R-1308
-   (sidechain) is worth doing on its own merits regardless of this proposal.
-5. **Skip stage 2.** Do not ship a genre label. If Ryan wants the word, ship the top-three
-   hedge and never let it touch the DSP.
-6. **Treat stages 4 and 5 as conditional on X0R-306**, and be willing to cancel them. Run
+**Superseded 2026-10-02 by §9a. Kept because the first two items were run and their results
+are what changed the rest.**
+
+1. ~~**Run experiment 1**~~ **Run** (half a day, no cards). If the fingerprint does not tell
+   Ryan something he can act on, stop here. → [run](EXPERIMENT-1-RESULTS.md): two figures
+   out of a dozen carried information, stage 1 cut from 8 to 5, X0R-1303 deleted.
+2. ~~**Run experiment 2**~~ **Run** (half a day, a loop). → [run](EXPERIMENT-2-RESULTS.md):
+   processing gets you tone, never groove. The clamps, not `match_strength`, hold the
+   headroom.
+3. ~~**Build stage 1** — 8 points~~ — **deferred twice.** 5 points, not 8, and it is now
+   conditional on X0R-1307/1308 being sprinted (Experiment 2 §6). Stage 3B reads none of it.
+4. **Build stage 3** — 8 points — ~~if stage 1 lands~~ **and before stage 1, not after.**
+   X0R-1306 must be the *clamps*, not `match_strength`, or it is a no-op control.
+5. **Skip stage 2.** Unchanged. Do not ship a genre label.
+6. ~~**Treat stages 4 and 5 as conditional on X0R-306**~~ — **stage 5 only.** Run
    experiment 3 before writing a line of stage 5.
-7. **Do not call it pr0ducer in the UI.** The epic can be named that. The button says
-   "produce my song more like this record" and then shows every change it made.
+7. **Do not call it pr0ducer in the UI.** Unchanged, and reinforced: nothing in sprint 2
+   re-produces anything, so the verb there is still *compare*.
+
+## 9a. Recommendation as re-scoped · 2026-10-02
+
+1. **Build stage 3B first** — 11 points, 13 as [sprint 2](../sprints/SPRINT-2.md) with
+   X0R-1127 pulled in from EPIC-11. Per-drum
+   comparison: *your kick against their kick*. Cheapest, most on-brief, and the only part of
+   this epic whose audible result is aimed at the reference rather than merely away from the
+   source.
+2. **Then X0R-306** — 5 points, leading sprint 3. It no longer gates drums and it has gained
+   two items. It is the card that turns this epic's two remaining judgements into numbers.
+3. **Then stage 3** — X0R-1306 (the clamps, 3) is the best-measured headroom in the whole
+   processing half: 1.07 dB at ×2 clamps against 0.56 dB for the entire strength sweep.
+4. **Then stage 4, re-scoped to 6** — X0R-1310 (toms, 2) once the presence test lands,
+   X0R-1309 (kit by fingerprint, 2) once there is a fingerprint. Sold as *your drums,
+   re-kitted, same groove* and not as anything else.
+5. **Stage 1 after that, if X0R-1307/1308 are being built.** Not before, and not alone.
+6. **Stage 5 still conditional, stage 2 still dead, X0R-1311 still out** — the last on the
+   grounds that placing a drum the user did not play is a composition decision, not a nudge.
+
+---
+
+# 10. Melodyne — what of it is reachable here · added 2026-10-02
+
+Written in response to:
+
+> "also add comparisons with functionality from melodyne as part of the remix0r scope of
+> work. id like to take advantage of something similar."
+
+**Recommendation in one line.** Two of the candidate comparisons are reachable and cheap —
+**5 points, X0R-1320 and X0R-1321** — one is the most valuable thing in the list and is
+**blocked on a grid this section measured to be broken on live-drummed records**, which is a
+5-point card nobody had written (**X0R-1319**). Nothing here needs Direct Note Access,
+nothing here is a note editor, and the one Melodyne feature that actually matters to this
+product is its least glamorous: the **tempo map**.
+
+A probe was run before any card was written, the way the rest of this proposal was. Its
+numbers are in §10.4 and they changed the answer twice.
+
+---
+
+## 10.1 What Melodyne actually does
+
+Researched rather than remembered, from Celemony's own documentation.
+[Melodyne 5's editions](https://www.celemony.com/en/melodyne/melodyne-5-editions) split the
+feature set four ways, which is useful here because it pins "something similar" to features
+rather than to a brand.
+
+| Capability | Edition | What it operates on |
+|---|---|---|
+| Pitch / intonation, position, duration, note separation | essential | one note at a time, monophonic |
+| Vibrato, pitch drift, amplitude, fades, sibilants, formants, attack speed; audio-to-MIDI | assistant | same, monophonic |
+| **DNA Direct Note Access** — individual notes inside chords | **editor** | one polyphonic *instrument* |
+| Scale and chord functions, **tempo and tempo-progression editing** | editor | the whole track |
+| Multitrack note editing, overtone-level Sound Editor | studio | several tracks at once |
+
+Three facts from the
+[algorithm documentation](https://helpcenter.celemony.com/M5/doc/melodyneStudio5/en/M5tour_AudioAlgorithms?env=standAlone)
+reframe the request, and they cut in ways the headline does not suggest:
+
+1. **DNA separates notes by pitch, not by instrument.** Celemony's own wording: two
+   instruments playing the same note produce one blob, not two. The polyphonic algorithms
+   require single-instrument recordings and fall back to percussive detection on material
+   without enough tonal content. **DNA is not a mix-unmixer.** Its required input is
+   precisely what Demucs already hands this project — one instrument, alone — so the
+   interesting question is not "can we do DNA" but "what would we do with the stem we
+   already have".
+2. **Celemony says the detection is not always right.** Its wording: the detection process
+   cannot, for reasons to do with immutable principles, always deliver perfect results,
+   particularly on polyphonic material. The commercial product with the patent and a
+   twenty-year head start ships a *manual correction workflow* around its transcription.
+   That is the strongest available evidence that unattended note-level transcription is not
+   a thing to build a comparison on.
+3. **Melodyne is an editor.** Every capability in the table is something a person does to
+   one note with a mouse. None of it measures a record and none of it compares two records.
+   The overlap with extract0r is not the feature set, it is the *representation* underneath
+   it — audio as notes with pitch, time, length and level.
+
+**DNA is patented** — presented at Musikmesse 2008 and described by Celemony as patented.
+Nothing proposed below reimplements it and nothing should. There is also no open
+equivalent: a search for one returns monophonic pitch correctors, which is a problem that
+was solved in 1997.
+
+---
+
+## 10.2 The question that matters
+
+extract0r is not a note editor and must not become one. Its brief is comparison and
+explanation. So the question is **what can we compare with note-level information that we
+cannot compare today**, and there are six candidates. Each was tested rather than accepted.
+
+| Candidate | What it would say | Verdict |
+|---|---|---|
+| **Timing tightness** | "their kick sits 4 ms off the grid, yours 19" | **the most valuable, and the only one that reaches groove — and it is blocked.** §10.4(a) |
+| **Pitch centredness** | "their vocal sits 4 cents from its own tuning, yours 14" | **reachable now, and it discriminates sharply.** §10.4(c) |
+| **Note density and spacing** | "their bass plays a note every 186 ms, yours every 441" | **reachable now, cheap, grid-free.** §10.4(d) |
+| **Note length — legato vs staccato** | "theirs is 95% legato, yours 76%" | **refused.** Note offsets are the least reliable quantity in transcription. §10.4(d) |
+| **Vibrato** | "their vocal has 5.6 Hz vibrato, yours 5.0" | **refused — the measurement is noise.** §10.4(e) |
+| **Scale and key agreement** | "theirs is F minor, yours E minor" | **refused.** `estimate_key` already does it, Experiment 1 found it carried nothing, and the only action it implies is transposing a song. |
+
+Timing is the one that matters most, and for the reason the briefing gives: Experiment 2
+measured that **processing gets you tone and never groove**, so note-level timing is the
+only route to the half of "sounds like that record" the product currently cannot touch.
+That is why §10.4(a) is the longest part of this section and why its answer is *not yet*.
+
+---
+
+## 10.3 The probe
+
+Not Experiment 3 — §7's Experiment 3 is the DI-bass round trip and is still unrun. This is
+a separate, cheaper probe, run 2026-10-02. Throwaway harness in the session scratchpad,
+nothing in `app/` modified, nothing written to `storage/`.
+
+**It fixes the library problem both earlier experiments complained about.** Experiment 1
+recorded that `LIBRARY_DIR` holds no live-drummed record, so the fingerprint was asked to
+tell apart two four-on-the-floor electro tracks. There are live-drummed records on this
+machine, outside the library, and this probe uses two.
+
+| | Role | Why |
+|---|---|---|
+| **Special When Lit — *Spare Me The Love Song*** | source-shaped | live drums, played bass, untuned sung vocal — the case the product is for |
+| **blink-182 — *Edging*** (2023) | reference-shaped | live drums, modern major-label production, same genre family |
+| **MSTRKRFT — *Bounce*** | programmed control | the same 36–64 s clip Experiments 1 and 2 used, so the figures line up |
+
+Densest 28 s of each, `htdemucs_6s` on CPU, grid from `fingerprint.grid_from_drums`, notes
+and pitch from the shipped `PyinTranscriber` settings.
+
+**Caveats, up front:** two live records, one genre family, 28 seconds each, and no ground
+truth for any of it. Everything below is a feasibility reading, not a benchmark. That is
+what X0R-306 is for.
+
+---
+
+## 10.4 What the probe found
+
+### (a) The grid is broken on live drums, and that blocks every timing comparison
+
+This is the finding, and it is not what the probe went looking for.
+
+Every note-timing comparison needs a correct grid **on both records**. Unlike Experiment 2
+— which compared six bounces of one song and could therefore use one shared ruler — two
+different records have two different tempos and need two independently estimated grids. The
+shipped path for that is `grid_from_drums` + `refine_grid`, built during Experiment 1
+precisely to fix a grid failure.
+
+| | shipped grid | actual | grid confidence | kick histogram |
+|---|---|---|---|---|
+| MSTRKRFT (programmed) | **128.91 BPM, 4/4** | 128.9 | 0.881 | `13 0 0 0 · 12 0 0 0 · 15 0 0 0 · 12 0 0 0` |
+| Special When Lit (live) | **66.30 BPM** | ~132.7 | 0.486 | `3 6 7 4 · 7 4 4 6 · 5 4 3 0 · 6 5 5 4` |
+| blink-182 (live) | **147.58 BPM, 3/4** | ~147.3, in 4/4 | 0.546 | twelve steps, unreadable |
+
+Three separate failures, and the confidence floor catches none of them —
+`MIN_GRID_CONFIDENCE` is 0.35 and both live records clear it:
+
+1. **Experiment 1's octave fix does not generalise.** That fix was to run `choose_tempo` on
+   the kicks and snares rather than the whole mix, and it works for the reason
+   `score_tempo` was built on: on a four-on-the-floor record the halved grid has no drum on
+   half its beats, and recall punishes it. **A rock backbeat has a drum on every beat of the
+   halved grid too.** On *Spare Me The Love Song* the shipped path returns **66.30 BPM
+   against a record at about 132.7**, at a confidence that passes the floor. Scored against
+   the anchors at a fixed phase, 33 BPM out-ranks both.
+2. **Metre detection returns 3/4 on a 4/4 record.** X0R-407 made metre return *zero*
+   confidence when there is no accent; it still returns a number, and the histogram is
+   indexed by it, so a wrong metre makes every rhythmic figure unreadable rather than merely
+   uncertain.
+3. **And the part no octave fix can reach: a live band's tempo drifts, and every grid in
+   this codebase is a straight line.** Fitting the drum anchors to the first and second
+   halves of each clip separately:
+
+| | tempo, first half | second half | drift over 28 s | **median distance of a drum hit from its own best-fit sixteenth** |
+|---|---|---|---|---|
+| MSTRKRFT (programmed) | 128.896 | 128.893 | **0.00 BPM** | **5.7 ms** of a 116 ms step |
+| blink-182 (live) | 147.356 | 146.748 | 0.61 BPM | **23.3 ms** of a 102 ms step |
+| Special When Lit (live) | 133.259 | 132.286 | **0.97 BPM** | **30.5 ms** of a 113 ms step |
+
+**The last column is the kill number.** The
+[microtiming literature](https://www.nature.com/articles/s41598-019-55981-3) puts musically
+meaningful deviations at roughly **5 to 50 ms**. On the two live records the *grid's own
+residual* is 23 and 30 ms — squarely inside the signal, and five times the programmed
+record's. A constant-tempo line through a performance that drifts a whole BPM scatters
+about a quarter of a sixteenth everywhere, and a groove comparison would report that
+scatter as the drummer's feel.
+
+So: **on exactly the records where groove is a human thing worth measuring, the grid error
+is the same size as the groove.** Nothing note-level about timing can be built until that is
+fixed, and the fix is the Melodyne feature nobody would pick out of the brochure — a
+**tempo map**, a tempo per bar rather than a tempo per clip. Melodyne puts it in the Editor
+tier next to DNA. For this product it is worth more than DNA.
+
+→ **X0R-1319**, 5 points, prerequisite for X0R-1301, X0R-1307, X0R-1311 and X0R-1322.
+
+### (b) On a pitched stem the onset detector is four times worse than on drums
+
+Experiment 1 measured `backtrack=True` contributing 1–7 ms to drum hit times and set
+`DETECTOR_JITTER_MS = 7.0` from it. `PyinTranscriber` calls the same detector with the same
+flag ([`pyin.py`](../../services/api/app/services/transcription/pyin.py), in `transcribe`),
+so every note start it produces inherits the problem. Nobody had measured how much. Pairing
+the same onsets detected with and without backtracking:
+
+| stem | paired onsets | median shift | mean absolute | max | **SD** |
+|---|---|---|---|---|---|
+| bass, SWL | 16 | 14.5 ms | 15.2 | 34.8 | 6.1 |
+| bass, blink | 102 | 17.4 ms | 19.1 | 40.6 | 8.6 |
+| bass, MSTRKRFT | 68 | 17.4 ms | 18.8 | 40.6 | 7.9 |
+| vocals, SWL | 38 | 23.2 ms | 25.5 | 69.7 | 12.7 |
+| vocals, blink | 48 | 23.2 ms | 26.2 | 75.5 | 13.7 |
+| vocals, MSTRKRFT | 37 | 29.0 ms | 30.9 | 63.9 | 16.8 |
+
+**15 to 31 ms, against 7 ms on drums**, and the SD column is the part that matters: it is
+not a constant anyone can subtract. A vocal note's start moves up to 75 ms on a flag. So
+X0R-412 is not a dependency of pitched-stem timing, it is a **blocker** — on its own the
+detector is larger than the entire microtiming signal.
+
+One consolation, and it is what makes §10.4(d) proposable at all: a shift that is roughly
+constant within a stem **cancels in the difference between consecutive onsets**. Note
+*spacing* survives what note *placement* does not.
+
+### (c) Pitch centredness works, and it discriminates sharply
+
+The measurement: pYIN's frame-level f0 on the vocal stem, converted to cents from the
+nearest equal-tempered semitone, then **the record's own tuning reference removed** before
+anything is called off-pitch. That second step is not optional, and the probe found out why
+— these three records are tuned to three different A4s.
+
+At pYIN's default 10-cent resolution and again at 2 cents:
+
+| | A4 of the record | median \|cents\| from its own tuning, @10c | **@2c** | IQR @2c |
+|---|---|---|---|---|
+| **blink-182 vocal** | 439.8 Hz | 0.0 | **4.0** | 8.0 |
+| **Special When Lit vocal** | 444.9 Hz (≈ +19 cents) | 10.0 | **14.0** | 26.0 |
+| **MSTRKRFT vocal** (rapped) | 442.4 Hz | 30.0 | **26.0** | 51.5 |
+
+Over 2,900–4,300 voiced frames per 28-second clip. The ordering is stable across a fivefold
+change of analysis resolution, and 4.0 against 14.0 cents is a 3.5× separation that no
+amount of detector noise explains. The reading is the obvious one: **blink's vocal is
+pitch-corrected and Special When Lit's is not** — and whether a record was tuned is a
+*production* decision, which is this product's subject, rather than a performance one.
+
+Four things make this the healthiest candidate in the section:
+
+- It reads the **f0 contour, not notes**. No segmentation, no note offsets, no onset
+  detector and **no grid** — none of §10.4(a) or (b) touches it.
+- The tuning reference is a useful figure in its own right and nothing in the app has ever
+  reported it. A record 19 cents sharp of A440 is a fact about that record.
+- It survives separation. A hard-tuned vocal reads 4 cents *through* Demucs and pYIN;
+  artefacts would add spread, not remove it, so the figure is a safe **upper bound** on the
+  real deviation. "Theirs is tighter than yours" is sound even where "yours is 14 cents out"
+  is not.
+- The cost is known: 5 s per stem at 10-cent resolution, **30 s at 2 cents**, per side.
+
+And three honest problems, which belong on the card rather than in this document:
+
+- **Vibrato and portamento inflate it.** A singer with wide vibrato reads as less centred
+  without being out of tune, and §10.4(e) shows the vibrato cannot be measured well enough
+  to compensate. The figure is "how close to the grid this vocal sits", not "how well this
+  person sings", and it has to be worded that way.
+- **It must abstain on a vocal that is not sung.** MSTRKRFT's 26 cents is a rap, and a rap
+  is not out of tune. Without a gate the app calls a rapper flat.
+- **No ground truth.** Nobody has confirmed blink's vocal was tuned; it is an inference from
+  a number. X0R-306 would put a confidence on the pitch track underneath it. It would not
+  validate the inference, and the card must not pretend otherwise.
+
+→ **X0R-1320**, 3 points, reachable now.
+
+### (d) Note spacing works and is nearly free; note length does not
+
+Median inter-onset interval per stem, from the shipped transcriber:
+
+| | bass median IOI | bass median note length |
+|---|---|---|
+| blink-182 | **186 ms** | 151 ms |
+| MSTRKRFT | 302 ms | 192 ms |
+| Special When Lit | 441 ms | 401 ms |
+
+"Their bass plays twice as often as yours" is a real observation about arrangement density,
+it is the kind of thing a mix decision follows from, and — per §10.4(b) — the interval is
+robust to the one error that wrecks absolute placement. It needs **no grid at all**.
+
+The length column is where it stops. Legato ratio — note length over the interval to the
+next note — came back at exactly 1.000 on blink's bass, which is a ceiling artefact of notes
+abutting; 0.946 with an IQR of 0.158 on SWL's; and 0.757 with an **IQR of 0.592** on
+MSTRKRFT's, where the spread is wider than the whole difference between legato and
+staccato. That is what you would expect: **note offsets are the least reliable quantity in
+transcription**, which is why the field reports F-measure and F-measure-no-offset as two
+separate numbers.
+
+→ **X0R-1321**, 2 points, spacing only. Length is refused in §10.5.
+
+### (e) Vibrato is noise
+
+Measured per sustained note as the dominant 3–9 Hz component of the detrended cents
+contour: 4.96 Hz at ±14.7 cents on SWL's vocal over 16 notes, 5.63 Hz at ±7.5 cents on
+blink's over 34, and nothing at all on MSTRKRFT's rap.
+
+The rates look plausible — human vibrato is 5–7 Hz — and they are not measuring vibrato.
+**The inter-note IQR of the rate is 2.7–3.5 Hz**, which is most of the band being searched:
+the estimator is picking the largest bin of a flat spectrum. And the extents, 7.5 to 14.7
+cents, are an order of magnitude below real vocal vibrato and sit at the pitch track's own
+resolution. A finer pitch tracker might rescue this. Nothing here says it would, and the
+literature's finding that pYIN is at its **worst** on fluctuating vibrato contours says it
+probably would not.
+
+---
+
+## 10.5 What I am explicitly refusing to propose
+
+| Refused | Why |
+|---|---|
+| **Direct Note Access, or anything that separates notes inside a chord** | Patented, and there is no open equivalent — a search for one returns monophonic pitch correctors. It is also unnecessary: DNA's required input is a single-instrument recording, which separation already produces. |
+| **A note editor — clicking a note to change it** | That is RipX, named in §5, and it is a different product. It is also the only shipping shape of note-level restyling, which is informative about the category and not an argument to enter it. |
+| **Pitch correction toward the reference** | The obvious next sentence after X0R-1320, and the one that must not be said. "Their vocal is 10 cents tighter, shall I tune yours" changes a performance rather than a production, and it runs straight into the asymmetry this proposal already wrote down: a wrong measurement is a wrong sentence, a wrong note is a wrong note. X0R-1320 ships a number and no dial, deliberately. |
+| **Quantising, or transferring the reference's microtiming** | §1(c), unchanged. Measuring where their kick sits is a measurement; moving the user's kick there is composing his song. |
+| **Note length / legato comparison** | §10.4(d). Offsets are the least reliable quantity available and the measured spread is wider than the effect. |
+| **Vibrato comparison** | §10.4(e). The estimator returns the middle of whatever band it is given. |
+| **Note-level comparison of guitar, piano or "other"** | These need polyphonic transcription. basic-pitch is what ships here, and [its own paper](https://arxiv.org/abs/2203.09893) reports note F-measure around 0.76 on **clean solo** GuitarSet and 0.68 on MAESTRO piano, with the stated limitation that the model was **not trained on multi-instrument mixtures** — and a Demucs stem is exactly that, re-separated. One note in four wrong on the easy case, unmeasured on ours, and X0R-306 has never been run. Monophonic bass and vocals are a different and much better-founded case, and that is where every card here lives. |
+| **Key / scale agreement as a finding** | `estimate_key` already computes it, Experiment 1 found it carried no information, and the only action implied by "yours is in E minor and theirs is in F minor" is transposing a song. |
+| **Swapping pYIN for CREPE as part of any of this** | Worth knowing it is available — [torchcrepe](https://github.com/maxrmorrison/torchcrepe) and [onnxcrepe](https://github.com/yqzhishen/onnxcrepe) are both MIT, and torch and `onnxruntime` are both already installed, so it is a dependency question and not a platform one. But swapping the pitch tracker before X0R-306 can say whether it is the limitation is trading one unmeasured thing for another. A card for after the benchmark, not before. |
+
+---
+
+## 10.6 The work, and where it sits
+
+| Card | Title | Pts | State |
+|---|---|---|---|
+| **X0R-1319** | A grid that survives a live drummer | **5** | `TODO` — prerequisite for every timing figure in this epic |
+| **X0R-1320** | Is their vocal tuned, and to what | **3** | `TODO` — reachable now |
+| **X0R-1321** | How much space their parts leave | **2** | `TODO` — reachable now |
+| **X0R-1322** | Note timing against the grid, yours against theirs | **5** | `TODO` — blocked on X0R-1319 and X0R-412 |
+
+**15 points, of which 5 are buildable today.** X0R-1322 is the one worth having and it is
+the one that is blocked. That is the honest shape of this request and it should not be
+softened.
+
+**Dependency on X0R-306, card by card**, because everything note-level inherits a benchmark
+that has never been run:
+
+- **X0R-1319** — none. It is a grid card: it reads drum onsets, which separation already
+  produces, and it is measured against the drums themselves.
+- **X0R-1320** — not gated to *build*. It reads a frame-level f0 contour, not notes, so it
+  inherits pYIN's pitch accuracy and none of its note segmentation. X0R-306 is what would
+  let the card state a confidence rather than a caveat.
+- **X0R-1321** — not gated. Onset spacing, not notes.
+- **X0R-1322** — **gated**, and least of all on the percussive half. Per-drum onsets come
+  from `drums/separate._onsets`, which already runs `backtrack=False` on purpose; the
+  pitched half needs X0R-412 first and X0R-306 to say what a note onset is worth.
+
+**Which kind of transcription each one needs**, since that is the axis that decides
+feasibility:
+
+| | percussive onsets only | monophonic pitch | polyphonic notes |
+|---|---|---|---|
+| | *already reliable — per-drum separation ships, zero ambiguous strokes measured* | *easier — bass and lead vocal, pYIN ships, unbenchmarked* | *hard, unmeasured, refused* |
+| X0R-1319 | all of it | — | — |
+| X0R-1320 | — | f0 contour only, no notes | — |
+| X0R-1321 | yes | yes | — |
+| X0R-1322 | phase one | phase two, after X0R-412 | never |
+
+### Does any of it jump the queue?
+
+**No, and not out of politeness.**
+
+- **Not ahead of sprint 2.** Nothing here reads a sub-drum measurement, and sprint 2 reads
+  none of this.
+- **Not ahead of X0R-306.** The benchmark is what turns three caveats in this section into
+  numbers, and it leads sprint 3.
+- **Not ahead of X0R-1306.** The clamp budget is still the best-measured headroom in the
+  processing half — 1.07 dB, Experiment 2 — and these are observation cards.
+
+**Inside EPIC-13 the order does change.** X0R-1320 is 3 points, has no gate, and produces a
+sentence no competitor in §5 can produce: *"that record's vocal sits within four cents of
+its own tuning and yours sits fourteen cents out — and the record is tuned 19 cents sharp of
+A440."* That is better value than X0R-1301 (3 points, and now **blocked by the same grid
+problem** this section measured), better than X0R-1309 and X0R-1310, and it is the first
+thing I would build in this epic after sprint 2 and X0R-306.
+
+X0R-1319 has a claim worth stating plainly even though I am not making it: it is the only
+card in the epic that has been *measured* to be broken rather than suspected, and four other
+cards sit on top of it. It shows the user nothing, which is why it is not jumping — but the
+next person to write a groove card without reading §10.4(a) will ship a comparison of two
+broken rulers.

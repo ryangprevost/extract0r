@@ -505,22 +505,31 @@ async function upload() {
       // takes about half a minute, and making the user wait for it *again* on arrival -
       // after they have already waited out two separations - is one wait too many. It is
       // part of loading, so it happens during loading.
-      // Two ways to have something to compare against: a reference that was split just
-      // now, or a profile that carries the measurements of one that was split once, long
-      // ago. The screen is the same either way.
-      const comparing =
-        (state.referenceSeparated && !state.usingProfile) ||
-        (state.usingProfile && state.profileHasInstruments);
-      $("progress-title").textContent = comparing
-        ? "Comparing the instruments…"
-        : "Measuring your mix…";
-      $("progress-message").textContent = comparing
-        ? "Your bass against theirs, your drums against theirs."
-        : "Against the reference, as a whole.";
+      $("progress-title").textContent = "Measuring your mix…";
+      $("progress-message").textContent = "Against the reference, as a whole.";
       $("progress-fill").style.width = "92%";
 
       await afterReferenceUpload();
-      if (comparing) await loadInstrumentComparison();
+
+      // Decided *after* that call, and that is the whole of X0R-1318. This used to be
+      // computed ten lines earlier, where `state.referenceSeparated` is still whatever
+      // it was before this upload - which on the upload path is always `false`, because
+      // `afterReferenceUpload` is the thing that asks the server and writes it. So a
+      // user who ticked "instrument by instrument" arrived at the master page and had
+      // to press Compare again. The saved-profile path worked, because its flag is set
+      // earlier, which is exactly why nobody caught it.
+      //
+      // Two ways to have something to compare against: a reference split just now, or a
+      // profile carrying the measurements of one split once, long ago.
+      const comparing =
+        (state.referenceSeparated && !state.usingProfile) ||
+        (state.usingProfile && state.profileHasInstruments);
+      if (comparing) {
+        $("progress-title").textContent = "Comparing the instruments…";
+        $("progress-message").textContent =
+          "Your bass against theirs, your drums against theirs.";
+        await loadInstrumentComparison();
+      }
       goToPage("master");
     }
   } catch (error) {
@@ -1311,6 +1320,11 @@ async function runMaster() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         stems,
+        // Moves taken on one drum inside the drums stem, if the drum-by-drum comparison
+        // has been run and anything was taken. Empty is the usual case and the server
+        // treats it as "leave the drums exactly as they are" - bit for bit, see
+        // `_apply_per_drum`.
+        drums: typeof PerDrum !== "undefined" ? PerDrum.settings() : [],
         reference_track_id: state.referenceLoaded ? state.trackId : null,
         match_strength: parseInt($("strength").value, 10) / 100,
         per_stem_match: $("per-stem-match").checked,
@@ -1566,10 +1580,50 @@ async function loadDrumKits() {
     select.innerHTML = data.kits
       .map((k) => `<option value="${k.name}">${k.name} — ${k.description}</option>`)
       .join("");
+    describeDrumRoute(data.per_drum);
   } catch {
     // No kits listed means the panel simply stays unavailable.
     $("kit-on").disabled = true;
   }
+}
+
+/**
+ * Say which of two routes this machine takes to decide where a sample goes.
+ *
+ * They are not the same feature and they fail differently, which is why one sentence
+ * could not honestly describe both. With the weights, a stroke in the kick file is a
+ * kick. Without them a classifier compares how far two frequency bands rose on a stem
+ * where every drum is summed together — and on real material a quarter of the kicks sit
+ * within a few dB of the line, which is heard as a snare flickering in and out between
+ * consecutive kicks rather than as a few wrong labels.
+ */
+function describeDrumRoute(route) {
+  const line = $("kit-route");
+  if (!line || !route) return;
+
+  // The hi-hat box is fed by the cymbals stem on the separated route, and that stem
+  // holds hats, rides and crashes together — the model that splits them apart was
+  // rejected on its licence. So the box says what it will actually trigger from.
+  const hat = $("kit-hihat-label");
+  if (hat) {
+    hat.textContent = route.available ? "hi-hat / cymbals" : "hi-hat";
+    hat.title = route.available
+      ? "Driven by the separated cymbals stem, which holds hats, rides and crashes " +
+        "together. A hat sample is laid on every one of them."
+      : "Found by comparing band rises on the whole drum stem.";
+  }
+
+  line.innerHTML = route.available
+    ? "<strong>On this machine the drums are split into four first</strong> — kick, " +
+      "snare, cymbals and toms — so a sample lands on the drum it is named after. " +
+      "There is nothing to misread: a stroke in the kick file is a kick. It costs an " +
+      "extra pass over the drums, about half their length again."
+    : "<strong>On this machine the drums are not split</strong>, so which drum a " +
+      "stroke belongs to is decided by comparing how far two frequency bands rose on " +
+      "the whole stem. That is a judgement, and on a bright kick it goes wrong — heard " +
+      "as a snare coming and going between consecutive kicks rather than as a few " +
+      "wrong labels. " + escapeHtml(route.reason || "");
+  line.hidden = false;
 }
 
 function kitSettings() {
@@ -2514,6 +2568,7 @@ $("kit-on").addEventListener("change", () => {
   $("kit-note").textContent =
     "Hi-hats are off by default: they are the densest part of a kit and the least " +
     "forgiving, so a mistriggered hat is far more audible than a reinforced kick.";
+  $("kit-route").hidden = !on;
   if (on) loadDrumKits();
 });
 $("kit-blend").addEventListener("input", () => {

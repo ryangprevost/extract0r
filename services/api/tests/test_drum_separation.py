@@ -247,3 +247,49 @@ def test_a_real_drum_loop_separates_into_the_right_drums(tmp_path):
     assert centroid(stems["kick"]) < 400, "the kick stem should be low"
     if "cymbals" in stems:
         assert centroid(stems["cymbals"]) > centroid(stems["kick"])
+
+
+# --- the separated names have to reach a kit voice ---------------------------------------
+
+
+def test_a_separated_cymbal_stroke_reaches_the_hat_voice():
+    """Found by the PM reading the code, not by any test: `detect` says "hihat" and
+    `separate` says "cymbals", both correctly for what produced them, and `layer` renders
+    only voices it has. With per-drum separation on, ticking hi-hat produced **silence**
+    and every cymbal stroke was discarded."""
+    from app.services.drums.kit import layer
+
+    audio = np.zeros((SR * 2, 2))
+    hits = [
+        Hit(time_s=t, kinds=["cymbals"], strength=0.6, rises={})
+        for t in (0.25, 0.5, 0.75, 1.0)
+    ]
+    out = layer(audio, SR, hits, kit="punchy", drums=("hihat",), blend=0.9)
+    assert float(np.abs(out).max()) > 1e-6, "a cymbal stroke should drive the hat voice"
+
+
+def test_every_separated_drum_either_has_a_voice_or_is_deliberately_left_out():
+    """The property, so a future stem name cannot go silently nowhere.
+
+    Toms are the deliberate omission: no kit has a tom voice, and mapping them onto a
+    snare would be inventing a drum rather than reinforcing one.
+    """
+    from app.services.drums.kit import DRUMS, VOICE_FOR_STEM
+
+    unmapped = {
+        name
+        for name in STEM_NAMES.values()
+        if VOICE_FOR_STEM.get(name, name) not in DRUMS
+    }
+    assert unmapped == {"toms"}, (
+        f"these separated drums reach no voice and are not the known omission: {unmapped}"
+    )
+
+
+def test_toms_stay_silent_rather_than_borrowing_another_drums_voice():
+    from app.services.drums.kit import layer
+
+    audio = np.zeros((SR * 2, 2))
+    hits = [Hit(time_s=t, kinds=["toms"], strength=0.6, rises={}) for t in (0.25, 0.5)]
+    out = layer(audio, SR, hits, kit="punchy", drums=("hihat", "kick", "snare"), blend=0.9)
+    assert float(np.abs(out).max()) < 1e-9

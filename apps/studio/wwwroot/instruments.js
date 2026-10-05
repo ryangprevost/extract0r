@@ -138,9 +138,13 @@ async function loadInstrumentComparison() {
   button.disabled = true;
 
   try {
-    const job = await api("/tracks/" + state.trackId + "/reference/instruments", {
-      method: "POST",
-    });
+    // The budget decides how far a suggestion may go, so it belongs on the request that
+    // produces the suggestions rather than only on the render.
+    const budget = typeof currentBudget === "function" ? currentBudget() : "nudge";
+    const job = await api(
+      "/tracks/" + state.trackId + "/reference/instruments?budget=" + budget,
+      { method: "POST" },
+    );
     const result = await pollJobQuietly(job.job_id);
     state.instruments = result;
     renderInstruments(result);

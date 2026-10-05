@@ -26,7 +26,6 @@ from pathlib import Path
 
 import numpy as np
 
-from app.services.mixdown.dither import describe
 from app.domain.notes import StemKind
 from app.services.mastering.base import MasteringReport
 from app.services.mastering.dsp import (
@@ -35,6 +34,13 @@ from app.services.mastering.dsp import (
     normalise_peak,
     set_width,
 )
+from app.services.mastering.exciter import (
+    DEFAULT_FROM_HZ as DEFAULT_SPARKLE_FROM_HZ,
+)
+from app.services.mastering.exciter import (
+    add_sparkle,
+)
+from app.services.mastering.instrument import StemShape, apply_shape
 from app.services.mastering.polish import (
     Polish,
     add_air,
@@ -42,11 +48,6 @@ from app.services.mastering.polish import (
     add_warmth,
     widen_above,
 )
-from app.services.mastering.exciter import (
-    DEFAULT_FROM_HZ as DEFAULT_SPARKLE_FROM_HZ,
-    add_sparkle,
-)
-from app.services.mastering.instrument import StemShape, apply_shape
 from app.services.mastering.reverb import apply_reverb
 from app.services.mastering.spectral import SpectralMatchEngine
 from app.services.mastering.stem_match import (
@@ -63,6 +64,7 @@ from app.services.mastering.vocals import (
     vocal_envelope,
     vocal_lift_db,
 )
+from app.services.mixdown.dither import describe
 from app.services.mixdown.encode import (
     AudioBuffer,
     apply_pan,
@@ -114,7 +116,7 @@ class StemSetting:
     muted: bool = False
     solo: bool = False
 
-    def shape(self) -> "StemShape":
+    def shape(self) -> StemShape:
         """The channel-strip half of these settings, in the form `instrument` applies."""
         return StemShape(
             tone_low_db=self.tone_low_db,
@@ -142,6 +144,11 @@ class MasterRequest:
     #: each source stem is matched to its counterpart before the bus is matched.
     reference_stems: dict[StemKind, Path] = field(default_factory=dict)
     bitrate_kbps: int = 320
+    #: How far this run is allowed to move anything, as a named notch rather than nine
+    #: constants: "nudge" (today's behaviour), "further", "closest". See `budget` - and
+    #: note that this is the control with the measured effect, where `match_strength`
+    #: below scales an already-clamped curve and is worth 0.56 dB across its whole range.
+    budget: str = "nudge"
     match_strength: float = 1.0
     match_stem_levels: bool = True
     match_stem_tone: bool = True
@@ -171,7 +178,7 @@ class MasterRequest:
     drum_stems: dict[str, Path] = field(default_factory=dict)
     #: A move taken on one drum inside the drums stem, keyed by drum name. Empty is the
     #: normal case and costs nothing at all - see `_apply_per_drum`.
-    drum_shapes: dict[str, "StemShape"] = field(default_factory=dict)
+    drum_shapes: dict[str, StemShape] = field(default_factory=dict)
     #: Split the drums stem into kick/snare/cymbals/toms before laying samples over it,
     #: so a trigger lands on the drum it is named after. Needs the DrumSep weights; falls
     #: back to the band-rise classifier when they are not there, and says so in the log.
@@ -267,6 +274,18 @@ def _describe_shape(shape) -> str:
     if shape.pan:
         parts.append(f"panned to {shape.pan:+.2f}")
     return ", ".join(parts) or "no change"
+
+
+def _match_settings(request) -> MatchSettings:
+    """The whole-mix clamps for this run, at this run's budget.
+
+    One helper rather than five constructions of `MatchSettings(strength=...)`. The five
+    were how the budget would have reached four of them and quietly missed the fifth,
+    which is the same failure the nine scattered constants already demonstrate.
+    """
+    from app.services.mastering.budget import match_settings_for
+
+    return match_settings_for(request.budget, MatchSettings(strength=request.match_strength))
 
 
 def _drum_hits(request, samples, sample_rate: int, work_dir: Path, report) -> list:
@@ -490,7 +509,7 @@ def run(
                 sample_rate,
                 source,
                 target,
-                MatchSettings(strength=request.match_strength),
+                _match_settings(request),
                 match_levels=request.match_stem_levels,
                 match_tone=request.match_stem_tone,
                 match_stereo=request.match_stem_width,
@@ -575,7 +594,7 @@ def run(
     mastered_wav = mix_wav
     if request.reference is not None or request.reference_profile is not None:
         report(0.5, "matching the reference")
-        engine = SpectralMatchEngine(MatchSettings(strength=request.match_strength))
+        engine = SpectralMatchEngine(_match_settings(request))
         mastered_wav = work_dir / "mastered.wav"
         master_report = engine.match(
             mix_wav,
@@ -720,7 +739,6 @@ def _predicted_match_curve(
         return None
     try:
         from app.services.mastering.dsp import (
-            MatchSettings,
             average_spectrum,
             matching_curve,
         )
@@ -730,7 +748,7 @@ def _predicted_match_curve(
         neutral = [g - setting.gain_db for g, setting in zip(gains, chosen, strict=True)]
         provisional = mix_buffers(buffers, neutral)
         reference = read_audio(request.reference).samples
-        settings = MatchSettings(strength=request.match_strength)
+        settings = _match_settings(request)
         return matching_curve(
             average_spectrum(provisional, settings.n_fft, settings.hop),
             average_spectrum(reference, settings.n_fft, settings.hop),
@@ -779,9 +797,9 @@ def _place_vocal(
     # point: a mid-heavy vocal loses more to a scooped match than the broad mix does,
     # and that gap is what placement is supposed to be closing.
     if match_curve is not None:
-        from app.services.mastering.dsp import MatchSettings, apply_curve
+        from app.services.mastering.dsp import apply_curve
 
-        settings = MatchSettings(strength=request.match_strength)
+        settings = _match_settings(request)
         try:
             provisional = apply_curve(provisional, match_curve, settings.n_fft, settings.hop)
             vocal = apply_curve(vocal, match_curve, settings.n_fft, settings.hop)
@@ -796,9 +814,9 @@ def _place_vocal(
 
         compensation = match_compensation_curve(match_curve, sample_rate)
         if compensation is not None:
-            from app.services.mastering.dsp import MatchSettings, apply_curve
+            from app.services.mastering.dsp import apply_curve
 
-            shaped = MatchSettings(strength=request.match_strength)
+            shaped = _match_settings(request)
             try:
                 buffers[index] = apply_curve(
                     buffers[index], compensation, shaped.n_fft, shaped.hop

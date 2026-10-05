@@ -326,12 +326,20 @@
 
     </div>
     <p class="muted small mode-why" id="mode-why"></p>
+    <!-- What the chosen budget permits, in decibels, and the honest comparison with the
+         slider beside it. Filled from /tracks/budgets so the wording lives with the
+         numbers rather than being retyped here. -->
+    <p class="muted small" id="budget-why" hidden></p>
     <details class="reasons" id="dial-reasons-box" hidden>
       <summary>Why these settings?</summary>
       <div class="stem-report" id="dial-reasons"></div>
     </details>
 
     <div class="controls controls-primary">
+<label class="control">
+        <span>How far to go</span>
+        <select id="budget"></select>
+      </label>
 <label class="control">
         <span>Match strength</span>
         <input type="range" id="strength" min="0" max="100" value="100" />

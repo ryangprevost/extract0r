@@ -39,8 +39,9 @@ from pathlib import Path
 
 import numpy as np
 
-from app.services.mastering import presence
 from app.domain.notes import StemKind
+from app.services.mastering import presence
+from app.services.mastering.budget import Limits
 from app.services.mastering.dsp import (
     DEFAULT_HOP,
     DEFAULT_N_FFT,
@@ -62,6 +63,16 @@ from app.services.mastering.polish import bell_ramp, shelf_ramp
 from app.services.mixdown.encode import apply_pan, mix_buffers, read_audio
 
 log = logging.getLogger(__name__)
+
+#: The ceilings at the default budget, which is where these four numbers now live.
+#:
+#: Re-exported below rather than defined here, the same way `ABSENT_BELOW_LU` is, and for
+#: the same reason: X0R-1306 exists because nine constants were scattered across four
+#: modules with no way to see or move them together, and fixing that by making a tenth
+#: copy would be missing the point. Everything that reads them still reads them from this
+#: module, so no caller changed.
+_LIMITS = Limits()
+
 
 #: The five bands every tone comparison is expressed in. Wide on purpose: a comparison
 #: between two different songs cannot support narrow bands, because the difference between
@@ -110,7 +121,7 @@ NUDGE_SHARE = 0.5
 #: How far one band may be moved on one stem, after the nudge share is applied. Three dB
 #: is already a large EQ move on a single instrument; the previous six let a single band
 #: rewrite what the instrument sounded like.
-MAX_BAND_DB = 2.5
+MAX_BAND_DB = _LIMITS.max_band_db
 
 #: How much shape change one stem may be asked to take in total, summed across the five
 #: bands. Without a budget, a stem whose balance differs wholesale from the reference's
@@ -118,7 +129,7 @@ MAX_BAND_DB = 2.5
 #: in four bands simultaneously, which is not an EQ move, it is a different drum sound.
 #: Over budget, every band is scaled down together so the *shape* of the request survives
 #: and only its size changes.
-TONE_BUDGET_DB = 5.0
+TONE_BUDGET_DB = _LIMITS.tone_budget_db
 
 #: Ridge term for the tone solve, and the fix for a specific complaint: masters that came
 #: back "swirly", "hollow" and "muddy".
@@ -159,7 +170,7 @@ QUIET_BAND_DB = -30.0
 #: How far a stem's fader may be moved. Was 9 dB, matching `stem_match`, and that is far
 #: too much: 9 dB up on the guitars against 4 dB down on the bass is a 13 dB swing between
 #: two instruments, which is not a correction, it is a different mix.
-MAX_LEVEL_DB = 3.0
+MAX_LEVEL_DB = _LIMITS.max_level_db
 
 #: Past this, a level difference between the same instrument on two records is much more
 #: likely to be a difference of arrangement - or of which bucket separation chose to put
@@ -183,7 +194,7 @@ MAX_APPLIED_BAND_DB = 6.0
 #: Stereo limits. Narrowed from (0.6, 2.0) for the same reason as everything else here -
 #: collapsing a part to 60% of its width is a drastic move to make on a measurement taken
 #: from a different song.
-WIDTH_LIMITS = (0.8, 1.35)
+WIDTH_LIMITS = _LIMITS.width_limits
 
 #: Bass and kick belong in the middle whatever the reference measures.
 #:
@@ -474,7 +485,9 @@ def tone_filter_gains(
     return {name: float(gain) for name, gain in zip(names, gains, strict=True)}
 
 
-def within_budget(wanted: dict[str, float]) -> dict[str, float]:
+def within_budget(
+    wanted: dict[str, float], limits: Limits | None = None
+) -> dict[str, float]:
     """Scale a whole stem's tone request down until it fits the budget.
 
     Proportionally, so the shape of the request is kept and only its size changes. A stem
@@ -482,10 +495,11 @@ def within_budget(wanted: dict[str, float]) -> dict[str, float]:
     a different instrument, and the honest response is to move in that direction by less
     rather than to refuse.
     """
+    ceiling = (limits or _LIMITS).tone_budget_db
     total = sum(abs(value) for value in wanted.values())
-    if total <= TONE_BUDGET_DB or total <= 0:
+    if total <= ceiling or total <= 0:
         return dict(wanted)
-    scale = TONE_BUDGET_DB / total
+    scale = ceiling / total
     return {band: round(value * scale, 2) for band, value in wanted.items()}
 
 
@@ -660,6 +674,7 @@ def compare(
     theirs: InstrumentProfile,
     words: tuple[str, bool] | None = None,
     caveat: str = "",
+    limits: Limits | None = None,
 ) -> list[InstrumentMove]:
     """Every difference between one instrument and its counterpart, with its dial.
 
@@ -677,6 +692,7 @@ def compare(
     if not mine.present or not theirs.present:
         return []
 
+    ceilings = limits or _LIMITS
     key = str(stem)
     name, plural = words or (key, False)
     sits = "sit" if plural else "sits"
@@ -686,7 +702,7 @@ def compare(
     # --- level ---------------------------------------------------------------
     gap = theirs.relative_lufs - mine.relative_lufs
     if abs(gap) >= SAME_LEVEL_DB:
-        applied = _nudge(gap, MAX_LEVEL_DB)
+        applied = _nudge(gap, ceilings.max_level_db)
         back = gap > 0
         # A very large level difference is far more likely to be a different arrangement,
         # or a different guess by the separator about which bucket a part belongs in, than
@@ -731,11 +747,11 @@ def compare(
         for band, _, _ in BANDS
     }
     wanted = {
-        band: _nudge(gap, MAX_BAND_DB)
+        band: _nudge(gap, ceilings.max_band_db)
         for band, gap in gaps.items()
         if abs(gap) >= SAME_BAND_DB
     }
-    budgeted = within_budget(wanted)
+    budgeted = within_budget(wanted, ceilings)
 
     for band, _, _ in BANDS:
         if band not in budgeted:
@@ -758,7 +774,7 @@ def compare(
             if abs(applied - band_gap) > 0.05
             else ""
         )
-        if sum(abs(v) for v in wanted.values()) > TONE_BUDGET_DB:
+        if sum(abs(v) for v in wanted.values()) > ceilings.tone_budget_db:
             capped += (
                 f" Held back further because this {name} differs from the reference's "
                 f"across most of the spectrum, and re-EQing every band at once stops "
@@ -901,7 +917,7 @@ def compare(
         ratio = theirs.width / mine.width
         if abs(ratio - 1.0) >= SAME_WIDTH_RATIO:
             factor = float(
-                np.clip(1.0 + (ratio - 1.0) * NUDGE_SHARE, *WIDTH_LIMITS)
+                np.clip(1.0 + (ratio - 1.0) * NUDGE_SHARE, *ceilings.width_limits)
             )
             wider = ratio > 1.0
             moves.append(

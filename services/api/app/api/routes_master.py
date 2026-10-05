@@ -31,6 +31,27 @@ from app.config import Settings
 from app.domain.notes import StemKind
 from app.jobs.store import JobHandle, JobState, JobStore
 from app.services.mastering import pipeline as master_pipeline
+from app.services.mastering.depth import (
+    MAX_AMBIENCE_MIX,
+    MAX_PARALLEL_MIX,
+    MAX_SIDE_AIR_DB,
+)
+from app.services.mastering.dynamics import MAX_COMPRESSION_DB
+from app.services.mastering.exciter import (
+    DEFAULT_FROM_HZ as DEFAULT_SPARKLE_FROM_HZ,
+)
+from app.services.mastering.exciter import (
+    MAX_FROM_HZ as MAX_SPARKLE_FROM_HZ,
+)
+from app.services.mastering.exciter import (
+    MAX_SPARKLE_DB,
+)
+from app.services.mastering.exciter import (
+    MIN_FROM_HZ as MIN_SPARKLE_FROM_HZ,
+)
+from app.services.mastering.instrument import BANDS as _BANDS_FOR_DISPLAY
+from app.services.mastering.instrument import MAX_APPLIED_BAND_DB
+from app.services.mastering.lowend import MAX_CENTRE_HZ, MAX_SUBSONIC_HZ
 from app.services.mastering.pipeline import MasterRequest, StemSetting
 from app.services.mastering.polish import (
     DEFAULT_AIR_HZ,
@@ -44,21 +65,6 @@ from app.services.mastering.polish import (
     MIN_WIDTH,
     Polish,
 )
-from app.services.mastering.exciter import (
-    DEFAULT_FROM_HZ as DEFAULT_SPARKLE_FROM_HZ,
-    MAX_FROM_HZ as MAX_SPARKLE_FROM_HZ,
-    MAX_SPARKLE_DB,
-    MIN_FROM_HZ as MIN_SPARKLE_FROM_HZ,
-)
-from app.services.mastering.depth import (
-    MAX_AMBIENCE_MIX,
-    MAX_PARALLEL_MIX,
-    MAX_SIDE_AIR_DB,
-)
-from app.services.mastering.dynamics import MAX_COMPRESSION_DB
-from app.services.mastering.instrument import BANDS as _BANDS_FOR_DISPLAY
-from app.services.mastering.instrument import MAX_APPLIED_BAND_DB
-from app.services.mastering.lowend import MAX_CENTRE_HZ, MAX_SUBSONIC_HZ
 from app.services.mastering.saturation import MAX_SATURATION_DB
 from app.services.mastering.vocals import VocalPresence
 from app.services.registry import TrackRegistry
@@ -150,6 +156,11 @@ class DrumMixSetting(BaseModel):
 
 class MasterJobRequest(BaseModel):
     stems: list[StemMixSetting] = Field(min_length=1)
+    #: How far this run may move anything: "nudge", "further", "closest". Unlike
+    #: `match_strength` below, this one has a measured effect - see `mastering.budget`.
+    #: An unknown name falls back to the default rather than 422ing, so an older client
+    #: keeps working.
+    budget: str = "nudge"
     #: Moves taken on the four drums inside the drums stem. Ignored unless that stem has
     #: been split, which only the per-drum comparison does.
     drums: list[DrumMixSetting] = Field(default_factory=list)
@@ -781,6 +792,7 @@ def stream_reference_stem(
 @router.post("/{track_id}/reference/instruments", response_model=JobResponse)
 def compare_instruments(
     track_id: str,
+    budget: str = Query("nudge", description="nudge | further | closest"),
     settings: Settings = Depends(get_config),
     registry: TrackRegistry = Depends(get_registry),
     jobs: JobStore = Depends(get_jobs),
@@ -829,12 +841,15 @@ def compare_instruments(
     reference_name = saved.name if from_profile else ""
 
     def work(handle: JobHandle) -> dict:
+        from app.services.mastering.budget import limits_for
         from app.services.mastering.critique import STEM_WORDS
         from app.services.mastering.instrument import (
             compare,
             from_snapshot_all,
             profile_all,
         )
+
+        ceilings = limits_for(budget)
 
         handle.update(JobState.RUNNING, 0.05, "measuring your instruments")
         mine = profile_all(mine_paths)
@@ -855,7 +870,7 @@ def compare_instruments(
             if a is None:
                 continue
             words = STEM_WORDS.get(kind, (kind.value, False))
-            moves = compare(kind, a, b, words) if b is not None else []
+            moves = compare(kind, a, b, words, limits=ceilings) if b is not None else []
             instruments.append(
                 {
                     "stem": kind.value,
@@ -892,6 +907,10 @@ def compare_instruments(
             # with no audio behind it instead of appearing to lose a feature.
             "reference_kind": "profile" if from_profile else "stems",
             "reference_name": reference_name,
+            # Which notch produced these suggestions. On the response rather than assumed
+            # by the page, so a comparison cached from before a budget change cannot be
+            # drawn under the new label.
+            "budget": budget,
             "instruments": instruments,
             # The five filters the tone controls are built from, so the page can build the
             # same ones. Biquads in the browser are not the same shape as the zero-phase
@@ -1101,6 +1120,7 @@ def _per_drum_capability(record, settings: Settings) -> dict:
 @router.post("/{track_id}/reference/drums", response_model=JobResponse)
 def compare_drums(
     track_id: str,
+    budget: str = Query("nudge", description="nudge | further | closest"),
     settings: Settings = Depends(get_config),
     storage: TrackStorage = Depends(get_storage),
     registry: TrackRegistry = Depends(get_registry),
@@ -1160,6 +1180,7 @@ def compare_drums(
 
     def work(handle: JobHandle) -> dict:
         from app.services.mastering import subdrum
+        from app.services.mastering.budget import limits_for
 
         handle.update(JobState.RUNNING, 0.05, "splitting your drums")
         mine_stems = split("source", mine_drums, handle, 0.05)
@@ -1176,7 +1197,7 @@ def compare_drums(
             theirs = subdrum.profile_all(theirs_stems)
 
         handle.update(JobState.RUNNING, 0.95, "comparing them, drum by drum")
-        moves = subdrum.compare_all(mine, theirs)
+        moves = subdrum.compare_all(mine, theirs, limits=limits_for(budget))
 
         drums = []
         for name in subdrum.DRUMS:
@@ -1209,6 +1230,7 @@ def compare_drums(
             "available": True,
             "reference_kind": "profile" if from_profile else "stems",
             "reference_name": reference_name,
+            "budget": budget,
             "measured": len(drums),
             # Repeated here so a caveat shown on screen and a caveat written into a
             # finding's detail cannot say two different things.
@@ -1350,6 +1372,7 @@ def start_master(
         preserve_source=body.preserve_source,
         tags=_export_tags(record),
         bitrate_kbps=body.bitrate_kbps,
+        budget=body.budget,
         match_strength=body.match_strength,
         match_stem_levels=body.match_stem_levels,
         match_stem_tone=body.match_stem_tone,
@@ -1584,8 +1607,6 @@ def suggest_references(
         )
 
     def work(handle: JobHandle) -> dict:
-        from dataclasses import asdict
-
         from app.services.mastering.library import profile_of, rank, scan
 
         handle.update(JobState.RUNNING, 0.02, "measuring your track")
@@ -2002,6 +2023,33 @@ def suggest_settings(
             "reference_width": result.reference_width,
             "reference_crest_db": result.reference_crest_db,
         },
+    }
+
+
+@router.get("/budgets")
+def budgets() -> dict:
+    """The notches of the one control in this application with a measured effect.
+
+    Worth stating plainly, because the page already has a "Match strength" slider that
+    looks like it does this job. It does not: sweeping it from 0.4 to 1.0 moves the mean
+    spectral distance to the reference by 0.56 dB, under half the 1.2 dB this codebase
+    calls a meaningful gap, because it scales a curve that has already been clamped and
+    is clipped at 1.0. The clamps behind it are worth three and a half times as much, and
+    this is the control that moves them.
+    """
+    from app.services.mastering import budget as budgets_module
+
+    return {
+        "budgets": budgets_module.as_json(),
+        "default": budgets_module.DEFAULT,
+        # Said here so the page can put it next to the control rather than inventing its
+        # own wording for it.
+        "note": (
+            "Raises the ceiling on every move, never the share of the gap taken. A big "
+            "difference between the two records is allowed to move further; a small one "
+            "does not move at all, and nothing ever becomes a copy - the largest move "
+            "any setting can make is still half the measured gap."
+        ),
     }
 
 

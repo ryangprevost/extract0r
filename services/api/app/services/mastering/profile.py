@@ -170,7 +170,7 @@ class ReferenceProfile:
         return json.dumps(asdict(self), indent=2)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ReferenceProfile":
+    def from_dict(cls, data: dict) -> ReferenceProfile:
         version = int(data.get("version", 0))
         if version > FORMAT_VERSION:
             raise ValueError(

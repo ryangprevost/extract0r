@@ -1233,6 +1233,9 @@ async function refreshPerStemState() {
   // Separating the reference is what makes the instrument-by-instrument screen possible,
   // so this is the moment it becomes available.
   refreshInstrumentSection();
+  // Built here rather than on first use: the budget decides what every suggestion on
+  // the page is allowed to be, so the control has to exist before the comparison runs.
+  loadBudgets();
 }
 
 async function separateReference() {
@@ -1281,6 +1284,53 @@ function updateMasterSummary() {
     : `${what}, no reference — export only`;
 }
 
+/**
+ * The budget control: one named notch in place of nine constants nobody could reach.
+ *
+ * It sits next to "Match strength" on purpose, and the note under it says which of the
+ * two actually moves anything. Sweeping the slider from 0.4 to 1.0 is worth 0.56 dB of
+ * mean spectral closure - under half this app's own threshold for a difference worth
+ * mentioning - because it scales a curve that has already been clamped and is clipped at
+ * 1.0. The clamps are worth three and a half times as much, and this is the control that
+ * moves them. Leaving that unsaid would mean shipping a working control beside one that
+ * looks identical and is not.
+ */
+async function loadBudgets() {
+  const select = $("budget");
+  if (!select || select.options.length) return;
+  try {
+    const data = await api("/tracks/budgets");
+    state.budgets = data;
+    select.innerHTML = data.budgets
+      .map(
+        (b) =>
+          `<option value="${b.name}"${b.default ? " selected" : ""}>${b.label}</option>`,
+      )
+      .join("");
+    describeBudget();
+  } catch {
+    // No budgets listed means the control stays absent and the default applies, which
+    // is today's behaviour in both cases.
+    select.closest(".control")?.setAttribute("hidden", "");
+  }
+}
+
+function currentBudget() {
+  return $("budget")?.value || "nudge";
+}
+
+function describeBudget() {
+  const line = $("budget-why");
+  const data = state.budgets;
+  if (!line || !data) return;
+  const chosen = data.budgets.find((b) => b.name === currentBudget());
+  if (!chosen) return;
+  line.innerHTML =
+    "<strong>" + escapeHtml(chosen.label) + ".</strong> " +
+    escapeHtml(chosen.summary) + " " + escapeHtml(data.note);
+  line.hidden = false;
+}
+
 async function runMaster() {
   $("master-error").hidden = true;
   $("master-result").hidden = true;
@@ -1326,6 +1376,7 @@ async function runMaster() {
         // `_apply_per_drum`.
         drums: typeof PerDrum !== "undefined" ? PerDrum.settings() : [],
         reference_track_id: state.referenceLoaded ? state.trackId : null,
+        budget: currentBudget(),
         match_strength: parseInt($("strength").value, 10) / 100,
         per_stem_match: $("per-stem-match").checked,
         preserve_source: $("preserve-source").checked,
@@ -2570,6 +2621,16 @@ $("kit-on").addEventListener("change", () => {
     "forgiving, so a mistriggered hat is far more audible than a reinforced kick.";
   $("kit-route").hidden = !on;
   if (on) loadDrumKits();
+});
+$("budget").addEventListener("change", () => {
+  describeBudget();
+  // The budget changes what is *suggested*, not only what is rendered, so the cards on
+  // screen are now drawn at the wrong setting. Re-running costs a few seconds and both
+  // sides are already separated; leaving stale suggestions under a new label would be
+  // the screen quietly disagreeing with itself.
+  if (state.instruments && typeof loadInstrumentComparison === "function") {
+    loadInstrumentComparison();
+  }
 });
 $("kit-blend").addEventListener("input", () => {
   $("kit-blend-out").textContent = `${$("kit-blend").value}%`;

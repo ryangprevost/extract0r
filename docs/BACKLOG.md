@@ -231,7 +231,7 @@ asked of every bad transcription.
 
 ---
 
-### X0R-306 · Separation and transcription quality benchmark · 5 · `TODO`
+### X0R-306 · Separation and transcription quality benchmark · 5 · `PARTIAL`
 **Now the gating card for the whole transcription epic — promoted to lead sprint 2, and
 re-sized from 3 to 5 because it must cover transcription as well as separation.**
 
@@ -263,12 +263,134 @@ tuning reference and measured 4.0 / 14.0 / 26.0 cents across three records; it s
 a caveated upper bound because nothing says what pYIN's own error through Demucs is. A DI
 bass and a sung DI vocal answer it at the same time as the note-level criteria above.
 
+**Status 2026-10-05: `PARTIAL`. The ruler is built and tested; two of the four criteria
+are measured and two are waiting on twenty minutes of recording.**
+
+| Criterion | State |
+|---|---|
+| SDR / SIR / SAR against a licensed multitrack set | **blocked** — there is no eval set |
+| Note P / R / F1, with and without octave tolerance | **blocked** — there is no ground-truth note list |
+| Wall clock for a real three-minute song, as a realtime multiple | **done** — 1.24× on CPU with `htdemucs_6s`, 0.94× with `htdemucs` |
+| Results in `docs/benchmarks/` with model, versions and commit | **done** |
+
+**What was built.** `app/services/benchmark/` holds the metrics, the eval-set format and
+the report writer; `tools/benchmark.py` runs it; `docs/benchmarks/README.md` is how to
+build a set. The metrics are `mir_eval`'s, not mine - so a number from here can sit next
+to a number from a paper - and `tests/test_benchmark.py` proves this project reads them
+correctly against signals whose answers are known on paper. That file is the one place
+synthetic audio belongs in this card: it measures the ruler, and Demucs has nothing to do
+with the question.
+
+Three decisions in it are load-bearing and each one is a way to get a benchmark quietly
+wrong. The permutation is **not** searched, so a model that filed the bass under `other`
+scores as having failed. Long tracks are scored in thirty-second windows with the median
+taken, because BSS Eval's cost grows with the square of the length. And cents accuracy is
+measured over notes matched by **onset alone** - matching on pitch and then measuring
+pitch is circular, and the circularity is invisible in the output because it just produces
+a reassuringly small number bounded by whatever tolerance was passed in.
+
+**What the first runs found.** Two models over one real three-minute track, twice each
+in both orders: `htdemucs_6s` reconstructs to **-21.69 dB** at **1.24x** real time, and
+`htdemucs` to **-27.08 dB** at **0.94x**. So the six-stem model is the faster one, which
+is the opposite of what I expected and held in both orders - left as a measurement rather
+than given an invented mechanism. And splitting into six loses 5.4 dB more of the track
+than splitting into four, which is what the default costs to get piano and guitar. The
+two bracket the -25.6 dB that `docs/API.md` and the Studio quote from an earlier one-off,
+which is the first independent support that figure has had.
+
+My first timing numbers were wrong and are not the ones above: I ran the test suite
+during the separation, and the same track came back at 1.09x and then 1.24x. The report
+template now says to read a small timing change as noise, and that reconstruction - which
+repeated to the decimal place - is the one to trust.
+
+**One metric was added that the card did not ask for**, because it is the only quality
+figure that needs no ground truth and therefore works on every track anybody ever runs:
+**reconstruction**, the residual between the mixture and the sum of its stems. It is the
+number `preserve_source` exists because of. It is also the weaker question and is labelled
+as such everywhere it appears - a separator that put the whole bass in the vocals file
+would reconstruct perfectly and score well, which is asserted as a test.
+
+**What is still needed, in the order it is worth doing.** All four are recording tasks,
+and each is usable on its own:
+
+1. **A DI bass to a click**, two minutes. Gives an exact reference stem, an exact note
+   list, and the pitch-in-cents figure X0R-1320 currently ships as a caveated upper bound.
+2. **A DI guitar over the same click.** Two stems means SDR and SIR become real.
+3. **Drums with kick, snare and overheads on separate tracks.** The only route to
+   DrumSep's per-stem bleed, which is the single most load-bearing unmeasured quantity in
+   the project: every per-drum finding on the comparison screen says "some of this may be
+   another drum" and cannot say how much.
+4. **A sung DI vocal**, which separates pYIN's own pitch error from the singer's.
+
+MUSDB18 remains the alternative the card names. It is the standard and it would make these
+numbers comparable with the SiSEC leaderboard; it is also 22 GB, CC BY-NC-SA, and has to
+be accepted and downloaded by a person, and it would not answer item 3 at all, because it
+carries a drums stem rather than the drums inside it.
+
+**One dependency note, now decided.** `mir_eval.separation` is deprecated as of 0.8 and
+removed in 0.9, with upstream pointing at sigsep-museval. **Deferred, deliberately** -
+see X0R-308, which is gated and must not be started before its trigger fires. The short
+version: museval buys numbers on the MUSDB18 leaderboard's convention, and none of the
+four eval sets this card is built around is MUSDB18, so what the benchmark needs is a
+convention held *fixed* between runs rather than one that is standard. `mir_eval` is
+pinned below 0.9 in both requirements files, with the unpin conditions written in the pin
+comments themselves, and the whole BSS call is one function.
+
 ---
 
 ### X0R-307 · GPU path · 3 · `TODO`
 **Acceptance criteria**
 - `DEMUCS_DEVICE=cuda` is used when a GPU is present, CPU otherwise, decided at runtime.
 - Documented CUDA container variant.
+
+---
+
+### X0R-308 · BSS Eval v4 via sigsep-museval, for MUSDB-comparable numbers · 2 · `TODO` *(gated)*
+**As a** developer **I want** separation scores on the SiSEC convention **so that** a number
+from this repo can sit next to a published MUSDB18 leaderboard entry rather than only next
+to this repo's own previous run.
+
+**Do not start before one of these is true, and say which in the PR:**
+1. MUSDB18-HQ is on disk and has been run through `tools/benchmark.py`.
+2. `mir_eval>=0.7,<0.9` no longer resolves in `requirements-ml.txt` or `requirements-dev.txt`.
+
+Started before either, this adds fifteen packages - including a MUSDB dataset loader to a
+project that does not load MUSDB - to make numbers comparable against an eval set that does
+not exist. Note also that the eval set answering this project's most important open question,
+DrumSep's per-stem bleed, is the one museval adds nothing to: MUSDB18 carries a `drums` stem
+rather than the drums inside it, and BSS Eval over four drum mics has no MUSDB convention in
+v3 or v4.
+
+**Acceptance criteria**
+- Museval is a **second** BSS backend behind a flag on `tools/benchmark.py`, not a
+  replacement. The `mir_eval` path keeps working: it is the one that scores the per-drum
+  bleed set.
+- The report header names which convention produced each table - "BSS Eval v3,
+  `bss_eval_sources`, mono downmix" or "BSS Eval v4, `bss_eval_images`, framewise". A reader
+  must never have to guess which ruler a dB figure came from.
+- Running one eval set through both backends is supported, and the delta between them is
+  written to `docs/benchmarks/` once. That number is the only bridge between every
+  pre-migration run and every post-migration one.
+- The BSS assertions in `tests/test_benchmark.py` pass against both backends. They assert
+  constructed facts - SIR 20 dB for a tenth of the other source, SDR above 100 dB for a
+  perfect estimate, swapped estimates below 1 dB - so a backend failing them is wrong rather
+  than differently conventioned. The exception is
+  `test_a_long_signal_is_scored_in_windows_and_the_median_reported`, which asserts the
+  framewise API's shape and will need rewriting for museval's.
+- `docs/benchmarks/README.md` says which backend answers which question.
+- The pins in both requirements files and the `metrics.py` docstring describe what was done
+  rather than what was deferred.
+
+**Out of scope**
+- Removing the `mir_eval` path. It is not a fallback, it is the per-drum path.
+- Restating historical runs in `docs/benchmarks/` on the new convention. The delta figure
+  reconciles them; rewriting a dated record is worse than leaving it correctly labelled.
+- `musdb`/`stempeg` as an ingest path. Museval is wanted for `museval.metrics`; the dataset
+  loader arriving with it is a cost, and nothing under `app/` may import it.
+
+**Not QA-verifiable in a browser**, and that is stated rather than hidden: `tools/benchmark.py`
+never runs in the serving path. Every criterion is checkable from the generated
+`docs/benchmarks/*.md` and the test suite, but a browser pass cannot confirm any of it.
 
 ---
 
@@ -1877,7 +1999,7 @@ figures that carried information are both ones a label would have obscured.
 
 ---
 
-### X0R-1306 · A strength budget instead of a constant · 3 · `TODO`
+### X0R-1306 · A strength budget instead of a constant · 3 · `DONE`
 `CLOSE_FRACTION`, `MAX_LEVEL_DB`, `MAX_BAND_DB` and `WIDTH_LIMITS` become one user-set
 budget; today's values are the default and labelled *nudge*, and each wider notch says in dB
 what it permits. `LIKELY_ARRANGEMENT_DB` stays a flag at every setting.
@@ -1888,6 +2010,48 @@ project's own 1.2 dB threshold for a meaningful gap, because `strength` scales a
 already-clamped curve and is clipped at 1.0. Doubling the clamps buys 1.07 dB more, removing
 them 2.15 dB. A budget slider wired to `match_strength` would ship a control that cannot do
 anything, and it is the obvious way to build this card wrong.
+
+---
+
+**Shipped 2026-10-05 as `app/services/mastering/budget.py`**, with two notches rather than
+a slider, and three departures from the card above - each one measured rather than argued.
+
+**It ships with two notches because a third was built and measured at nothing.** Rendered
+end to end on the Experiment 2 pair, against an unmastered distance of 5.73 dB:
+
+| notch | scale | mean distance | closed |
+|---|---:|---:|---:|
+| Nudge (default) | ×1 | 4.14 dB | 27.7% |
+| Further | ×2 | 3.63 dB | 36.6% |
+| *a ×3 notch, removed* | *×3* | *3.57 dB* | *37.6%* |
+
+The third is worth **0.06 dB** over the second. Asking the curve why: at ×2 the correction
+sits exactly on the tilt cap, 12.00 dB against a cap of 12. At ×3 it sits at 13.25 against a
+cap of 18 - so the cap has stopped being what holds it. **The deep-bass guard is.** Lifting
+that guard from 1 dB to 6 takes the low-end cut from −4.96 to −6.00 dB, which is the move
+that produced "super hollow with no bass" and the reason the guard is 1 dB. A notch past
+Further is a control that measurably does nothing unless it also re-opens a fixed complaint,
+which is this card's own failure mode. It stops at two.
+
+**`CLOSE_FRACTION` and `NUDGE_SHARE` are deliberately not in the budget**, though the card
+names the first. Ceilings scale; the share of the gap does not. `_nudge` is
+`clip(gap * share, -limit, +limit)`, so raising the limit lets a *large* difference move
+further and leaves a small one exactly where it was - while scaling the share would turn a
+nudge into a match at the top notch, which the governing idea forbids. The property is
+tested: on an 11 dB level gap, Nudge offers 3.0 dB (clamped) and Further offers 5.5 - half
+the gap, and no higher ceiling can take it past that.
+
+**What 0.51 dB is and is not.** It is the whole-mix match, which is all a render measures
+when nobody has taken a suggestion. It is under the 1.2 dB threshold, and that is stated on
+the control rather than hidden. Most of what the budget buys is in the per-instrument
+suggestions, where the ceilings also double: a large gap can move 6 dB instead of 3, and
+5 dB of tone instead of 2.5 - well past the threshold, but only for somebody who presses
+Apply. Both comparison routes take the budget, so the suggestions are drawn at the chosen
+notch and re-run when it changes.
+
+`match_strength` is **left in place**, beside the new control, with a line saying which of
+the two actually moves anything. Removing a control a user may be relying on is a separate
+decision.
 
 ---
 
@@ -1939,6 +2103,43 @@ proposal refuses to ship.
 **Parked behind X0R-1314's sub-drum presence test.** 24 tom strokes were measured in 28
 seconds on a record that has no toms. Built first, a tom voice puts synthesised toms on
 records that have none.
+
+---
+
+**Started 2026-10-05 and stopped, because the gate this card relies on does not hold.**
+X0R-1314's presence test shipped, which was supposed to unblock this. It does not:
+
+- On the Experiment 2 reference, the separated **toms stem sits 4.7 LU under the kit**. The
+  presence threshold is 30 LU, so the gate passes it by twenty-five decibels.
+- It is not toms. 79% of its onsets land within 30 ms of a kick (100% of 37 on the source
+  side), its strongest partial is at 80 Hz, and its waveform correlation with the kick is
+  +0.08 - so it is not literally the kick either. It is loud separation residue that fires
+  when other drums do.
+- **So a tom voice built now does exactly what this card was parked to prevent, despite the
+  gate.** The presence test was designed for digital residue at −40 LU; this is residue at
+  −5.
+
+**A replacement gate was proposed and also measured as dead.** The idea: a real drum
+sometimes plays *alone*, while residue only exists when something else is loud. Measured as
+the share of a drum's own strokes with no other drum within 30 ms, across all four as
+controls:
+
+| | kick | snare | cymbals | toms |
+|---|---:|---:|---:|---:|
+| reference | 41% | 4% | 42% | **1%** |
+| source | **0%** | 5% | 58% | **0%** |
+
+The source's *kick* is 0% independent, because a four-on-the-floor never plays without a
+hat. The test rejects the kick. It measures density, not reality.
+
+**And the voice cannot be tuned anyway.** The three existing voices were tuned against
+measured band energies from real drums; there are no real toms on this machine, which is
+the same finding from the other side.
+
+All three roads end at the same place: **record a kit with kick, snare and overheads on
+separate tracks** - item 3 of X0R-306's recording list. That gives the tuning material, a
+real example of what a tom stem looks like against a residue one, and the data to design a
+gate that works. Until then this card is blocked on audio, not on code.
 
 ---
 

@@ -185,9 +185,11 @@ const PerDrum = (() => {
     button.disabled = true;
 
     try {
-      const job = await api("/tracks/" + state.trackId + "/reference/drums", {
-        method: "POST",
-      });
+      const budget = typeof currentBudget === "function" ? currentBudget() : "nudge";
+      const job = await api(
+        "/tracks/" + state.trackId + "/reference/drums?budget=" + budget,
+        { method: "POST" },
+      );
       const result = await pollJobQuietly(job.job_id);
       state.perDrumResult = result;
       // Only when the reference's own drums were split here. A comparison drawn from a

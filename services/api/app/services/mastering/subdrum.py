@@ -144,6 +144,7 @@ def profile_all(stems: dict[str, Path]) -> dict[str, instrument.InstrumentProfil
 def compare_all(
     mine: dict[str, instrument.InstrumentProfile],
     theirs: dict[str, instrument.InstrumentProfile],
+    limits=None,
 ) -> dict[str, list[instrument.InstrumentMove]]:
     """Every difference between your four drums and theirs.
 
@@ -160,7 +161,7 @@ def compare_all(
         if b is None or not presence.comparable(a.relative_lufs, b.relative_lufs):
             out[drum] = []
             continue
-        found = instrument.compare(drum, a, b, words(drum))
+        found = instrument.compare(drum, a, b, words(drum), limits=limits)
         for move in found:
             move.detail = f"{move.detail} {bleed_note(drum, move)}"
         out[drum] = found

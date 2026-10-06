@@ -20,6 +20,7 @@ import pytest
 from app.services.mastering.subdrum import (
     AUDIBLE_BLEED_DB,
     BAND_RESIDENTS,
+    HOME_BANDS,
     MOSTLY_FOREIGN_DB,
     bleed_db,
     bleed_warning,
@@ -43,17 +44,58 @@ def noise(amplitude: float = 0.5) -> np.ndarray:
 # --- which bands belong to which drum ----------------------------------------------------
 
 
-def test_foreign_bands_are_derived_and_not_listed_twice():
-    """`BAND_RESIDENTS` already says where each drum lives, so the inverse is arithmetic.
+def test_home_and_foreign_partition_every_band():
+    """Each drum's bands split cleanly in two, with nothing left over."""
+    from app.services.mastering.instrument import BANDS
 
-    A second hand-made table would be a second thing to keep in step, and the one thing
-    guaranteed about two tables of the same fact is that they diverge.
-    """
+    every = {name for name, _low, _high in BANDS}
     for drum in ("kick", "snare", "cymbals", "toms"):
         foreign = set(foreign_bands(drum))
-        home = {band for band, residents in BAND_RESIDENTS.items() if drum in residents}
+        home = set(HOME_BANDS[drum])
         assert foreign & home == set(), f"{drum} is both at home and foreign somewhere"
-        assert foreign | home == set(BAND_RESIDENTS), f"{drum} misses a band entirely"
+        assert foreign | home == every, f"{drum} misses a band entirely"
+
+
+def test_home_bands_are_not_the_inverse_of_band_residents():
+    """They answer different questions, and conflating them got one drum badly wrong.
+
+    `BAND_RESIDENTS` is for attribution - given a finding in this band, which drum should
+    I suspect - and it is right that `low` names only the kick, because a low-band finding
+    on the snare almost always is the kick. `HOME_BANDS` asks where a drum's own sound
+    lives. Inverting the first to answer the second counted a floor tom's fundamental as
+    foreign to the toms file.
+    """
+    inverted = {
+        drum: {band for band, residents in BAND_RESIDENTS.items() if drum not in residents}
+        for drum in HOME_BANDS
+    }
+    assert inverted["toms"] != set(foreign_bands("toms")), (
+        "foreign_bands is back to inverting the attribution table"
+    )
+
+
+def test_a_tom_lives_in_the_low_band():
+    """Ryan: "the toms are ok i think they're more of an EQ range than an instrument."
+
+    He was right and the physics says why: a floor tom's fundamental is 55 to 100 Hz,
+    squarely inside `low`, and rack toms straddle the `low`/`low_mid` boundary at 100 to
+    250. Counting that as foreign made two real toms stems measure 98% not-toms, which
+    read as pure residue and was an artefact of the table.
+    """
+    assert "low" in HOME_BANDS["toms"]
+    assert "low" not in foreign_bands("toms")
+
+
+def test_a_real_tom_fundamental_does_not_read_as_foreign():
+    """The correction, as a measurement rather than a table lookup.
+
+    On the stems that prompted this, the figure moved from -1.2 dB to -15.3 - from
+    "barely the drum" to ordinary bleed, in line with the snare.
+    """
+    floor_tom = tone(70.0) + 0.3 * tone(140.0)
+    level = bleed_db(floor_tom, SR, "toms")
+    assert level is not None
+    assert level < AUDIBLE_BLEED_DB, f"a floor tom read as {level} dB of foreign content"
 
 
 def test_a_kick_is_foreign_everywhere_above_the_low_mids():

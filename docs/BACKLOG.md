@@ -2275,6 +2275,13 @@ proposal refuses to ship.
 seconds on a record that has no toms. Built first, a tom voice puts synthesised toms on
 records that have none.
 
+**2026-10-06: one leg of the argument below is weaker than it looked.** X0R-1413 first
+measured the toms stems as 98% foreign content and read it as confirmation. That figure
+was an artefact - a floor tom's fundamental was being counted as not-toms - and the
+corrected number is ordinary. More to the point, **this card's own "its strongest partial
+is at 80 Hz" is exactly what a floor tom sounds like**, and was read here as evidence it
+was not toms. The onset-coincidence figures still stand. Re-read before acting.
+
 ---
 
 **Started 2026-10-05 and stopped, because the gate this card relies on does not hold.**
@@ -2953,10 +2960,39 @@ there; above −10 says **the file is barely the drum**, which is a different st
 earns different words. `foreign_bands` is derived from `BAND_RESIDENTS` rather than listed,
 so there is one table of which drum lives where.
 
-**A second finding, free:** the **toms stems measured −1.2 and −1.5 dB** - what is not toms
-is within a decibel and a half of what is. That is X0R-1310's "the toms stem is residue"
-with a number on it from real material instead of from the Experiment 2 clip, and it is
-considerably worse than that card assumed.
+**A second finding that turned out to be my own bug, corrected 2026-10-06.** This card
+first reported the toms stems at **−1.2 and −1.5 dB** and called it X0R-1310's "the toms
+stem is residue" with a number on it. **That was an artefact of how `foreign_bands` was
+built, not a measurement of the stems.**
+
+Ryan, reading it: *"the toms are ok i think they're more of an EQ range than an
+instrument."* He was right. `foreign_bands` was derived by inverting `BAND_RESIDENTS`, and
+the docstring congratulated itself for deriving rather than listing - but the two tables
+answer different questions. `BAND_RESIDENTS` is for **attribution**: given a finding in
+this band, which drum should I suspect. It is correct that `low` names only the kick,
+because a low-band finding on the snare almost always *is* the kick. Inverting it to mean
+"toms have no business below 120 Hz" is wrong, because **a floor tom's fundamental is 55 to
+100 Hz** and rack toms straddle the boundary at 100 to 250. The measurement was counting a
+real tom's own fundamental as content that did not belong in the toms file.
+
+With `HOME_BANDS` written out rather than inverted, the same stems re-measure:
+
+| drum | as first reported | corrected |
+|---|---:|---:|
+| source toms | −1.5 dB | **−15.0 dB** |
+| reference toms | −1.2 dB | **−15.3 dB** |
+| source cymbals | −16.9 dB | −32.1 dB |
+| reference cymbals | −14.9 dB | −24.8 dB |
+
+Kick and snare are unchanged, their home bands not having moved. **So the toms stems are
+ordinary, in line with the snare - not residue.**
+
+**This weakens one leg of X0R-1310 and does not demolish it.** That card's evidence for the
+toms stem being residue included *"its strongest partial is at 80 Hz"* - which, read again,
+is exactly what a floor tom sounds like, and was taken as evidence of the opposite. The
+onset-coincidence figures (79% of tom onsets within 30 ms of a kick) are separate and still
+stand, though on a record where toms and kick play together they would be high anyway.
+**X0R-1310 should be re-read before it is acted on, not treated as settled either way.**
 
 **What this does not do is fix DrumSep.** The weights are what they are, LarsNet was rejected
 on its license and its synthesised training set, and nothing here retrains a model. Detecting

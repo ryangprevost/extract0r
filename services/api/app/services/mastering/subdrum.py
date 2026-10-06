@@ -293,17 +293,46 @@ AUDIBLE_BLEED_DB = -30.0
 MOSTLY_FOREIGN_DB = -10.0
 
 
-def foreign_bands(drum: str) -> tuple[str, ...]:
-    """The bands this drum does not live in, derived rather than listed.
+#: Where each drum's own sound lives. **Not the inverse of `BAND_RESIDENTS`**, and the
+#: first version of this was exactly that mistake.
+#:
+#: The two tables answer different questions. `BAND_RESIDENTS` is for *attribution* - given
+#: a finding in this band, which drum should I suspect is behind it - and it is right that
+#: `low` names only the kick, because a low-band finding on the snare almost always is the
+#: kick. This table asks "which bands should this drum have energy in", and inverting the
+#: other one gets exactly one drum badly wrong.
+#:
+#: **Toms.** Ryan, on seeing the toms stems measured as 98% foreign: *"the toms are ok i
+#: think they're more of an EQ range than an instrument."* He is right, and the physics
+#: says why - a floor tom's fundamental is 55 to 100 Hz, squarely inside `low`, and rack
+#: toms sit at 100 to 250 Hz across the `low`/`low_mid` boundary. Deriving from
+#: `BAND_RESIDENTS` counted a real tom's own fundamental as content that did not belong in
+#: the toms file, which is why they came back at -1.2 dB and looked like pure residue.
+#:
+#: Cymbal wash reaches down to about 500 Hz, so `high_mid` is home for those too.
+HOME_BANDS: dict[str, tuple[str, ...]] = {
+    "kick": ("low", "low_mid"),
+    "snare": ("low_mid", "high_mid", "presence"),
+    "cymbals": ("high_mid", "presence", "air"),
+    "toms": ("low", "low_mid", "high_mid"),
+}
 
-    `BAND_RESIDENTS` already says which drums belong in each band, so a second table of
-    the inverse would be a second thing to keep in step. A kick's foreign bands come out
-    as high_mid, presence and air - everything above 500 Hz, which is what the by-hand
-    version used before this was derived.
+
+def foreign_bands(drum: str) -> tuple[str, ...]:
+    """The bands this drum's own sound does not reach.
+
+    Listed rather than derived, for the reason on `HOME_BANDS`: the table that looks like
+    it should supply this answers a different question, and using it put a floor tom's
+    fundamental in the foreign column.
     """
-    return tuple(
-        band for band, residents in BAND_RESIDENTS.items() if drum not in residents
-    )
+    home = HOME_BANDS.get(drum, ())
+    return tuple(band for band, _low, _high in _bands() if band not in home)
+
+
+def _bands():
+    from app.services.mastering.instrument import BANDS
+
+    return BANDS
 
 
 def bleed_db(samples, sample_rate: int, drum: str) -> float | None:

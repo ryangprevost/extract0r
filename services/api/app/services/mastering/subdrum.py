@@ -247,3 +247,143 @@ def from_snapshot_all(data: dict[str, dict]) -> dict[str, instrument.InstrumentP
             continue
         out[name] = instrument.from_snapshot(name, one)
     return out
+
+
+# ───────────────────────── how clean a separation actually was ─────────────────────────
+#
+# X0R-1413. Ryan: *"i heard snares in the reference kick when separated"*. He did, and the
+# file is why - `compare_all` pairs kick with kick by name, so nothing in the comparison
+# could have crossed them over. DrumSep had put an audible snare in the file it labelled
+# kick, and the application had no way to know or say so.
+#
+# **Energy is the wrong measure for this and that is the whole difficulty.** Measured on
+# that reference, 87.7% of the kick stem's energy sits below 120 Hz, which reads as a
+# perfectly good kick. A kick's fundamental carries so much energy that the audible snare
+# ghost was 0.2% of it. What matters is loudness, not share: filtered to the bands a kick
+# does not live in, that stem metered **22.6 dB under itself** - and a snare 22 dB below a
+# kick, soloed, is exactly what somebody hears.
+#
+# The same measurement across both sides of that comparison, which is the useful part:
+#
+# | drum | the source | the reference |
+# |---|---:|---:|
+# | kick | -38.2 dB | **-22.6 dB** |
+# | snare | -13.3 dB | -20.1 dB |
+# | cymbals | -31.8 dB | -25.1 dB |
+# | toms | -13.5 dB | -15.8 dB |
+#
+# So this is not "the model is bad". The source's kick came out 15.6 dB cleaner than the
+# reference's on the same run, and nothing told anybody which they had got. Snare and toms
+# are poor on both sides, which agrees with X0R-1310's finding that the toms stem is
+# largely residue.
+
+#: Louder than this, relative to the stem it is in, and foreign content is audible on a
+#: solo. One listener on one track puts the audible case at -22.6 dB and a clean one at
+#: -38.2, so this sits between them and nearer the clean end. Two data points, said out
+#: loud because that is what it is.
+AUDIBLE_BLEED_DB = -30.0
+
+#: And above *this*, the file is barely the drum on its label at all.
+#:
+#: Measured on the same pair, this is not hypothetical: the **toms stems came back at -1.2
+#: and -1.5 dB**, meaning what is not toms is within a decibel and a half of what is. That
+#: is a different statement from "some bleed" and deserves different words - it is
+#: X0R-1310's finding that the toms stem is largely residue, now with a number on it from
+#: real material rather than from the Experiment 2 clip.
+MOSTLY_FOREIGN_DB = -10.0
+
+
+def foreign_bands(drum: str) -> tuple[str, ...]:
+    """The bands this drum does not live in, derived rather than listed.
+
+    `BAND_RESIDENTS` already says which drums belong in each band, so a second table of
+    the inverse would be a second thing to keep in step. A kick's foreign bands come out
+    as high_mid, presence and air - everything above 500 Hz, which is what the by-hand
+    version used before this was derived.
+    """
+    return tuple(
+        band for band, residents in BAND_RESIDENTS.items() if drum not in residents
+    )
+
+
+def bleed_db(samples, sample_rate: int, drum: str) -> float | None:
+    """How loud the content that does not belong in this stem is, relative to the stem.
+
+    Negative, and more negative is cleaner. None when the stem is too quiet to say
+    anything about, which is the honest answer for a drum the record barely plays.
+    """
+    import numpy as np
+    from scipy import signal as sg
+
+    from app.services.mastering.instrument import BANDS
+    from app.services.mastering.loudness_meter import integrated_loudness
+
+    audio = np.asarray(samples, dtype=np.float64)
+    if audio.size == 0:
+        return None
+    mono = audio.mean(axis=1) if audio.ndim > 1 else audio
+
+    def meter(signal) -> float:
+        value, _ = integrated_loudness(np.stack([signal, signal], axis=-1), sample_rate)
+        return float(value)
+
+    whole = meter(mono)
+    if not np.isfinite(whole) or whole < -60.0:
+        return None
+
+    edges = {name: (low, high) for name, low, high in BANDS}
+    nyquist = sample_rate / 2.0
+    kept = np.zeros_like(mono)
+    for band in foreign_bands(drum):
+        low, high = edges[band]
+        high = min(high, nyquist * 0.98)
+        if low >= high:
+            continue
+        sos = sg.butter(4, [low, high], btype="bandpass", fs=sample_rate, output="sos")
+        kept += sg.sosfilt(sos, mono)
+
+    foreign = meter(kept)
+    if not np.isfinite(foreign):
+        return None
+    return round(foreign - whole, 1)
+
+
+def bleed_warning(drum: str, level: float | None) -> str:
+    """One sentence about what is in this file besides the drum on its label, or none.
+
+    Distinct from `bleed_note`, which is the caveat attached to a single finding and names
+    the neighbour most likely to be behind that band. This one is about the file.
+
+    Said only when it is loud enough to hear, because a line on every row saying
+    separation is imperfect is a line nobody reads by the third drum.
+    """
+    if level is None or level < AUDIBLE_BLEED_DB:
+        return ""
+    others = sorted({
+        name
+        for band in foreign_bands(drum)
+        for name in BAND_RESIDENTS.get(band, ())
+        if name != drum
+    })
+    neighbours = (
+        " and ".join(filter(None, [", ".join(others[:-1]), others[-1]]))
+        if others
+        else "other drums"
+    )
+    if level >= MOSTLY_FOREIGN_DB:
+        # Not a caveat. At this level the file is not really this drum, and a sentence
+        # that merely warned about bleed would be understating it by a wide margin.
+        return (
+            f"**This file is barely the {drum}.** What is not {drum} in it - "
+            f"{neighbours} - sits only {abs(level):.0f} dB below what is, so most of what "
+            f"you hear when you solo it is other drums. Read every finding on this row as "
+            "a fact about a separation rather than about the record, and prefer your ears "
+            "to the numbers here."
+        )
+
+    return (
+        f"Soloed, this file has {neighbours} audible under its own {drum} - "
+        f"{abs(level):.0f} dB below it. That is the separation rather than the record, "
+        "and the findings here read the whole file, so one in another drum's register "
+        "may be that drum arriving late."
+    )

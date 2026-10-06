@@ -371,6 +371,50 @@ const PerDrum = (() => {
     return row;
   }
 
+  //: What the server says is in each file besides the drum on its label, in words. Mirrors
+  //: `subdrum.AUDIBLE_BLEED_DB` and `MOSTLY_FOREIGN_DB`; a test holds the two in step.
+  const AUDIBLE_BLEED_DB = -30;
+  const MOSTLY_FOREIGN_DB = -10;
+
+  /**
+   * How much of this drum's file is not this drum - on whichever side is worse.
+   *
+   * X0R-1413, from Ryan: he soloed the reference's kick and heard snares, and nothing in
+   * the application could tell him whether that was the record or the separation. It was
+   * the separation, at 21 dB under the kick.
+   *
+   * The worse side is the one reported because that is the one somebody is about to press
+   * play on and be confused by, and because on the pair that prompted this the two sides
+   * were 16 dB apart - a single averaged figure would have described neither.
+   */
+  function bleedLine(drum) {
+    // "your", not "yours": these sit in front of a noun - "your cymbals file" - and
+    // the possessive pronoun read as a typo on screen.
+    const sides = [
+      ["your", drum.bleed_db],
+      ["the reference's", drum.reference_bleed_db],
+    ].filter(([, value]) => typeof value === "number");
+    if (!sides.length) return null;
+
+    sides.sort((a, b) => b[1] - a[1]);
+    const [whose, level] = sides[0];
+    if (level < AUDIBLE_BLEED_DB) return null;
+
+    const line = document.createElement("p");
+    const severe = level >= MOSTLY_FOREIGN_DB;
+    line.className = "muted small subdrum-bleed" + (severe ? " severe" : "");
+    line.textContent = severe
+      ? `The ${drum.label} file on ${whose === "your" ? "your" : "the reference's"} side is ` +
+        `barely the ${drum.label}: what is not ${drum.label} ` +
+        `in it sits only ${Math.abs(level).toFixed(0)} dB below what is. Most of what you ` +
+        `hear soloing it is other drums, so read every row here as a fact about a ` +
+        `separation rather than about the record.`
+      : `Soloed, ${whose} ${drum.label} has other drums audible under it — ` +
+        `${Math.abs(level).toFixed(0)} dB below. That is the separation rather than the ` +
+        `record, and a finding in another drum's register may be that drum arriving late.`;
+    return line;
+  }
+
   function drumRow(drum) {
     const row = document.createElement("details");
     row.className = "subdrum";
@@ -415,6 +459,9 @@ const PerDrum = (() => {
       row.appendChild(why);
       return row;
     }
+
+    const bleed = bleedLine(drum);
+    if (bleed) row.appendChild(bleed);
 
     row.appendChild(ladder(drum));
     row.appendChild(numbers(drum));

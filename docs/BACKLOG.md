@@ -26,7 +26,7 @@ another card, ❌ not started.
 | [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
 | [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 41 | 4 |
 | [EPIC-14](#epic-14--speed-and-the-feel-of-using-it) | Speed and usability | ~15 | 3 · *placeholder* |
-| [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 22 | 3 · *from Ryan, 1419 and 1421 done* |
+| [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 22 | 3 · *from Ryan, 5 of 9 done* |
 
 EPIC-08 and EPIC-11 were carrying their *original* scope in this table (21 and 24) while
 cards kept being added underneath. Both are now the sum of the cards actually in them.
@@ -1789,7 +1789,7 @@ kick there is composition), and shipping recorded samples (the licensing positio
 | Stage | What | Pts | State |
 |---|---|---|---|
 | 0 | X0R-306, the benchmark | 5 | `TODO`, in EPIC-03. Gates stage 5 only. |
-| 1 | The reference fingerprint | 5 | `TODO`, deferred twice. Conditional on X0R-1307/1308 — **1308 shipped 2026-10-06**, so half the condition is met and the other half is a reporting card. Worth re-reading before the next sprint. |
+| 1 | The reference fingerprint | 5 | `TODO`, deferred twice. Conditional on X0R-1307/1308 — **1308 shipped 2026-10-06**. |
 | 2 | Genre as a hedge | 5 | `NON-GOAL`. Three documents running. |
 | 3 | Re-produce: the processing half | 8 | `TODO`. X0R-1306 holds the measured headroom. |
 | **3B** | **Compare drum to drum** | **11** | **sprint 2** |
@@ -2847,7 +2847,7 @@ in this document.
 | id | title | pts | state |
 |---|---|---|---|
 | X0R-1412 | Dock the chat panel to the side | 2 | `TODO` |
-| X0R-1413 | **The kick auditioned as the reference's snare** | 3 | `TODO` · **defect** |
+| X0R-1413 | **The kick auditioned as the reference's snare** | 3 | **`DONE` 2026-10-06** · reproduced and measured |
 | X0R-1414 | Let the export's bit depth be chosen | 2 | `TODO` |
 | X0R-1415 | Per-drum sections get a disclosure and an Apply all | 2 | **`DONE` 2026-10-06** |
 | X0R-1416 | Expand all and collapse all | 1 | **`DONE` 2026-10-06** |
@@ -2885,11 +2885,47 @@ decline to be compared, in the same voice `why_absent` already uses.
 rejected on its licence and its synthesised training set, and nothing here retrains a model.
 The honest ceiling is detecting it and saying so.
 
-**Before scoping, reproduce it.** Which reference, and which drum did he press? The audition
-route (`/tracks/{id}/drums/{side}/{drum}`) serves the sub-stem straight off disk, so a
-listen plus `subdrum.profile_all` on the four files says immediately whether the file is
-mislabelled or the player is pointing at the wrong one - and those are different bugs with
-different fixes. **Ask Ryan for the track before building anything.**
+#### Reproduced, measured, and said out loud
+
+Ryan, asked: *"i heard snares in the reference kick when separated"* - so the file, not the
+player. Measured on his own stems, still on disk:
+
+| drum | his source | his reference |
+|---|---:|---:|
+| **kick** | −38.2 dB | **−22.6 dB** ← what he heard |
+| snare | −13.3 dB | −20.1 dB |
+| cymbals | −31.8 dB | −25.1 dB |
+| toms | −13.5 dB | −15.8 dB |
+
+Loudness of the content in the bands each drum does *not* live in, relative to the stem.
+**His source's kick came out 15.6 dB cleaner than the reference's on the same run**, so this
+is not "the model is bad" - it is that the result varies enormously by material and nothing
+told anybody which they had got.
+
+**Energy is the wrong measure, and that is the whole difficulty.** 87.7% of that kick stem's
+energy sits below 120 Hz, which reads as a perfectly good kick: the fundamental carries so
+much energy that the audible snare was 0.2% of it. `test_bleed` pins this with a fixture
+whose foreign content is under 2% of the energy and plainly over the gate by loudness.
+
+**Shipped:** `subdrum.bleed_db` and `bleed_warning`, reported per drum *per side* by the
+per-drum job and drawn on the row. Two tiers, because one was not enough once it was
+measured on real material - seven of eight stems carry audible bleed, so a scary sentence on
+every row would be noise. Under −30 dB says nothing; between −30 and −10 says what is in
+there; above −10 says **the file is barely the drum**, which is a different statement and
+earns different words. `foreign_bands` is derived from `BAND_RESIDENTS` rather than listed,
+so there is one table of which drum lives where.
+
+**A second finding, free:** the **toms stems measured −1.2 and −1.5 dB** - what is not toms
+is within a decibel and a half of what is. That is X0R-1310's "the toms stem is residue"
+with a number on it from real material instead of from the Experiment 2 clip, and it is
+considerably worse than that card assumed.
+
+**What this does not do is fix DrumSep.** The weights are what they are, LarsNet was rejected
+on its license and its synthesised training set, and nothing here retrains a model. Detecting
+it and saying so was always the honest ceiling. Whether a badly-bled stem's findings should
+also be *flagged* is left open deliberately: snare and toms are poor on both sides of this
+pair, so flagging on bleed alone would silence the feature for half the kit on the strength
+of one track.
 
 ---
 

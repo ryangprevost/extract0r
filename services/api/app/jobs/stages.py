@@ -145,3 +145,4 @@ def estimate_seconds(duration_s: float, both_sides: bool) -> float:
         return 0.0
     share = 1.0 if both_sides else 1.0 - (23.57 / 98.75)
     return duration_s * SECONDS_PER_SECOND_OF_AUDIO * share
+

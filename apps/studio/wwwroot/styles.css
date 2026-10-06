@@ -1307,3 +1307,52 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 /* The pair that opens and closes the whole comparison, beside the button that builds it. */
 .compare-actions { display: flex; align-items: center; gap: 14px; }
 .compare-actions .link { font-size: 12px; white-space: nowrap; }
+
+/* How much of a drum's file is not that drum. Quiet by default - it is a caveat, not an
+   error - and only loud when the stem is barely the drum at all. */
+.subdrum-bleed {
+  margin: 8px 0 0; padding: 7px 10px; max-width: 72ch;
+  border-left: 2px solid var(--edge); border-radius: 3px;
+  font-size: 11.5px; line-height: 1.5;
+}
+.subdrum-bleed.severe {
+  border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+  color: var(--text);
+}
+
+/* ── what each record plays ───────────────────────────────────────────────────
+   The one panel with no controls in it. Styled to read as a reading rather than
+   as a set of things to fix: no accent borders, no apply-coloured anything. */
+.groove-card { border-color: var(--edge); }
+.groove-note {
+  margin: 12px 0; padding: 10px 13px; max-width: 76ch;
+  border-left: 2px solid var(--muted); border-radius: 3px;
+  font-size: 12px; color: var(--muted); line-height: 1.55;
+}
+.groove-bars { margin: 16px 0; }
+.groove-bars-title { margin: 0 0 6px; font-size: 12.5px; color: var(--text); }
+.groove-row { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 5px; }
+.groove-who {
+  flex: 0 0 8.5rem; font-size: 11.5px; color: var(--muted); padding-bottom: 2px;
+}
+.groove-steps {
+  flex: 1; display: grid; grid-template-columns: repeat(16, 1fr); gap: 2px;
+  height: 34px; align-items: end;
+}
+.groove-step {
+  display: flex; align-items: flex-end; height: 100%;
+  background: color-mix(in srgb, var(--edge) 50%, transparent); border-radius: 2px;
+}
+/* The 1st, 5th, 9th and 13th sixteenth. "On the beat" against "between them" is the
+   only reading this picture is for, so it is the only thing marked. */
+.groove-step.on-beat { background: color-mix(in srgb, var(--edge) 90%, transparent); }
+.groove-step > span {
+  width: 100%; background: var(--stem-drums); border-radius: 2px; min-height: 1px;
+}
+.groove-sides { display: flex; flex-wrap: wrap; gap: 22px; margin-top: 18px; }
+.groove-side { flex: 1 1 26rem; min-width: 0; }
+.groove-head { margin: 0 0 8px; font-size: 13px; }
+.groove-figure { margin: 0 0 4px; line-height: 1.5; }
+.groove-basis, .groove-caveat { font-size: 11px; opacity: 0.75; }
+.groove-caveat { font-style: italic; }

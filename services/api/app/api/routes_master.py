@@ -1104,6 +1104,26 @@ def _move_json(move) -> dict:
 
 
 
+def _bleed_for(path, drum: str) -> float | None:
+    """How loud the content that does not belong in one drum stem is, or None.
+
+    Wrapped and swallowed: this is a caveat on a row, and losing four drum cards because
+    a filter raised on an odd file would be a bad trade for a sentence.
+    """
+    from app.services.mastering import subdrum
+    from app.services.mixdown.encode import read_audio
+
+    if not path or not Path(path).exists():
+        return None
+    try:
+        buffer = read_audio(Path(path))
+        return subdrum.bleed_db(buffer.samples, buffer.sample_rate, drum)
+    except Exception:
+        log.info("could not measure bleed in the %s stem", drum, exc_info=True)
+        return None
+
+
+
 def _duck_measurement(kick_path, bass_path):
     """How far one side's bass gets out of its own kick's way, or None.
 
@@ -1381,6 +1401,14 @@ def compare_drums(
                     # One sentence naming which side is empty and the figures behind it,
                     # or empty when both sides really play it.
                     "absent_reason": subdrum.why_absent(a, b),
+                    # How much of each file is not the drum on its label. X0R-1413:
+                    # Ryan soloed the reference's kick and heard snares, and nothing in
+                    # the application could tell him whether that was the record or the
+                    # separation. Measured per side, because on the pair that prompted
+                    # this the source's kick came out 15.6 dB cleaner than the
+                    # reference's - so one figure for both would have hidden the answer.
+                    "bleed_db": _bleed_for(mine_stems.get(name), name),
+                    "reference_bleed_db": _bleed_for((theirs_stems or {}).get(name), name),
                     "yours": _profile_json(a),
                     "reference": _profile_json(b) if b is not None else None,
                     "reference_audio": not from_profile,
@@ -2463,3 +2491,4 @@ def combine_reference_profiles(
             f"come from {made.base_profile!r}."
         ),
     }
+

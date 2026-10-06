@@ -1267,3 +1267,26 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 @media (prefers-reduced-motion: reduce) {
   .per-drum.just-opened { animation: none; }
 }
+
+/* ── a profile per instrument ─────────────────────────────────────────────────
+   Inside the profile picker, because a blend is a way of choosing a profile and
+   not a feature beside it. */
+.blend { border: 1px solid var(--edge); border-radius: var(--radius); margin-top: 14px; }
+.blend > summary { padding: 11px 14px; cursor: pointer; }
+.blend > summary .group-name { font-size: 13px; color: var(--text); }
+.blend > summary .group-what { display: block; font-size: 11.5px; color: var(--muted); }
+.blend > p, .blend > div { padding: 0 14px; }
+.blend > p { max-width: 74ch; }
+.blend .url-row { padding: 0 14px 14px; }
+.blend-row {
+  display: flex; align-items: center; gap: 12px; padding: 5px 0;
+  font-size: 12.5px; color: var(--muted);
+}
+.blend-row span { flex: 0 0 13rem; }
+.blend-row select { flex: 1; min-width: 0; }
+/* The row that decides the whole-mix half is not one instrument among six. */
+.blend-base {
+  border-bottom: 1px solid var(--edge); margin-bottom: 7px; padding-bottom: 9px;
+}
+.blend-base span { color: var(--text); }
+#blend-said { padding: 0 14px 14px; max-width: 74ch; }

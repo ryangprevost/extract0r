@@ -2318,3 +2318,99 @@ def ask_vocabulary() -> dict:
             "comparison makes of what you asked for."
         ),
     }
+
+
+class CombineProfilesRequest(BaseModel):
+    """One profile for the mix, and a different one for named instruments.
+
+    Ryan's idea: guitars from a pop-punk record, drums from a dance one. The rule it runs
+    on is **character, not balance** - see `profile.combine` - so a borrowed instrument
+    contributes its tone, dynamics, placement and width, and declines to suggest a level.
+    """
+
+    #: The profile the whole-mix half comes from: the curve, the loudness, the peaks, the
+    #: width. Not merged with anything, because averaging finished masters invents a record
+    #: nobody made.
+    base: str
+    #: stem name -> the profile to take that instrument from.
+    instruments: dict[str, str] = Field(default_factory=dict)
+    #: Keep the result under this name. Omitted, it is used for this track and not saved,
+    #: which is the shape of trying one out.
+    save_as: str | None = Field(default=None, max_length=120)
+
+
+def _combined(settings, body: CombineProfilesRequest):
+    """Resolve the named profiles and merge them, or raise with the one that was missing."""
+    from app.services.mastering.profile import combine, find
+
+    base = find(settings.profile_dir, body.base)
+    if base is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No saved profile {body.base!r}.")
+
+    borrowed = {}
+    for stem, name in body.instruments.items():
+        if name == body.base:
+            # Asking for the base's own instrument is not an error, it is the default.
+            continue
+        source = find(settings.profile_dir, name)
+        if source is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No saved profile {name!r}.")
+        borrowed[stem] = source
+
+    made = combine(body.save_as or f"{base.name} + borrowed", base, borrowed)
+    # What was asked for but could not be lent: a profile whose reference was never
+    # separated has no instruments to give. Returned rather than raised, because the rest
+    # of the combination is perfectly usable and refusing all of it would be the wrong
+    # trade.
+    unavailable = sorted(set(borrowed) - set(made.instrument_sources))
+    return made, unavailable
+
+
+@router.post("/{track_id}/reference/combine-profiles", status_code=status.HTTP_200_OK)
+def combine_reference_profiles(
+    track_id: str,
+    body: CombineProfilesRequest,
+    settings: Settings = Depends(get_config),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Aim this track at several profiles at once, one per instrument.
+
+    The comparison downstream does not learn about this. It reads the reference side out
+    of a per-stem dict, and this builds that dict from several records instead of one -
+    which is why the feature is a change at one seam rather than everywhere.
+    """
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    made, unavailable = _combined(settings, body)
+
+    saved_to = None
+    if body.save_as:
+        from app.services.mastering.profile import save
+
+        saved_to = save(made, settings.profile_dir).name
+
+    registry.set_reference_profile(track_id, made)
+    return {
+        "name": made.name,
+        "base": made.base_profile,
+        "borrowed": made.instrument_sources,
+        "saved": bool(saved_to),
+        "per_stem_available": made.has_instruments,
+        "instruments": sorted(made.instruments),
+        "per_drum_available": made.has_drums,
+        "drums": sorted(made.drums),
+        # Said rather than discovered: a profile captured from an unseparated reference
+        # has no instruments to lend, and silently using the base's would look like the
+        # borrowing had worked.
+        "unavailable": unavailable,
+        "note": (
+            "A borrowed instrument brings its tone, dynamics, placement and width. It "
+            "does not bring its level: how loud an instrument sits is a fact about the "
+            "mix it sat in, so matching a borrowed level would place yours against "
+            "neighbours that record never had. The overall tone, loudness and width all "
+            f"come from {made.base_profile!r}."
+        ),
+    }

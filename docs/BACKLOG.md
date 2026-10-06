@@ -26,7 +26,7 @@ another card, ❌ not started.
 | [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
 | [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 41 | 4 |
 | [EPIC-14](#epic-14--speed-and-the-feel-of-using-it) | Speed and usability | ~15 | 3 · *placeholder* |
-| [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 22 | 3 · *from Ryan, 1421 done* |
+| [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 22 | 3 · *from Ryan, 1419 and 1421 done* |
 
 EPIC-08 and EPIC-11 were carrying their *original* scope in this table (21 and 24) while
 cards kept being added underneath. Both are now the sum of the cards actually in them.
@@ -2853,7 +2853,7 @@ in this document.
 | X0R-1416 | Expand all and collapse all | 1 | `TODO` |
 | X0R-1417 | A fixed section nav, and sections that close | 3 | `TODO` |
 | X0R-1418 | A Remaster button in the chat | 1 | `TODO` |
-| X0R-1419 | **One profile per instrument, and a profile made of profiles** | 5 | `TODO` |
+| X0R-1419 | **One profile per instrument, and a profile made of profiles** | 5 | **`DONE` 2026-10-06** · Ryan chose **character, not balance** |
 
 ---
 
@@ -3110,9 +3110,32 @@ Two ways to resolve it, and this is the decision the card turns on:
    a suggestion is half the measured gap - so a mixed profile cannot take a mix anywhere in
    one step.
 
-**Recommendation: ship 1, and make 2 the opt-in**, because somebody who specifically wants
-"guitars as loud as pop punk has them" is asking a coherent question and should be able to
-get it after being told what it means. **Ryan's call, not the PM's.**
+**Recommendation was: ship 1, and make 2 the opt-in.** **Ryan chose option 1 on
+2026-10-06** - character, not balance - and that is what shipped. Option 2 was not built and
+is not filed: it is a thing to add if somebody asks for it twice, not a thing to leave
+half-present.
+
+#### What shipped
+
+`profile.combine(name, base, borrowed)`, `InstrumentProfile.comparable_level`, and
+`POST /tracks/{id}/reference/combine-profiles`. 21 server tests plus the blend picker inside
+the profile panel.
+
+The borrowed snapshot arrives with `comparable_level` false and `compare` declines to
+suggest a level for it - **emitting an observation row that says why**, rather than going
+quiet, because a dimension that silently stops being offered is indistinguishable from one
+that found no difference. The base's own instruments keep their levels: they are still
+mutually coherent, having all come from one mix, and only the borrowed ones have had their
+neighbours changed.
+
+The flag is written to disk **only when false**, so an ordinary profile's bytes are exactly
+what they would have been and every profile saved before this loads unchanged.
+
+**The four drums travel with the drums stem or not at all.** A kick borrowed from a record
+whose snare stayed behind is precisely the balance decision this feature exists to refuse,
+and allowing it would have made the rule incoherent one level down.
+
+Verified against Ryan's own saved profiles through the running API, not only fixtures.
 
 #### The whole-mix half can only come from one record
 

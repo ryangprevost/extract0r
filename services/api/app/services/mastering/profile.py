@@ -130,6 +130,29 @@ class ReferenceProfile:
     #: reason: an older profile loads with an empty dict and behaves exactly as it did.
     drums: dict[str, dict] = field(default_factory=dict)
 
+    #: Where each instrument came from, when they did not all come from here. Empty on an
+    #: ordinary capture, which is every profile saved before X0R-1419 and every one made
+    #: from a single record afterwards.
+    #:
+    #: Not bookkeeping for its own sake. `captured_from` is one string, and a profile
+    #: assembled from four records has four answers to "which reference was this?" - the
+    #: question this codebase already hand-builds an ID3 tag to keep answerable six months
+    #: later. A combined profile that cannot say where its guitars came from is a worse
+    #: artefact than no combined profile at all.
+    instrument_sources: dict[str, str] = field(default_factory=dict)
+
+    #: Which record the whole-mix half came from, when this profile is combined.
+    #:
+    #: The curve, the loudness, the peaks and the width describe a finished master, and
+    #: there is no honest way to assemble those from several - averaging them would invent
+    #: a record nobody made. So one is nominated, its own instruments keep their levels,
+    #: and the borrowed ones contribute character only. See `combine`.
+    base_profile: str = ""
+
+    @property
+    def is_combined(self) -> bool:
+        return bool(self.instrument_sources)
+
     version: int = FORMAT_VERSION
 
     @property
@@ -243,6 +266,74 @@ def safe_filename(name: str) -> str:
     """
     cleaned = _SAFE_NAME.sub("-", name).strip(" .-")
     return (cleaned or "profile")[:80]
+
+
+def combine(
+    name: str,
+    base: ReferenceProfile,
+    borrowed: dict[str, ReferenceProfile],
+) -> ReferenceProfile:
+    """One profile per instrument: `base` for the mix, `borrowed` for named stems.
+
+    Ryan's idea, and the decision it turned on is **character, not balance** (X0R-1419).
+
+    `relative_lufs` is portable on its own - it is how an instrument sat in its own record,
+    which is a fact about that instrument. A *set* of them is not, because a set is a
+    balance: take the guitars' figure from a pop-punk record and the drums' from a dance
+    one and the guitar-to-drum relationship you end up with matches neither record. Every
+    other dimension in a snapshot travels fine - tone, dynamics, crest, placement and width
+    are properties of how an instrument was recorded and treated, not of what was beside
+    it.
+
+    So a borrowed stem arrives with `comparable_level` false and `compare` declines to
+    suggest a level for it, saying why on the row. The base's own instruments keep theirs,
+    because they are still mutually coherent: they all came from one mix, and it is only
+    the borrowed ones whose neighbours have changed.
+
+    The whole-mix half - curve, loudness, peaks, width - is taken wholesale from `base`
+    and never merged.
+    """
+    merged = dict(base.instruments)
+    merged_drums = dict(base.drums)
+    sources: dict[str, str] = {}
+
+    for stem, source in borrowed.items():
+        snapshot = (source.instruments or {}).get(stem)
+        if snapshot is None:
+            # A profile that never separated its reference has no instruments to lend.
+            # Skipped rather than raised on, and the caller is told which by comparing
+            # what it asked for against `instrument_sources`.
+            continue
+        merged[stem] = {**snapshot, "comparable_level": False}
+        sources[stem] = source.name
+        # The four drums travel with the drums stem or not at all: a kick borrowed from a
+        # record whose snare stayed behind is a balance decision of exactly the kind this
+        # function exists to refuse.
+        if stem == "drums" and source.drums:
+            merged_drums = {
+                drum: {**snap, "comparable_level": False}
+                for drum, snap in source.drums.items()
+            }
+
+    return ReferenceProfile(
+        name=name,
+        captured_from=base.captured_from,
+        captured_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        seconds=base.seconds,
+        sample_rate=base.sample_rate,
+        lufs=base.lufs,
+        true_peak_db=base.true_peak_db,
+        peak_db=base.peak_db,
+        curve_hz=list(base.curve_hz),
+        curve_db=list(base.curve_db),
+        width=dict(base.width),
+        mono_loss_db=base.mono_loss_db,
+        stereo_width=base.stereo_width,
+        instruments=merged,
+        drums=merged_drums,
+        instrument_sources=sources,
+        base_profile=base.name,
+    )
 
 
 def save(profile: ReferenceProfile, directory: Path) -> Path:

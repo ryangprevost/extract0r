@@ -246,6 +246,26 @@
         instrument needs the reference's own audio.
       </p>
       <div id="profile-list"></div>
+
+      <!-- X0R-1419. Guitars from one record, drums from another. Placed inside the
+           profile picker rather than beside it, because a blend is a way of choosing a
+           profile and not a separate feature - and it is only reachable once there are at
+           least two to blend. -->
+      <details class="blend" id="profile-blend" hidden>
+        <summary>
+          <span class="group-name">…or take each instrument from a different record</span>
+          <span class="group-what">Guitars from one, drums from another, and keep the
+            result as a profile of its own.</span>
+        </summary>
+        <p class="muted small" id="blend-rule"></p>
+        <div id="blend-rows"></div>
+        <div class="url-row">
+          <input type="text" id="blend-name" maxlength="120" spellcheck="false"
+                 autocomplete="off" placeholder="name the blend, e.g. Pop punk guitars on dance drums" />
+          <button class="primary small" id="blend-use">Aim at this blend</button>
+        </div>
+        <p class="muted small" id="blend-said" hidden></p>
+      </details>
     </div>
 
     <div class="or-url library-pick" id="library-pick" hidden>

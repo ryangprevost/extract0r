@@ -121,6 +121,161 @@ async function renderProfileList() {
     );
     host.appendChild(row);
   }
+
+  renderBlend(profiles);
+}
+
+// ───────────────────────── one profile per instrument ─────────────────────────
+//
+// X0R-1419, and the decision it runs on is Ryan's: **character, not balance.**
+//
+// A borrowed instrument brings its tone, dynamics, placement and width, and declines to
+// bring its level. How loud an instrument sits is a fact about the mix it sat in, so a set
+// of levels taken from different records is a balance that existed on none of them. The
+// server enforces that; this screen's job is to say it before anybody is surprised by it.
+
+//: The stems a blend can be built from, in the order the comparison lists them.
+const BLEND_STEMS = [
+  ["vocals", "Vocals"],
+  ["drums", "Drums"],
+  ["bass", "Bass"],
+  ["guitar", "Guitars"],
+  ["piano", "Piano"],
+  ["other", "Everything else"],
+];
+
+function renderBlend(profiles) {
+  const panel = document.getElementById("profile-blend");
+  if (!panel) return;
+
+  // Only profiles that were captured from a separated reference have instruments to lend,
+  // and a blend needs at least two of them to be a blend.
+  const lenders = profiles.filter((p) => p.per_stem);
+  if (lenders.length < 2) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+
+  document.getElementById("blend-rule").innerHTML =
+    "The first row sets the <strong>overall tone, loudness and width</strong> — that half " +
+    "describes a finished master and can only come from one record. Each instrument after " +
+    "it may come from anywhere. <strong>A borrowed instrument brings its tone, dynamics, " +
+    "placement and width, and not its level</strong>: how loud a guitar sits is a fact " +
+    "about the mix it sat in, so matching a borrowed one would place yours against " +
+    "neighbours that record never had.";
+
+  const rows = document.getElementById("blend-rows");
+  rows.innerHTML = "";
+
+  const options = (selected) =>
+    lenders
+      .map(
+        (p) =>
+          '<option value="' + escapeText(p.name) + '"' +
+          (p.name === selected ? " selected" : "") +
+          ">" + escapeText(p.name) + "</option>",
+      )
+      .join("");
+
+  const base = lenders[0].name;
+
+  const baseRow = document.createElement("label");
+  baseRow.className = "blend-row blend-base";
+  baseRow.innerHTML =
+    "<span>Overall tone and loudness</span>" +
+    '<select id="blend-base">' + options(base) + "</select>";
+  rows.appendChild(baseRow);
+
+  for (const [stem, label] of BLEND_STEMS) {
+    // A stem only appears when at least one profile actually carries it; offering to
+    // borrow a piano nobody measured is a dropdown that cannot work.
+    const carriers = lenders.filter((p) => (p.instruments || []).includes(stem));
+    if (!carriers.length) continue;
+
+    const row = document.createElement("label");
+    row.className = "blend-row";
+    row.innerHTML =
+      "<span>" + label + "</span>" +
+      '<select data-blend-stem="' + stem + '">' +
+      '<option value="">— same as the overall —</option>' +
+      carriers
+        .map((p) => '<option value="' + escapeText(p.name) + '">' +
+          escapeText(p.name) + "</option>")
+        .join("") +
+      "</select>";
+    rows.appendChild(row);
+  }
+
+  const button = document.getElementById("blend-use");
+  button.onclick = () => useBlend();
+}
+
+async function useBlend() {
+  const said = document.getElementById("blend-said");
+  const button = document.getElementById("blend-use");
+  const base = document.getElementById("blend-base").value;
+
+  const instruments = {};
+  document.querySelectorAll("[data-blend-stem]").forEach((select) => {
+    if (select.value && select.value !== base) {
+      instruments[select.dataset.blendStem] = select.value;
+    }
+  });
+
+  if (!Object.keys(instruments).length) {
+    said.textContent =
+      "Nothing is borrowed yet — every instrument is set to the overall record, which is " +
+      "the same as aiming at it directly.";
+    said.hidden = false;
+    return;
+  }
+
+  button.disabled = true;
+  said.hidden = true;
+  try {
+    const name = document.getElementById("blend-name").value.trim();
+    const result = await api(`/tracks/${state.trackId}/reference/combine-profiles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base, instruments, save_as: name || null }),
+    });
+
+    state.referenceLoaded = true;
+    state.usingProfile = true;
+    state.profileHasInstruments = !!result.per_stem_available;
+
+    const borrowed = Object.entries(result.borrowed || {})
+      .map(([stem, from]) => stem + " from " + from)
+      .join(", ");
+    const parts = [
+      "Aiming at " + base + (borrowed ? ", with " + borrowed + "." : "."),
+      result.note,
+    ];
+    // What was asked for and could not be lent. Said plainly: a profile captured from an
+    // unseparated reference has no instruments in it, and quietly falling back to the
+    // base would look like the borrowing had worked.
+    if ((result.unavailable || []).length) {
+      parts.push(
+        "No instruments in " +
+          result.unavailable.join(", ") +
+          "'s profile to borrow — it was measured whole-mix only, so those stayed with " +
+          base + ".",
+      );
+    }
+    if (result.saved) parts.push("Kept as “" + result.name + "”.");
+    said.textContent = parts.join(" ");
+    said.hidden = false;
+
+    const hint = document.getElementById("ref-hint");
+    if (hint) hint.textContent = "aiming at a blend of " + ((borrowed ? 1 : 0) + 1) + " profiles";
+    await refreshProfilePanels();
+  } catch (error) {
+    said.textContent = error.message || String(error);
+    said.hidden = false;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function describeProfile(profile) {

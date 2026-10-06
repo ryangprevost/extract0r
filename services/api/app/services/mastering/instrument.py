@@ -239,6 +239,16 @@ class InstrumentProfile:
     preview_start_s: float = 0.0
     #: The averaged spectrum, kept so tone moves can be solved against real content.
     spectrum: np.ndarray | None = None
+    #: False when this stem's level cannot honestly be compared against anything.
+    #:
+    #: `relative_lufs` is portable on its own - it is how an instrument sat in its own
+    #: record, which is a fact about that instrument. A *set* of them is not, because a
+    #: set is a balance: take the guitars' figure from one record and the drums' from
+    #: another and the guitar-to-drum relationship you get matches neither. So a reference
+    #: assembled from several records offers level only for the stems that came from the
+    #: one nominated as its base, and character - tone, dynamics, placement, width - for
+    #: the rest. See X0R-1419.
+    comparable_level: bool = True
     #: False when this is separation residue rather than an instrument.
     present: bool = True
 
@@ -623,6 +633,10 @@ def snapshot(one: InstrumentProfile) -> dict:
         "pan": round(float(one.pan), 3),
         "width": round(float(one.width), 3),
         "present": bool(one.present),
+        # Only written when it is False. A key that is absent means "ordinary", which
+        # keeps every profile ever saved readable and every new one that is not combined
+        # byte-identical to what it would have been.
+        **({} if one.comparable_level else {"comparable_level": False}),
     }
 
 
@@ -646,6 +660,9 @@ def from_snapshot(stem: StemKind | str, data: dict) -> InstrumentProfile:
         # unsafe one invents a 40 dB cut on a part the user actually recorded.
         present=bool(data.get("present", False)),
         spectrum=None,
+        # True unless a combined profile said otherwise, so every profile saved before
+        # X0R-1419 - and every ordinary single-record one - behaves exactly as it did.
+        comparable_level=bool(data.get("comparable_level", True)),
     )
 
 
@@ -700,8 +717,35 @@ def compare(
     moves: list[InstrumentMove] = []
 
     # --- level ---------------------------------------------------------------
+    #
+    # Skipped entirely when the reference's level is not comparable - a stem borrowed into
+    # a combined profile from a record whose other instruments are not here. An
+    # observation row goes out in its place rather than nothing, because a dimension that
+    # silently stops being offered is indistinguishable from one that found no difference.
     gap = theirs.relative_lufs - mine.relative_lufs
-    if abs(gap) >= SAME_LEVEL_DB:
+    if not theirs.comparable_level:
+        moves.append(
+            InstrumentMove(
+                stem=key,
+                dimension="level",
+                headline=f"The {name} {verb} borrowed, so there is no level to match",
+                detail=(
+                    f"This profile takes its {name} from a different record than the one "
+                    "it takes its overall balance from. How loud an instrument sits is a "
+                    "fact about the mix it sat in, not about the instrument - so matching "
+                    "a borrowed level would place your "
+                    f"{name} against neighbours that record never had. Its tone, "
+                    "dynamics, placement and width are all still compared, because those "
+                    "are properties of the sound itself and they travel."
+                ),
+                severity="match",
+                yours=mine.relative_lufs,
+                reference=theirs.relative_lufs,
+                control="",
+                confident=True,
+            )
+        )
+    elif abs(gap) >= SAME_LEVEL_DB:
         applied = _nudge(gap, ceilings.max_level_db)
         back = gap > 0
         # A very large level difference is far more likely to be a different arrangement,

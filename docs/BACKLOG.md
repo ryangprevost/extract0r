@@ -26,7 +26,7 @@ another card, ❌ not started.
 | [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
 | [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 41 | 4 |
 | [EPIC-14](#epic-14--speed-and-the-feel-of-using-it) | Speed and usability | ~15 | 3 · *placeholder* |
-| [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 14 | 3 · *from Ryan, unscoped* |
+| [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 19 | 3 · *from Ryan, unscoped* |
 
 EPIC-08 and EPIC-11 were carrying their *original* scope in this table (21 and 24) while
 cards kept being added underneath. Both are now the sum of the cards actually in them.
@@ -2831,11 +2831,12 @@ numbers in the table are the separator alone, and the user's six minutes is not.
 
 ## EPIC-15 — The feedback sprint (Phase 3) · **from Ryan, 2026-10-06, after using it**
 
-Seven notes, written while using the application rather than reading the backlog, which is
+Eight notes, written while using the application rather than reading the backlog, which is
 why this epic is worth keeping separate from EPIC-14's measured candidates. **One of them is
-a defect**, three are the same complaint about navigation arriving from three directions, and
-one asks for something that does not exist in the form it was asked for but points at two
-real controls that are hard-coded.
+a defect**, three are the same complaint about navigation arriving from three directions, one
+asks for something that does not exist in the form it was asked for but points at two real
+controls that are hard-coded, and **the last one is a feature the architecture turns out to
+be most of the way towards already**.
 
 **Three of these independently confirm the X0R-1407 count.** Notes 4, 5 and 6 are all asking
 for a way to open and close things in bulk, and they were written without seeing that the
@@ -2852,6 +2853,7 @@ in this document.
 | X0R-1416 | Expand all and collapse all | 1 | `TODO` |
 | X0R-1417 | A fixed section nav, and sections that close | 3 | `TODO` |
 | X0R-1418 | A Remaster button in the chat | 1 | `TODO` |
+| X0R-1419 | **One profile per instrument, and a profile made of profiles** | 5 | `TODO` |
 
 ---
 
@@ -2991,4 +2993,100 @@ the natural end of a conversation is a button, and today it is a scroll back up 
 about whether a mix is good and should not grow one. The honest reading is *once it has done
 something* - offer the button after the first applied change, and keep offering it, rather
 than trying to detect a moment.
+
+---
+
+### X0R-1419 · One profile per instrument, and a profile made of profiles · 5 · `TODO`
+
+Ryan: *"have the ability to apply different saved profiles to different instruments. ex:
+guitars for pop punk, drums from dance, and then the ability to save that overall combined
+profile as a profile of its own"*.
+
+The largest idea in this epic and the one with the most architecture already under it.
+
+**The machinery is closer than it looks.** `ReferenceProfile.instruments` is already a
+`dict[str, dict]` - one independent snapshot per stem - and the comparison assembles its
+reference side in a single line:
+
+```python
+theirs_saved = dict(saved.instruments) if from_profile else {}
+```
+
+Building that dict from several profiles instead of one is a change at the point where the
+dict is built. **`compare` never learns about it**: it takes one stem's profile from each
+side and has no opinion about where the other side came from. The same is true of
+`saved.drums` for the per-drum comparison, so kick-from-one-record and snare-from-another
+falls out of the same change.
+
+#### The hard part is level, and this codebase already says why
+
+`instrument.snapshot` stores `relative_lufs` and deliberately omits `loudness_lufs`, with
+this reason written into it:
+
+> `loudness_lufs` is left out because it is a fact about how loud that record was mastered
+> rather than about how its guitars were balanced
+
+So the number that *is* stored is how that record's guitars were balanced **against that
+record's drums**. Take the guitars from a pop-punk record and the drums from a dance record
+and you have imported two balance decisions that were each made against neighbours the other
+one does not have. The result is a balance that exists on no record, which is a different
+thing from a balance that is wrong - but it is not what "sounds like pop punk" means either.
+
+**Every other dimension travels better.** Tone bands, dynamic range, crest, pan and width are
+properties of how an instrument was recorded and treated. A pop-punk guitar's spectral shape
+and stereo spread are that guitar sound; they do not depend on what the drums were doing.
+Level is the one dimension in the snapshot that is relational.
+
+Two ways to resolve it, and this is the decision the card turns on:
+
+1. **A mixed profile matches character, not balance.** Keep tone, width, dynamics and pan
+   per instrument; drop level when the instruments come from more than one record, and say
+   so in a sentence. Defensible, clean, and the thing this application would normally do.
+2. **Offer level and explain it.** "This guitar level was measured against that record's
+   drums, not these." The nudge clamps already bound the damage - `max_level_db` is 3.0, and
+   a suggestion is half the measured gap - so a mixed profile cannot take a mix anywhere in
+   one step.
+
+**Recommendation: ship 1, and make 2 the opt-in**, because somebody who specifically wants
+"guitars as loud as pop punk has them" is asking a coherent question and should be able to
+get it after being told what it means. **Ryan's call, not the PM's.**
+
+#### The whole-mix half can only come from one record
+
+`curve_db`, `lufs`, `true_peak_db`, `width` and `mono_loss_db` describe a finished master.
+There is no way to assemble those from several, and averaging them would invent a record
+nobody made. So a combined profile is one of:
+
+* **instrument-only**, with the mix stage left to a separately chosen profile or skipped; or
+* **one record nominated as the mix reference**, with the others contributing instruments
+  only.
+
+The second is probably what a user expects - "mostly this record, but the guitars from that
+one" - and it is the one that keeps every existing surface working, because the whole-mix
+fields stay populated by one capture.
+
+#### Saving it
+
+The format barely has to move. `instruments` and `drums` are already optional dicts, and the
+existing note on both says adding an optional field does not make an older file unreadable,
+which is the only thing `FORMAT_VERSION` is for. What a combined profile needs that a
+captured one does not is **provenance per stem** - which record each instrument came from -
+because `captured_from` is one string and a combined profile has several sources.
+
+That is not bookkeeping for its own sake. This codebase already hand-builds an ID3 tag so an
+export can say which reference it was matched against, on the grounds that *"six months later
+'which reference was this?' is otherwise unanswerable"*. A profile assembled from four records
+makes that question four times harder and is exactly where the answer must be written down.
+
+**One thing to decide while designing it:** a combined profile that says it was made from
+four records is honest, and a listing that shows five profiles where four are ingredients is
+clutter. Whether ingredients are hidden, tagged, or simply listed is a product question worth
+settling before the save button exists.
+
+#### Not in this card
+
+Mixing a profile's **drums** with another profile's **sub-drums** - kick from one record,
+snare from another - is the same change and should be scoped with it rather than after,
+because `saved.drums` is the identical shape and splitting the work would mean touching the
+same line twice.
 

@@ -48,11 +48,15 @@ const MOVE_CONTROLS = {
   tone_high_mid_db: { min: -6, max: 6, step: 0.1, off: 0 },
   tone_presence_db: { min: -6, max: 6, step: 0.1, off: 0 },
   tone_air_db: { min: -6, max: 6, step: 0.1, off: 0 },
+  // Gain reduction on the bass, keyed to the kick. Its ceiling is the hardest the solver
+  // will ever ask for rather than a round number - see `sidechain.MAX_APPLIED_DB`.
+  sidechain_db: { min: 0, max: 8, step: 0.1, off: 0 },
 };
 
 /** Read what a control is currently set to on a lane. */
 function readControl(lane, control) {
   if (control === "gain_db") return lane.gainDb;
+  if (control === "sidechain_db") return lane.sidechainDb ?? 0;
   if (control === "compress_db") return lane.compressDb ?? 0;
   if (control === "pan") return lane.pan;
   if (control === "width") return lane.width;
@@ -82,6 +86,12 @@ function writeControl(stem, control, value) {
   } else if (control === "compress_db") {
     lane.compressDb = value;
     Monitor.setCompression(stem, value);
+  } else if (control === "sidechain_db") {
+    // No monitor for this one. A duck keyed to the kick needs the kick's times, and the
+    // monitor plays six stems without ever having been told where the drums hit. Rather
+    // than approximate it with a tremolo, the row says plainly that it is heard on
+    // export - which is the same bargain the per-drum dials already make.
+    lane.sidechainDb = value;
   } else if (control.startsWith("tone_")) {
     lane.tone[control.slice(5, -3)] = value;
     Monitor.setTone(stem, lane.tone, lane.toneSolver);
@@ -505,10 +515,13 @@ function buildMove(stem, move) {
 function formatMove(control, value) {
   const number = Number(value);
   if (control === "pan") {
-    if (number === 0) return "centre";
+    if (number === 0) return "center";
     return (number < 0 ? "L" : "R") + Math.abs(number * 100).toFixed(0);
   }
   if (control === "width") return (number * 100).toFixed(0) + "%";
+  if (control === "sidechain_db") {
+    return number <= 0 ? "none" : "-" + number.toFixed(1) + " dB on each kick";
+  }
   return (number > 0 ? "+" : "") + number.toFixed(1) + " dB";
 }
 

@@ -508,3 +508,37 @@ def test_mastering_from_a_profile_is_refused_clearly_when_whole_stem_matching_is
     )
     assert job.status_code == 202, job.text
     assert _finish(client, job.json()["job_id"], timeout_s=180)["state"] == "succeeded"
+
+
+# --- the two shapes a stem path can arrive in ---------------------------------------
+
+
+def test_a_stem_path_is_found_in_either_shape(tmp_path):
+    """The source keeps a `SeparationResult`; the reference keeps a plain dict.
+
+    This is here because a caller reached for `record.stems`, which does not exist, and
+    the per-drum job failed the first time it ran against a real track - after two drum
+    separations had already been paid for. A caller should not have to know which shape
+    it is holding.
+    """
+    from dataclasses import dataclass
+
+    from app.api.routes_master import _stem_path
+    from app.domain.notes import StemKind
+
+    @dataclass
+    class FakeStem:
+        kind: StemKind
+        path: str
+
+    @dataclass
+    class FakeSeparation:
+        stems: list
+
+    separation = FakeSeparation([FakeStem(StemKind.BASS, str(tmp_path / "bass.wav"))])
+    as_dict = {StemKind.BASS: str(tmp_path / "bass.wav")}
+
+    assert _stem_path(separation, StemKind.BASS) == tmp_path / "bass.wav"
+    assert _stem_path(as_dict, StemKind.BASS) == tmp_path / "bass.wav"
+    assert _stem_path(separation, StemKind.VOCALS) is None
+    assert _stem_path({}, StemKind.BASS) is None

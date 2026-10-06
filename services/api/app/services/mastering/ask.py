@@ -60,6 +60,7 @@ LIMITS: dict[str, tuple[float, float, float]] = {
     "tone_high_mid_db": (-6.0, 6.0, 0.0),
     "tone_presence_db": (-6.0, 6.0, 0.0),
     "tone_air_db": (-6.0, 6.0, 0.0),
+    "sidechain_db": (0.0, 8.0, 0.0),
 }
 
 #: One step at the plain amount. A dB is the sort of move this application already deals
@@ -70,6 +71,7 @@ STEP: dict[str, float] = {
     "width": 0.12,
     "pan": 0.12,
     "compress_db": 1.0,
+    "sidechain_db": 1.0,
 }
 TONE_STEP = 1.0
 
@@ -82,6 +84,7 @@ CEILING: dict[str, float] = {
     "width": 0.35,
     "pan": 0.5,
     "compress_db": 4.0,
+    "sidechain_db": 4.0,
 }
 TONE_CEILING = 4.0
 
@@ -215,6 +218,14 @@ TARGETS: tuple[Target, ...] = (
     Target("focus", "width", "", -1.0,
            ("narrower", "narrow", "tighter", "focused", "focus", "more mono", "mono"),
            implied=+1.0),
+    # Bass only, because the bass against the kick is the only pair this application
+    # measures. Named for what people call it rather than for the processor: almost
+    # nobody types "sidechain", and the ones who do also say "pump".
+    Target("pump", "sidechain_db", StemKind.BASS.value, +1.0,
+           ("pump", "pumping", "sidechain", "side-chain", "ducking", "duck the bass",
+            "breathe", "bass out of the way"),
+           caveat="Keyed to your own kick's times, and heard when you press Master "
+           "rather than in the monitor - the monitor is never told where the drums hit."),
     Target("steadiness", "compress_db", "", +1.0,
            ("steadier", "steady", "even it out", "more even", "consistent", "level it",
             "squash", "compress", "tighter dynamics"),
@@ -371,7 +382,19 @@ def _target(text: str) -> Target | None:
     best: tuple[int, Target | None] = (0, None)
     for target in TARGETS:
         found = _find(text, target.words)
-        if found and len(found) > best[0]:
+        if not found:
+            continue
+        # On a tie, a process beats a part. "make the bass pump a lot" matches "bass" and
+        # "pump" at four letters each, and read as a part it comes out as a level change -
+        # which is not what anybody who typed the word "pump" meant. Naming both a part
+        # and a thing to do to it is a request for the thing.
+        better = len(found) > best[0] or (
+            len(found) == best[0]
+            and best[1] is not None
+            and best[1].control == "gain_db"
+            and target.control != "gain_db"
+        )
+        if better:
             best = (len(found), target)
     return best[1]
 
@@ -446,6 +469,8 @@ def _said(changes: tuple[Change, ...], whole_mix: bool) -> str:
             what = "stereo width"
         elif control == "compress_db":
             what = "dynamics"
+        elif control == "sidechain_db":
+            what = "ducking to the kick"
         else:
             what = control
         where = (
@@ -638,6 +663,18 @@ def _one(
         if abs(c.delta) > 1e-6
     )
     if not changes:
+        low, high, rest = limit_of(target.control)
+        at_rest = all(
+            abs(float(lanes.get(s, {}).get(target.control, rest)) - rest) < 1e-6
+            for s in stems
+        )
+        if at_rest and ((sign * target.sign < 0) == (rest <= low)):
+            return Answer(
+                False,
+                f"There is no {target.label} here to take away - it is already at rest. "
+                "This only ever adds it.",
+                heard=target.label,
+            )
         return Answer(
             False,
             f"The {target.label} is already as far as typing will take it. The faders "

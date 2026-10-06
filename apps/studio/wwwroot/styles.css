@@ -1220,3 +1220,19 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 }
 .ask-form input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); }
 .tiny { font-size: 11px; }
+
+/* ── the bass against the kick ────────────────────────────────────────────────
+   Shown with the four drums because this is where both kicks exist as their own
+   files, but it is a finding about the bass - so it reads as its own thing rather
+   than as a fifth drum. */
+.per-drum-sidechain {
+  margin-top: 16px; padding: 14px 16px;
+  border: 1px solid var(--edge); border-left: 3px solid var(--accent);
+  border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.per-drum-sidechain .move-headline { margin: 0 0 6px; font-size: 13.5px; color: var(--text); }
+.per-drum-sidechain p { max-width: 74ch; }
+.per-drum-sidechain .fix { margin-top: 10px; }
+.per-drum-sidechain .tiny { margin-top: 8px; }
+/* An abstention is the common outcome, so it must not look like a warning. */
+.per-drum-sidechain.sev-match { border-left-color: var(--edge); background: none; }

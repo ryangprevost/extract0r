@@ -110,6 +110,11 @@ class StemSetting:
     tone_air_db: float = 0.0
     #: dB of dynamic range to take out of this stem, level-matched afterwards.
     compress_db: float = 0.0
+    #: Gain reduction keyed to the kick, for the bass alone. Not the figure the
+    #: comparison reports: `sidechain.gain_for_excess` solves this on the user's own bass,
+    #: because how far a given gain reduction moves the measured dip depends on the bass
+    #: underneath it - by nearly half across the five parts it was fitted against.
+    sidechain_db: float = 0.0
     #: Harmonic drive on this stem alone. Not suggested by the comparison and cannot be:
     #: added harmonics are indistinguishable from played ones without the dry signal.
     saturation_db: float = 0.0
@@ -332,6 +337,35 @@ def _drum_hits(request, samples, sample_rate: int, work_dir: Path, report) -> li
         return find_hits(samples, sample_rate)
 
 
+def _kick_times_for_sidechain(request, settings, work_dir: Path, report) -> list[float]:
+    """When the kick hits, for the bass to get out of the way of.
+
+    Read from the drums stem the user is actually rendering, not from the reference: a
+    duck keyed to somebody else's kick would be audibly wrong on every bar. The reference
+    only ever supplied the *depth*.
+
+    Returns an empty list rather than raising, and the caller then applies nothing and
+    says so - the same shape as every other optional stage in this pipeline.
+    """
+    if not any(s.sidechain_db > 0 for s in settings if s.stem is StemKind.BASS):
+        return []
+
+    drums = next((s for s in settings if s.stem is StemKind.DRUMS), None)
+    path = request.stems.get(StemKind.DRUMS) if drums is not None else None
+    if path is None or not Path(path).exists():
+        return []
+
+    try:
+        report(0.14, "finding the kick for the bass to duck to")
+        buffer = read_audio(Path(path))
+        hits = _drum_hits(request, np.asarray(buffer.samples, dtype=np.float64),
+                          buffer.sample_rate, work_dir, report)
+        return [h.time_s for h in hits if "kick" in h.kinds]
+    except Exception:
+        log.warning("could not find kick times for the sidechain", exc_info=True)
+        return []
+
+
 def audible(settings: list[StemSetting]) -> list[StemSetting]:
     """Solo wins over mute, the way every DAW behaves."""
     soloed = [s for s in settings if s.solo]
@@ -390,6 +424,14 @@ def run(
     #: One line per drum that was moved, for the report. A user who took a dial has to
     #: see in the export what it did, and the drums row is where they will look.
     drum_notes: list[str] = []
+    #: Said on the bass's own row rather than the drums': the kick supplied the timing,
+    #: but the decision and the gain reduction are the bass's.
+    sidechain_note = ""
+
+    # Found once, before the loop: the bass needs the drums' kick times and the stems
+    # are processed one at a time, so there is no order of the loop in which the bass
+    # already has them.
+    kick_times = _kick_times_for_sidechain(request, chosen, work_dir, report)
 
     for index, setting in enumerate(chosen):
         buffer: AudioBuffer = read_audio(request.stems[setting.stem])
@@ -431,6 +473,18 @@ def run(
                 kit=request.drum_kit,
                 drums=tuple(request.drum_targets),
                 blend=request.drum_blend,
+            )
+
+        if setting.sidechain_db > 0 and setting.stem is StemKind.BASS and kick_times:
+            # First in the strip. A duck is a level move keyed to another instrument, so
+            # everything after it - tone, the exciter, the tail - should be reacting to a
+            # bass that already breathes rather than to one that does not.
+            from app.services.mastering.sidechain import apply as duck
+
+            samples = duck(samples, sample_rate, kick_times, setting.sidechain_db)
+            sidechain_note = (
+                f"ducked {setting.sidechain_db:.1f} dB to {len(kick_times)} kicks in "
+                "the drums"
             )
 
         shape = setting.shape()
@@ -556,6 +610,13 @@ def run(
             drums_row = StemAdjustment(stem=StemKind.DRUMS, matched=False)
             adjustments.append(drums_row)
         drums_row.notes.extend(f"drum by drum - {note}" for note in drum_notes)
+
+    if sidechain_note:
+        bass_row = next((a for a in adjustments if a.stem is StemKind.BASS), None)
+        if bass_row is None:
+            bass_row = StemAdjustment(stem=StemKind.BASS, matched=False)
+            adjustments.append(bass_row)
+        bass_row.notes.append(sidechain_note)
 
     # --- place the vocal ----------------------------------------------------
     # Done after matching and before the sum, because it is a statement about the

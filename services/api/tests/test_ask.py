@@ -21,7 +21,10 @@ STEMS = ("vocals", "bass", "drums", "guitar", "piano", "other")
 
 def lanes(**overrides) -> dict:
     """Six stems at rest, with anything named moved."""
-    out = {s: {"gain_db": 0.0, "width": 1.0, "compress_db": 0.0} for s in STEMS}
+    out = {
+        s: {"gain_db": 0.0, "width": 1.0, "compress_db": 0.0, "sidechain_db": 0.0}
+        for s in STEMS
+    }
     for stem, values in overrides.items():
         out[stem].update(values)
     return out
@@ -142,6 +145,41 @@ def test_a_word_inside_another_word_is_not_a_match():
     """"air" must not match "chair", or a sentence about a chair lifts 8 kHz."""
     answer = ask.interpret("the chair is repaired", lanes=lanes())
     assert not answer.understood
+
+
+# --- the duck, which is the one control that only goes one way ---------------------------
+
+
+def test_a_process_beats_a_part_when_a_sentence_names_both():
+    """"make the bass pump a lot" matches "bass" and "pump" at four letters each.
+
+    Read as the part it came out as a level change, which is not what anybody who typed
+    the word "pump" meant.
+    """
+    answer = ask.interpret("make the bass pump a lot", lanes=lanes())
+    assert [c.control for c in answer.changes] == ["sidechain_db"]
+    assert answer.changes[0].delta == pytest.approx(2.0)
+
+
+def test_the_duck_is_on_the_bass_whatever_the_sentence_says():
+    """The bass against the kick is the only pair this application measures."""
+    answer = ask.interpret("more pump", lanes=lanes())
+    assert [c.stem for c in answer.changes] == ["bass"]
+
+
+def test_the_reply_never_prints_a_field_name():
+    """It said "sidechain_db +1.0 dB" at a user before this."""
+    for text in ask.EXAMPLES + ("more pump", "steadier", "wider"):
+        reply = ask.interpret(text, lanes=lanes()).reply
+        assert "_db" not in reply, reply
+
+
+def test_taking_away_a_duck_that_is_not_there_says_so():
+    """"already as far as typing will take it" is true and useless."""
+    answer = ask.interpret("less pumping", lanes=lanes())
+    assert not answer.understood
+    assert "already at rest" in answer.reply
+    assert "only ever adds it" in answer.reply
 
 
 # --- two things in one sentence ------------------------------------------------------

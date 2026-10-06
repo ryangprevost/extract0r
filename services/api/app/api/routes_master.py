@@ -66,6 +66,7 @@ from app.services.mastering.polish import (
     Polish,
 )
 from app.services.mastering.saturation import MAX_SATURATION_DB
+from app.services.mastering.sidechain import MAX_APPLIED_DB as MAX_SIDECHAIN_APPLIED_DB
 from app.services.mastering.vocals import VocalPresence
 from app.services.registry import TrackRegistry
 from app.services.storage import TrackStorage, UnsupportedAudioError
@@ -115,6 +116,10 @@ class StemMixSetting(BaseModel):
     tone_air_db: float = Field(default=0.0, ge=-MAX_APPLIED_BAND_DB, le=MAX_APPLIED_BAND_DB)
     #: dB of dynamic range removed from this stem, level-matched afterwards.
     compress_db: float = Field(default=0.0, ge=0.0, le=MAX_COMPRESSION_DB)
+    #: Gain reduction keyed to the kick. Meaningful on the bass and ignored elsewhere,
+    #: because that is the only pair this measures. Bounded by the hardest the solver will
+    #: ever ask for - past that it is an effect rather than a match.
+    sidechain_db: float = Field(default=0.0, ge=0.0, le=MAX_SIDECHAIN_APPLIED_DB)
     #: Drive on this stem alone. Never suggested - see `instrument` for why a saturation
     #: measurement would have to be invented rather than measured.
     saturation_db: float = Field(default=0.0, ge=0.0, le=MAX_SATURATION_DB)
@@ -1049,6 +1054,51 @@ def _move_json(move) -> dict:
     }
 
 
+
+def _duck_measurement(kick_path, bass_path):
+    """How far one side's bass gets out of its own kick's way, or None.
+
+    Lives here rather than in `sidechain` because it is the plumbing - finding a grid,
+    reading two files - and `sidechain` is the part worth testing without any of that.
+
+    The kick times come from the separated kick sub-stem rather than from a classifier on
+    the drum bus. X0R-414 is why: a stroke in the kick file *is* a kick, while the
+    classifier puts about a quarter of them within a few decibels of the snare line, and a
+    duck keyed to a mis-detected kick measures as noise.
+    """
+    import numpy as np
+
+    from app.services.analysis.fingerprint import BeatGrid, envelope_db, kick_duck
+    from app.services.analysis.timing import TimingAnalyser
+    from app.services.mixdown.encode import read_audio
+
+    if not kick_path or not bass_path:
+        return None
+    kick_path, bass_path = Path(kick_path), Path(bass_path)
+    if not kick_path.exists() or not bass_path.exists():
+        return None
+
+    try:
+        import librosa
+
+        y, sr = librosa.load(str(kick_path), sr=None, mono=True)
+        kicks = [float(t) for t in librosa.onset.onset_detect(y=y, sr=sr, units="time")]
+        if not kicks:
+            return None
+
+        bass = read_audio(bass_path)
+        duration = len(bass.samples) / bass.sample_rate
+        grid = BeatGrid.from_timing(TimingAnalyser().analyse(bass_path), duration)
+
+        env, times = envelope_db(np.asarray(bass.samples, dtype=np.float64), bass.sample_rate)
+        return kick_duck(env, times, kicks, grid)
+    except Exception:
+        # One optional figure. A comparison that lost its four drum cards because a beat
+        # tracker raised would be a bad trade for one row.
+        log.info("could not measure the bass duck", exc_info=True)
+        return None
+
+
 def _profile_json(one) -> dict:
     """One instrument's measurements, in the shape the comparison screen draws."""
     return {
@@ -1079,15 +1129,25 @@ def _profile_json(one) -> dict:
 # gets one line saying what is missing.
 
 
-def _drums_path(stems) -> Path | None:
-    """The drums stem out of a separation result or a reference's stem map."""
+def _stem_path(stems, kind: StemKind) -> Path | None:
+    """One stem out of a separation result or a reference's stem map.
+
+    Two shapes, because the two sides are stored differently: the source keeps a
+    `SeparationResult` and the reference keeps a plain dict. Callers should not have to
+    know which they are holding.
+    """
     if isinstance(stems, dict):
-        path = stems.get(StemKind.DRUMS)
+        path = stems.get(kind)
         return Path(path) if path else None
     for stem in getattr(stems, "stems", []) or []:
-        if stem.kind is StemKind.DRUMS:
+        if stem.kind is kind:
             return Path(stem.path)
     return None
+
+
+def _drums_path(stems) -> Path | None:
+    """The drums stem out of a separation result or a reference's stem map."""
+    return _stem_path(stems, StemKind.DRUMS)
 
 
 def _per_drum_capability(record, settings: Settings) -> dict:
@@ -1225,6 +1285,7 @@ def compare_drums(
         mine_stems = split("source", mine_drums, handle, 0.05)
         mine = subdrum.profile_all(mine_stems)
 
+        theirs_stems: dict = {}
         if from_profile:
             # Measured once, whenever that profile was saved. Half the cost of this
             # feature, gone, for every song ever aimed at the same record.
@@ -1237,6 +1298,22 @@ def compare_drums(
 
         handle.update(JobState.RUNNING, 0.95, "comparing them, drum by drum")
         moves = subdrum.compare_all(mine, theirs, limits=limits_for(budget))
+
+        # Whether the bass gets out of the kick's way, on both sides. Measured here
+        # because here is the only place both kicks already exist as their own files -
+        # anywhere else it would mean a second drum separation for one row.
+        from app.services.mastering import sidechain as sidechain_module
+
+        duck_moves = sidechain_module.compare(
+            _duck_measurement(
+                mine_stems.get("kick"), _stem_path(record.separation, StemKind.BASS)
+            ),
+            _duck_measurement(
+                (theirs_stems or {}).get("kick"),
+                _stem_path(record.reference_stems or {}, StemKind.BASS),
+            ),
+            limits=limits_for(budget),
+        )
 
         drums = []
         for name in subdrum.DRUMS:
@@ -1271,6 +1348,12 @@ def compare_drums(
             "reference_name": reference_name,
             "budget": budget,
             "measured": len(drums),
+            # The bass against the kick. Sent beside the four drums rather than inside
+            # one of them: it is a finding about the bass, measured here only because
+            # this is where both kicks exist as their own files. Always present, because
+            # abstaining is the common outcome and a row that disappears when the answer
+            # is "could not tell" is indistinguishable from a broken feature.
+            "sidechain": [_move_json(m) for m in duck_moves],
             # Repeated here so a caveat shown on screen and a caveat written into a
             # finding's detail cannot say two different things.
             "bleed_caveat": subdrum.BLEED_CAVEAT,
@@ -2213,15 +2296,18 @@ def ask_vocabulary() -> dict:
 
     return {
         "examples": list(ask_module.EXAMPLES),
+        # Split by what the word *is*, not by whether it is scoped to a stem. "Pump" is
+        # bass-only because the bass against the kick is the only pair this measures, and
+        # listing it under "parts" made the help text read "bass, vocal, drums, pump".
         "parts": [
             {"label": t.label, "words": list(t.words)}
             for t in ask_module.TARGETS
-            if t.stem
+            if t.control == "gain_db"
         ],
         "tone": [
             {"label": t.label, "words": list(t.words)}
             for t in ask_module.TARGETS
-            if not t.stem
+            if t.control != "gain_db"
         ],
         "qualities": sorted(ask_module.QUALITIES),
         "amounts": ["a little", "(plain)", "a lot"],

@@ -108,3 +108,7 @@ def test_the_vocabulary_is_published(client):
     assert {p["label"] for p in body["parts"]} >= {"bass", "vocal", "drums", "guitars"}
     assert {t["label"] for t in body["tone"]} >= {"weight", "body", "presence", "air"}
     assert "pop" in body["qualities"]
+    # Split by what the word is, not by whether it is scoped to a stem: "pump" is
+    # bass-only and is still not a part, and the help text listed it as one.
+    assert "pump" not in {p["label"] for p in body["parts"]}
+    assert "pump" in {t["label"] for t in body["tone"]}

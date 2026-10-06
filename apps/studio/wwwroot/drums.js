@@ -212,6 +212,53 @@ const PerDrum = (() => {
     }
   }
 
+  /**
+   * Whether the bass gets out of the kick's way, and the one control for it.
+   *
+   * The control only goes one way, which the server decides and this just renders: a duck
+   * can be added and cannot be taken away, because the bass compressed out of a recording
+   * is not in the file any more. When yours already ducks harder than the reference's,
+   * the server sends the finding with no `control` and this draws the sentence alone.
+   */
+  function sidechainRow(move) {
+    const row = document.createElement("div");
+    row.className = "move sev-" + (move.severity || "slight") + " per-drum-sidechain";
+
+    const head = document.createElement("p");
+    head.className = "move-headline";
+    head.textContent = move.headline || "";
+    row.appendChild(head);
+
+    const detail = document.createElement("p");
+    detail.className = "muted small";
+    detail.textContent = (move.detail || "").replace(/\*\*/g, "");
+    row.appendChild(detail);
+
+    if (!move.control) return row;
+
+    const take = document.createElement("button");
+    take.type = "button";
+    take.className = "fix";
+    take.textContent =
+      "Duck the bass " + Number(move.suggested).toFixed(1) + " dB on each kick";
+    take.addEventListener("click", () => {
+      writeControl("bass", "sidechain_db", Number(move.suggested));
+      take.dataset.done = "true";
+      take.textContent =
+        "Taken — " + Number(move.suggested).toFixed(1) + " dB, heard on export";
+    });
+    row.appendChild(take);
+
+    const note = document.createElement("p");
+    note.className = "muted tiny";
+    note.textContent =
+      "This one is not audible in the monitor. A duck has to be keyed to the kick's " +
+      "times, and the monitor plays six stems without being told where the drums hit — " +
+      "so it is applied when you press Master, and the report names it on the bass row.";
+    row.appendChild(note);
+    return row;
+  }
+
   function render(box, result) {
     box.innerHTML = "";
     box.open = true;
@@ -228,6 +275,14 @@ const PerDrum = (() => {
       line.className = "per-drum-verdict";
       line.textContent = headline;
       box.appendChild(line);
+    }
+
+    // The bass against the kick. Not one of the four drums, and shown with them because
+    // this is where both kicks exist as their own files and where somebody is already
+    // thinking about the kick. It is drawn whatever the answer is, including "could not
+    // tell", because a row that vanishes on an abstention looks like a broken feature.
+    for (const move of result.sidechain || []) {
+      box.appendChild(sidechainRow(move));
     }
 
     const heard = document.createElement("p");

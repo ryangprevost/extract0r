@@ -634,6 +634,9 @@ The tail length comes from the reference when the comparison can measure it.">re
       // export - one place, so what you hear is what gets rendered.
       tone: { low: 0, low_mid: 0, high_mid: 0, presence: 0, air: 0 },
       compressDb: 0,
+      // Gain reduction keyed to the kick. Bass only - it is the only pair this
+      // application measures - and heard on export rather than in the monitor.
+      sidechainDb: 0,
       saturationDb: 0,
       // The band-to-filter solve for this stem, sent by the comparison. Until it arrives
       // the monitor falls back to setting each filter to its band's own number, which is
@@ -1366,6 +1369,7 @@ async function runMaster() {
     tone_presence_db: lane.tone?.presence ?? 0,
     tone_air_db: lane.tone?.air ?? 0,
     compress_db: lane.compressDb ?? 0,
+    sidechain_db: lane.sidechainDb ?? 0,
     saturation_db: lane.saturationDb ?? 0,
     muted: lane.muted,
     solo: lane.solo,

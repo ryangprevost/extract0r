@@ -1788,7 +1788,7 @@ kick there is composition), and shipping recorded samples (the licensing positio
 | Stage | What | Pts | State |
 |---|---|---|---|
 | 0 | X0R-306, the benchmark | 5 | `TODO`, in EPIC-03. Gates stage 5 only. |
-| 1 | The reference fingerprint | 5 | `TODO`, deferred twice. Conditional on X0R-1307/1308. |
+| 1 | The reference fingerprint | 5 | `TODO`, deferred twice. Conditional on X0R-1307/1308 — **1308 shipped 2026-10-06**, so half the condition is met and the other half is a reporting card. Worth re-reading before the next sprint. |
 | 2 | Genre as a hedge | 5 | `NON-GOAL`. Three documents running. |
 | 3 | Re-produce: the processing half | 8 | `TODO`. X0R-1306 holds the measured headroom. |
 | **3B** | **Compare drum to drum** | **11** | **sprint 2** |
@@ -2103,7 +2103,7 @@ should say that rather than implying a dial is coming.
 
 ---
 
-### X0R-1308 · Sidechain duck from the measured kick · 3 · `TODO`
+### X0R-1308 · Sidechain duck from the measured kick · 3 · `DONE` 2026-10-06
 The most genre-defining process the app lacks, and measurable: kick times, with depth and
 recovery from comparing the reference's bass envelope around its own kicks against the
 source's — against a control measurement at kick-free grid positions, without which the
@@ -2113,6 +2113,102 @@ figure is mostly note envelope.
 Experiment 1 and on six of seven files in Experiment 2, because the per-kick dips varied by 8
 to 18 dB, more than one compressor would produce. X0R-414 gives it cleaner kick times, which
 is not why it abstained, so this is improved and not fixed.
+
+**Built 2026-10-06.** `app/services/mastering/sidechain.py`, measured on both sides inside
+the per-drum job, applied on the bass at render. The measurement half already existed -
+`fingerprint.kick_duck`, with its control at kick-free grid positions - so this card was the
+comparison, the processing and the honesty about what the figure is.
+
+**The control only goes one way, and that is the finding worth keeping.** A duck can be
+added; it cannot be taken away, because the bass compressed out of a recording is not in the
+file any more and anything appearing to restore it would be inventing it. So when yours
+ducks *harder* than the reference's, the comparison says so and offers nothing - a finding
+with no dial, the same shape as X0R-1307, but reached from the opposite direction.
+
+**The detector does not read back the gain applied, and assuming it did would have
+under-delivered every suggestion by about a third.** Applying 3, 6 and 9 dB to five
+synthetic basses:
+
+| bass | reading at 3 / 6 / 9 dB | slope |
+|---|---|---:|
+| held 55 Hz | 1.8 / 3.8 / 6.3 | 0.75 |
+| held 82 Hz | 1.6 / 3.4 / 5.7 | 0.69 |
+| held 41 Hz | 1.4 / 3.0 / 4.8 | 0.57 |
+| plucked 55 Hz | −7.9 / −6.9 / −4.7 | 0.53 |
+| walking | −8.1 / −6.1 / −3.6 | 0.74 |
+
+The slope varies by nearly half across bass parts, so **a single calibration constant would
+be fiction**: `gain_for_excess` fits the slope on the user's own bass instead, with one
+Newton refinement because the curve is convex - a slope fitted at 6 dB and extrapolated to
+10.7 overshot by 78% on the plucked bass. After the refinement all five land within 0.11 dB
+of the reading asked for.
+
+The plucked rows also start at about −8 dB with **no duck on them at all**: their notes
+restart on the beat, so kick positions catch an attack where control positions catch a
+decay. That offset is why only the slope of the reading is ever used and never its absolute
+value, and it is a second reason the figure abstains as often as it does.
+
+**Abstention is designed in**, per the card. Every path returns exactly one finding -
+including "could not tell" - so the row cannot vanish, because a row that disappears on an
+abstention is indistinguishable from a feature that is broken. A bass arranged around the
+kick is named as that rather than reported as a failure.
+
+**The finding that changes what this card is worth.** Run end to end on two mixes
+identical except that the reference's bass was ducked 7 dB before mixing:
+
+| measured on | no duck | 7 dB duck | gap |
+|---|---:|---:|---:|
+| the original bass, exact kick times | +0.17 | +3.87 | **3.70** |
+| the separated bass, exact kick times | +0.56 | +1.34 | **0.78** |
+| the separated bass, detected kick times | +0.48 | +1.39 | 0.91 |
+
+**The loss is between rows one and two, so it is separation and not kick detection** -
+demucs reconstructs a bass without preserving its gain envelope, and about four fifths of
+the dip is filled back in. Detecting kicks off the separated kick sub-stem costs almost
+nothing by comparison, which is the opposite of what the card assumed.
+
+This is a better explanation of Experiment 2's six abstentions out of seven than anything
+offered at the time, and it has two live consequences. **`MIN_USEFUL_DB` came down from 0.5
+to 0.3**, because at 0.5 this dismissed a seven-decibel sidechain as not worth applying -
+not a borderline case. And **the suggestion is a floor rather than an estimate**: both sides
+pass through the same separation so direction and sign are right, but the magnitude is
+compressed about fivefold while the gain the render applies lands on an already-separated
+bass at full strength. The finding says so in the sentence a user reads instead of claiming
+a closure it does not make. Under-delivering is the safe direction for a tool whose rule is
+"a share of the gap, never the whole thing".
+
+**Correcting for it needs real material**, not one synthetic pair - a fivefold constant
+fitted to a single data point is exactly the fiction `gain_for_excess` was built to avoid.
+Filed as **X0R-1311**.
+
+**Where it is heard:** on export, not in the monitor. A duck must be keyed to the kick's
+times and the monitor plays six stems without ever being told where the drums hit;
+approximating it with a tremolo would be worse than saying so. The row says so, and the
+export report names it on the **bass** row - the kick supplied the timing, the decision was
+the bass's. 32 tests, 27 on the module and 5 through the render.
+
+**Also reachable from the chat box** (X0R-1410): "more pump", "add some sidechain". That
+turned up a parser bug worth recording - "make the bass pump a lot" matched `bass` and
+`pump` at four letters each and resolved to a level change, so a tie between a part and a
+process now goes to the process.
+
+---
+
+### X0R-1311 · How much of a duck survives separation · 2 · `TODO`
+Gated on having real material. X0R-1308 measured, on one synthetic pair, that a 7 dB
+sidechain reads as 1.3 dB once the bass has been separated out again - about a fifth. If
+that ratio holds across real records it is a correction factor and the duck suggestion stops
+under-delivering fivefold; if it varies with the bass the way the *detector's* slope does
+(0.53 to 0.75 across five parts), then it is not a factor and the honest answer stays the
+sentence X0R-1308 already prints.
+
+**One data point is not a ratio.** What this needs is several real records with known
+sidechain - which, conveniently, is most dance music made since about 1998 - measured before
+and after a round trip through `htdemucs_6s`. The before side is the problem: it needs the
+unprocessed bass, so it means either a record whose stems are published or a mix built here
+from real recordings.
+
+Shares its blocker with X0R-1310: all roads end at material this machine does not have.
 
 ---
 

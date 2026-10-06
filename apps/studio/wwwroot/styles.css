@@ -1236,3 +1236,34 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .per-drum-sidechain .tiny { margin-top: 8px; }
 /* An abstention is the common outcome, so it must not look like a warning. */
 .per-drum-sidechain.sev-match { border-left-color: var(--edge); background: none; }
+
+/* ── signpost ─────────────────────────────────────────────────────────────────
+   For a feature that lives two disclosures deep and has nowhere better to be.
+   Loud enough to be seen on a screen of grey text, quiet enough not to read as a
+   warning — it is an offer, not a problem. */
+.signpost {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 14px 0 0; padding: 12px 15px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--edge));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: 13px; line-height: 1.5; color: var(--text);
+}
+.signpost span { flex: 1 1 22ch; min-width: 0; }
+.signpost .signpost-icon {
+  flex: 0 0 auto; letter-spacing: 2px; font-size: 9px; color: var(--stem-drums, var(--accent));
+}
+.signpost button { flex: 0 0 auto; }
+
+/* Where the signpost lands you, briefly, so the jump is visibly the jump. */
+.per-drum.just-opened {
+  animation: signpost-landed 1.6s ease-out;
+  border-radius: var(--radius);
+}
+@keyframes signpost-landed {
+  from { box-shadow: 0 0 0 2px var(--accent); }
+  to { box-shadow: 0 0 0 2px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .per-drum.just-opened { animation: none; }
+}

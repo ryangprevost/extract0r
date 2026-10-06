@@ -197,6 +197,59 @@ async function pollJobQuietly(jobId, onProgress) {
   }
 }
 
+/**
+ * Point at the drum-by-drum comparison from the top of the screen.
+ *
+ * It is two disclosures deep - inside the Drums card, inside a second expander - and it
+ * has nowhere better to be: it compares your kick with that record's kick, so it cannot
+ * exist outside the comparison that produced both. What it can have is a way in from
+ * somewhere a user is already looking.
+ *
+ * Deliberately not shown once it has been run. A signpost to a place you are already
+ * standing is clutter, and the drums card carries the findings from then on.
+ */
+function renderPerDrumSignpost() {
+  const host = $("per-drum-signpost");
+  if (!host) return;
+  const capability = state.perDrum;
+
+  if (!capability || !capability.available || state.perDrumResult) {
+    host.hidden = true;
+    return;
+  }
+
+  host.innerHTML =
+    '<span class="signpost-icon" aria-hidden="true">●●●●</span>' +
+    "<span><strong>The drums can go one level further.</strong> Your kick against " +
+    "their kick, and the snare, cymbals and toms separately — because “the drums " +
+    "want more body” cannot say whether the kick needs sub or the snare is thin." +
+    "</span>";
+
+  const go = document.createElement("button");
+  go.type = "button";
+  go.className = "primary small";
+  go.textContent = "Take me there";
+  go.addEventListener("click", openPerDrum);
+  host.appendChild(go);
+  host.hidden = false;
+}
+
+/** Open both disclosures and put the panel on screen. The three steps, as one. */
+function openPerDrum() {
+  const panel = document.querySelector(".per-drum");
+  if (!panel) return;
+  const card = panel.closest("details.instrument");
+  if (card) card.open = true;
+  panel.open = true;
+  // Directly, not inside requestAnimationFrame. Opening a <details> applies
+  // synchronously and scrollIntoView forces the layout it needs, so the frame callback
+  // bought nothing - and it does not run at all in a backgrounded tab, which is how this
+  // was caught: the jump silently did nothing while the pane was hidden.
+  panel.scrollIntoView({ block: "center", behavior: "smooth" });
+  panel.classList.add("just-opened");
+  setTimeout(() => panel.classList.remove("just-opened"), 1600);
+}
+
 function renderInstruments(data) {
   const host = $("instruments");
   host.innerHTML = "";
@@ -222,6 +275,7 @@ function renderInstruments(data) {
   // with the comparison even when the answer is no, because "not available, and here is
   // how" belongs on the card rather than nowhere.
   state.perDrum = data.per_drum || null;
+  renderPerDrumSignpost();
 
   for (const instrument of data.instruments || []) {
     const lane = state.lanes.get(instrument.stem);

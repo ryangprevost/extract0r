@@ -89,6 +89,11 @@ const PerDrum = (() => {
       return box;
     }
 
+    // Open, not closed. A <details> inside a <details> meant reaching the drums card
+    // and still finding a collapsed triangle, which is two guesses a user has to make
+    // in a row. Once it has been run it collapses again - by then the findings are the
+    // point and the offer is not.
+    box.open = true;
     box.appendChild(summaryFor(null, capability));
     box.appendChild(introFor(capability));
     return box;
@@ -196,6 +201,8 @@ const PerDrum = (() => {
       );
       const result = await pollJobQuietly(job.job_id, wait.stage);
       state.perDrumResult = result;
+      // The signpost has done its job and now points at where the user is standing.
+      if (typeof renderPerDrumSignpost === "function") renderPerDrumSignpost();
       // Only when the reference's own drums were split here. A comparison drawn from a
       // profile already had them, and nothing on this track can be saved into a new one.
       if (result.reference_kind === "stems") state.referenceDrumsSplit = true;

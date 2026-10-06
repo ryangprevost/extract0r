@@ -26,7 +26,7 @@
   <div class="drawer-inner">
     <button class="nav-item" data-page="master">
       <span class="nav-icon">🎛️</span>
-      <span><strong>Mastering suite</strong><em>Split, match a reference, export MP3</em></span>
+      <span><strong>Mastering suite</strong><em>Split, compare instrument by instrument and drum by drum, export MP3</em></span>
     </button>
     <button class="nav-item" data-page="tab">
       <span class="nav-icon">🎸</span>
@@ -66,6 +66,8 @@
         slow part — roughly the length of each song, once.</li>
       <li>Instrument by instrument, you see what differs and try the suggestions you like.
         Nothing is applied until you say so, and every one can be undone.</li>
+      <li>The drums go one level further if you want them to — your kick against their
+        kick, and the snare, cymbals and toms separately.</li>
       <li>Then the whole mix is compared for the finishing moves, and you export.</li>
     </ol>
 
@@ -325,13 +327,19 @@
         Your bass against that song's bass, your drums against its drums — level, tone in
         five bands, how evenly each part plays, where it sits and how wide it is. Each
         difference gets its own control, so you can take the air on the drums and leave
-        everything else alone.
+        everything else alone. <strong>The drums then go one level further</strong>, into
+        your kick against their kick, and the snare, cymbals and toms separately.
       </p>
       <p class="muted small working" id="instrument-working" hidden></p>
       <p class="error" id="instrument-error" hidden></p>
       <!-- Filled in only when the reference half came from a saved profile, where two
            things differ: it was instant, and there is no audio behind it to listen to. -->
       <p class="muted small" id="instrument-source" hidden></p>
+      <!-- The one feature in this application nobody could find. It lives two
+           disclosures deep - inside the Drums card, inside a second expander -
+           because that is where it belongs, so this makes the last three steps
+           one click instead of moving it somewhere it does not fit. -->
+      <p class="signpost" id="per-drum-signpost" hidden></p>
       <div id="instruments"></div>
       <p class="muted small" id="monitor-note" hidden>
         Moving these is audible straight away — no re-render. The monitor runs the same

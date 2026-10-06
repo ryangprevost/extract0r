@@ -2716,6 +2716,52 @@ cannot explain.
 cannot. It has no memory of the conversation beyond the ceiling, so "no, less than that"
 is not a sentence it understands - "less bass" is.
 
+### Unplanned, built 2026-10-06 — finding the drum panel
+
+| id | title | pts | state |
+|---|---|---|---|
+| X0R-1411 | Make drum by drum findable | 2 | **`DONE`** |
+
+Ryan, twice: *"how do i get to the produc0r section of the application?"* and *"i wantd to see
+remix0r"*. The feature was shipped in sprint 2 and he could not find it. That is a defect in
+the application, not in the asking.
+
+**The path was six steps and ended in two collapsed triangles.** Upload, separate, load a
+reference, separate that, press Compare instruments, open the **Drums** card, open the
+**Drum by drum** expander inside it. The last two are `<details>` nested in a `<details>`,
+both closed, so a user who got all the way there still had to make two more guesses in a row.
+
+**What was not done, and why.** The panel was not moved to a page or a nav entry of its own.
+It compares your kick with that record's kick, so it cannot exist before both songs are split
+and compared - a top-level entry would be a door that is locked almost every time somebody
+tries it, which is a worse experience than a door they have not found yet.
+
+**What was done** is five signposts along the path that already exists, cheapest first:
+
+1. **The landing page's four steps became five.** The drums going one level further is now
+   named in the first thing anybody reads.
+2. **The nav subtitle** says "compare instrument by instrument and drum by drum" instead of
+   "match a reference". That is where somebody looks for a feature by name, and it is where
+   Ryan looked.
+3. **The comparison's own intro** names it in the sentence read immediately before pressing
+   the button that leads there.
+4. **A signpost at the top of the comparison**, with a *Take me there* button that opens both
+   disclosures, scrolls to the panel and flashes its border. Three steps become one click. It
+   hides itself once the comparison has been run, because a signpost to where you are already
+   standing is clutter.
+5. **The inner expander opens by default** when it has an offer to make, and collapses again
+   once there are findings in it - by then the findings are the point and the offer is not.
+
+**And the tour had eight scenes, none of them about this.** The app's own explanation of
+itself stopped at six instruments, so the hardest feature to find was also the one it never
+mentioned. There is now a ninth scene, *Inside the drums*, and a help section giving the full
+path in order for anybody who is stuck rather than browsing.
+
+**One bug found while verifying it.** The jump put its scroll inside `requestAnimationFrame`,
+which does not run in a backgrounded tab - so the test harness clicked the button and nothing
+happened. Opening a `<details>` applies synchronously and `scrollIntoView` forces its own
+layout, so the frame callback was buying nothing and is gone.
+
 ### What is deliberately **not** in here
 
 - **Persistence of any kind.** EPIC-07 is a `NON-GOAL` and nothing in a performance epic may

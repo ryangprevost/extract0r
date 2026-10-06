@@ -94,6 +94,39 @@ const TOUR = [
       </g>`,
   },
   {
+    // Added 2026-10-06. The tour described six instruments and stopped there, so the one
+    // feature nobody could find was also the one the app never mentioned. Placed right
+    // after the instrument cards because that is literally where it lives: inside the
+    // drums card, not beside it.
+    title: "Inside the drums",
+    caption:
+      "The drums card opens one level further. Your kick against their kick, your snare " +
+      "against their snare, cymbals and toms — because “the drums want more body” " +
+      "cannot tell you whether the kick needs sub or the snare is too thin.",
+    art: () => {
+      const drums = ["kick", "snare", "cymbals", "toms"];
+      const notes = [
+        "2.1 dB more weight",
+        "a little brighter",
+        "about right",
+        "1.4 dB quieter",
+      ];
+      return `<g>
+        <rect x="40" y="26" width="480" height="34" rx="8" class="panel" />
+        <text x="58" y="47" class="label start">Drums</text>
+        <text x="300" y="47" class="caption-sm start">drum by drum ⌄</text>
+        ${drums.map((name, i) => `
+          <g class="stagger" style="--i:${i}">
+            <rect x="70" y="${72 + i * 32}" width="450" height="26" rx="6" class="panel" />
+            <rect x="70" y="${72 + i * 32}" width="4" height="26" rx="2"
+                  fill="var(--stem-drums)" />
+            <text x="90" y="${89 + i * 32}" class="label start">${name}</text>
+            <text x="200" y="${89 + i * 32}" class="caption-sm start">${notes[i]}</text>
+          </g>`).join("")}
+      </g>`;
+    },
+  },
+  {
     title: "A nudge, not a copy",
     caption:
       "Every suggestion is part of the measured gap, never all of it. Two records are " +
@@ -203,6 +236,23 @@ const HELP_REFERENCE = [
         yours is not, and "correcting" that replaces your arrangement with someone else's.
         The sliders reach further than the suggestions do, so you can go the rest of the
         way when your ears say so.</p>`,
+  },
+  {
+    heading: "Finding the drum-by-drum comparison",
+    body: `
+      <p>It is inside the <b>Drums</b> card on the instrument comparison, as a second
+        expander called <b>Drum by drum</b>. It is not on a page of its own, and the
+        reason is that it has nowhere else to be: it compares your kick with that
+        record's kick, so it cannot exist until both songs have been split and
+        compared.</p>
+      <p>The path, in full: upload your song &rarr; it is split &rarr; load the reference
+        and split that too &rarr; press <b>Compare instruments</b> &rarr; open
+        <b>Drums</b> &rarr; open <b>Drum by drum</b>. The comparison screen puts a link
+        at the top of itself once the option is available, so the last three steps are
+        one click.</p>
+      <p>It costs an extra separation pass per side, which the button states before you
+        press it, and the second song you aim at the same reference does not pay for the
+        reference half again.</p>`,
   },
   {
     heading: "What the five tone bands mean",

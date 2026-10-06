@@ -1290,3 +1290,20 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 }
 .blend-base span { color: var(--text); }
 #blend-said { padding: 0 14px 14px; max-width: 74ch; }
+
+/* ── the drum sections, matched to the instrument cards ───────────────────────
+   X0R-1415. These were <details> with their native marker hidden and nothing
+   drawn in its place, so the only clue they opened was the cursor. */
+.subdrum-head { padding-left: 20px; position: relative; }
+.subdrum-head::before {
+  content: "▸";
+  position: absolute; left: 0; top: 1px;
+  color: var(--muted); transition: transform 0.15s ease;
+}
+.subdrum[open] > .subdrum-head::before { transform: rotate(90deg); }
+.subdrum-head .drum-apply-all { flex: 0 0 auto; margin-left: auto; }
+.subdrum-head .players { flex: 0 0 auto; }
+
+/* The pair that opens and closes the whole comparison, beside the button that builds it. */
+.compare-actions { display: flex; align-items: center; gap: 14px; }
+.compare-actions .link { font-size: 12px; white-space: nowrap; }

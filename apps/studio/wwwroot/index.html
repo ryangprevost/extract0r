@@ -341,7 +341,13 @@
     <section class="compare-card" id="instrument-compare" hidden>
       <div class="row-between">
         <h4 class="sub" style="margin:0">Instrument by instrument</h4>
-        <button class="primary small" id="compare-instruments-btn">Compare instruments</button>
+        <div class="compare-actions">
+          <!-- X0R-1416. Seven disclosures in this section alone, and the measured height
+               fully open is 5 678 px. Two buttons. -->
+          <button class="link" id="expand-all" hidden>Expand all</button>
+          <button class="link" id="collapse-all" hidden>Collapse all</button>
+          <button class="primary small" id="compare-instruments-btn">Compare instruments</button>
+        </div>
       </div>
       <p class="muted small" id="instrument-intro">
         Your bass against that song's bass, your drums against its drums — level, tone in

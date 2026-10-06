@@ -2849,8 +2849,8 @@ in this document.
 | X0R-1412 | Dock the chat panel to the side | 2 | `TODO` |
 | X0R-1413 | **The kick auditioned as the reference's snare** | 3 | `TODO` · **defect** |
 | X0R-1414 | Let the export's bit depth be chosen | 2 | `TODO` |
-| X0R-1415 | Per-drum sections get a disclosure and an Apply all | 2 | `TODO` |
-| X0R-1416 | Expand all and collapse all | 1 | `TODO` |
+| X0R-1415 | Per-drum sections get a disclosure and an Apply all | 2 | **`DONE` 2026-10-06** |
+| X0R-1416 | Expand all and collapse all | 1 | **`DONE` 2026-10-06** |
 | X0R-1417 | A fixed section nav, and sections that close | 3 | `TODO` |
 | X0R-1418 | A Remaster button in the chat | 1 | `TODO` |
 | X0R-1419 | **One profile per instrument, and a profile made of profiles** | 5 | **`DONE` 2026-10-06** · Ryan chose **character, not balance** |
@@ -2942,14 +2942,49 @@ existing layout already has a hamburger pattern to borrow from.
 
 ---
 
-### X0R-1415 · Per-drum sections get a disclosure and an Apply all · 2 · `TODO`
+### X0R-1415 · Per-drum sections get a disclosure and an Apply all · 2 · `DONE` 2026-10-06
 
 Ryan: *"expand collapse icons on the individual drum sections along with apply all
 functionality similar to the other instruments would be nice"*.
 
-### X0R-1416 · Expand all and collapse all · 1 · `TODO`
+**Half of it was already there and invisible.** The drum rows were `<details>` all along -
+they opened and closed - but `.subdrum > summary` hid the native marker and **nothing was
+drawn in its place**, which `.instrument-head::before` does for the instrument cards. So the
+only clue a drum opened was the cursor changing. That is a one-line CSS omission that read
+as a missing feature, and it is worth recording as such: the report said "add expand collapse
+icons" and the fix was to stop hiding one.
+
+**Apply all was genuinely missing**, and now sits on each drum's header with the rule
+`buildInstrumentCard` uses - the count **skips the rows flagged as worth hearing first**,
+because lifting a band on a measurement this screen has already told you to check is exactly
+what somebody would regret having done in bulk. Measured on a kick with three moves, one of
+them flagged: the button reads "Apply all 2", takes two, and leaves the flagged one offering
+"Apply".
+
+Two details that were not obvious until it was built. The button lives inside a `<summary>`,
+so it has to stop the click toggling the disclosure - taking a drum's suggestions should not
+also close the drum you were reading. And a second press **undoes** all of them, because the
+per-move buttons are toggles and a bulk control that could only go one way would be the odd
+one out.
+
+---
+
+### X0R-1416 · Expand all and collapse all · 1 · `DONE` 2026-10-06
 
 Ryan: *"add 'collapse all' and 'expand all' buttons in the instrument by instrument header"*.
+
+It was the best ratio in the epic, as predicted. Two buttons, and they reach **every**
+disclosure in the section rather than one level of it - six instrument cards, the per-drum
+panel, and the four drums inside that, which measured nine in a full comparison. "Expand all"
+that opened six of nine would be worse than none.
+
+They hide themselves when they would do nothing: before a comparison has been run there are
+no disclosures at all, and once everything is open there is nothing for "expand all" to do.
+Hidden rather than disabled, because a greyed-out pair invites somebody to wonder what they
+are for. A `toggle` listener keeps them honest as the user opens cards by hand, so opening
+one of nine correctly offers both.
+
+---
 
 ### X0R-1417 · A fixed section nav, and sections that close · 3 · `TODO`
 

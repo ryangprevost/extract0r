@@ -167,6 +167,7 @@ async function loadInstrumentComparison() {
     state.instruments = result;
     renderInstruments(result);
     $("monitor-note").hidden = !Monitor.available();
+  refreshDisclosureButtons();
     $("instrument-intro").hidden = true;
     button.textContent = "Compare again";
   } catch (error) {
@@ -208,6 +209,40 @@ async function pollJobQuietly(jobId, onProgress) {
  * Deliberately not shown once it has been run. A signpost to a place you are already
  * standing is clutter, and the drums card carries the findings from then on.
  */
+/**
+ * Open or close everything in the comparison at once. X0R-1416, Ryan's.
+ *
+ * Every `<details>` inside the section, which is the six instrument cards, the per-drum
+ * panel and the four drums inside that - so "expand all" really does mean all of it,
+ * rather than one level and another click.
+ *
+ * The buttons appear only once there is something to expand. A pair of controls that do
+ * nothing is worse than no controls, and before a comparison has been run there are no
+ * disclosures in here at all.
+ */
+function setAllDisclosures(open) {
+  const section = $("instrument-compare");
+  if (!section) return;
+  section.querySelectorAll("details").forEach((one) => {
+    one.open = open;
+  });
+  refreshDisclosureButtons();
+}
+
+function refreshDisclosureButtons() {
+  const section = $("instrument-compare");
+  const expand = $("expand-all");
+  const collapse = $("collapse-all");
+  if (!section || !expand || !collapse) return;
+
+  const all = [...section.querySelectorAll("details")];
+  // Hidden rather than disabled: there is nothing to say about a comparison that has not
+  // been run, and a greyed-out pair invites somebody to wonder what they are for.
+  const none = all.length === 0;
+  expand.hidden = none || all.every((one) => one.open);
+  collapse.hidden = none || all.every((one) => !one.open);
+}
+
 function renderPerDrumSignpost() {
   const host = $("per-drum-signpost");
   if (!host) return;
@@ -694,6 +729,26 @@ function wireInstrumentCards() {
   });
 
   refreshMoveButtons();
+
+  // The pair at the top of the section. Wired once, and kept honest as the user opens
+  // and closes things by hand - a "collapse all" sitting beside six closed cards is a
+  // button that does nothing.
+  const expand = $("expand-all");
+  const collapse = $("collapse-all");
+  if (expand && !expand.dataset.wired) {
+    expand.dataset.wired = "yes";
+    expand.addEventListener("click", () => setAllDisclosures(true));
+  }
+  if (collapse && !collapse.dataset.wired) {
+    collapse.dataset.wired = "yes";
+    collapse.addEventListener("click", () => setAllDisclosures(false));
+  }
+  const section = $("instrument-compare");
+  if (section && !section.dataset.toggleWatch) {
+    section.dataset.toggleWatch = "yes";
+    section.addEventListener("toggle", refreshDisclosureButtons, true);
+  }
+  refreshDisclosureButtons();
 }
 
 /** Set one control, move its slider to match, and refresh the buttons. */

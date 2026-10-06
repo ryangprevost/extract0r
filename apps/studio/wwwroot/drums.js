@@ -383,6 +383,24 @@ const PerDrum = (() => {
       "<strong>" + escapeHtml(drum.label) + "</strong>" +
       '<span class="subdrum-summary">' + escapeHtml(summarise(drum)) + "</span>" +
       "</span>";
+
+    // X0R-1415, from Ryan: the six instruments can be taken whole from their header and
+    // the four drums could not, so a kick needed four clicks where a guitar needed one.
+    // Same rule as `buildInstrumentCard`: the count skips the rows flagged as worth
+    // hearing first, because lifting a band on a measurement this screen has already said
+    // to check is exactly the move somebody would regret having made in bulk.
+    const actionable = (drum.moves || []).filter((m) => m.control && m.confident);
+    if (actionable.length) {
+      const all = document.createElement("button");
+      all.className = "primary small drum-apply-all";
+      all.dataset.drum = drum.drum;
+      all.textContent = "Apply all " + actionable.length;
+      all.title =
+        "Takes the " + actionable.length + " suggestion" +
+        (actionable.length === 1 ? "" : "s") + " on this drum that are not flagged.";
+      head.appendChild(all);
+    }
+
     head.appendChild(playersFor(drum));
     row.appendChild(head);
 
@@ -898,6 +916,26 @@ const PerDrum = (() => {
     // the panel is built, filled and handed back before anybody appends it. A
     // document-wide query found nothing, so four dials that had been taken came back
     // reading "Apply". Caught by rebuilding the cards in a harness, not by a user.
+    for (const button of root.querySelectorAll(".drum-apply-all")) {
+      if (button.dataset.wired) continue;
+      button.dataset.wired = "yes";
+      button.addEventListener("click", (event) => {
+        // Inside a <summary>, where a click would otherwise toggle the disclosure as
+        // well. Taking a drum's suggestions should not also close the drum.
+        event.preventDefault();
+        event.stopPropagation();
+        const selector =
+          '.drum-apply[data-drum="' + button.dataset.drum + '"][data-confident="yes"]';
+        const rows = [...root.querySelectorAll(selector)];
+        // A second press puts them all back, which is what the per-move buttons already
+        // do individually and what "Applied ✓" on this one has to mean.
+        const undo = rows.length && rows.every((one) => one.classList.contains("applied"));
+        for (const one of rows) {
+          if (one.classList.contains("applied") === undo) one.click();
+        }
+      });
+    }
+
     for (const button of root.querySelectorAll(".drum-apply")) {
       const { drum, control } = button.dataset;
       const wanted = parseFloat(button.dataset.value);
@@ -921,6 +959,17 @@ const PerDrum = (() => {
       row.classList.toggle("has-applied", applied > 0);
       const undo = row.querySelector(".drum-reset");
       if (undo) undo.hidden = applied === 0;
+
+      // The header button says what it will do next, the way the instruments' does: a
+      // count while there is something to take, "Applied ✓" once they all are.
+      const all = row.querySelector(".drum-apply-all");
+      if (all) {
+        const offered = row.querySelectorAll('.drum-apply[data-confident="yes"]').length;
+        const done = offered > 0 && applied >= offered;
+        all.textContent = done ? "Applied ✓" : "Apply all " + offered;
+        all.classList.toggle("applied", done);
+        all.hidden = offered === 0;
+      }
     }
     const box = root.closest?.(".per-drum") || root.querySelector?.(".per-drum");
     if (box) box.classList.toggle("has-applied", settings().length > 0);

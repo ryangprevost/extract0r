@@ -1356,3 +1356,7 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .groove-figure { margin: 0 0 4px; line-height: 1.5; }
 .groove-basis, .groove-caveat { font-size: 11px; opacity: 0.75; }
 .groove-caveat { font-style: italic; }
+
+/* The way out of the chat, once it has actually done something. */
+.ask-remaster-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ask-remaster { flex: 0 0 auto; }

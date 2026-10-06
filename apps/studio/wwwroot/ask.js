@@ -158,9 +158,46 @@ const Ask = (() => {
       reply.appendChild(document.createTextNode(" "));
       reply.appendChild(undoButton(before, answer.heard || "that"));
       history.push({ text, heard: answer.heard, before });
+      offerRemaster();
     }
     if ((answer.suggestions || []).length) say(chips(answer.suggestions));
   }
+
+/**
+ * A way out of the conversation, once there is something to render. X0R-1418.
+ *
+ * Ryan asked for this "once its reached a good point", and that phrase is the one part
+ * to be careful with: **this box has no opinion about whether a mix is good and should
+ * not grow one.** Nothing here measures taste. The honest reading is *once it has done
+ * something* - so the button appears after the first applied change and stays, rather
+ * than trying to detect a moment that the application cannot see.
+ *
+ * It clicks the real Master button rather than calling the render itself. That keeps the
+ * double-click guard, the disabling and anything added to that path later in one place -
+ * and scrolls it into view first, so a render that takes tens of seconds starts where the
+ * user is looking instead of somewhere off screen.
+ */
+function offerRemaster() {
+  const log = $("ask-log");
+  if (!log || log.querySelector(".ask-remaster")) return;
+
+  const row = document.createElement("p");
+  row.className = "ask-line ask-note ask-remaster-row";
+  row.textContent = "These only reach the file when you render. ";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "primary small ask-remaster";
+  button.textContent = "Master and export";
+  button.addEventListener("click", () => {
+    const real = $("master-btn");
+    if (!real) return;
+    real.scrollIntoView({ block: "center", behavior: "smooth" });
+    real.click();
+  });
+  row.appendChild(button);
+  say(row);
+}
 
   // --- wiring ----------------------------------------------------------------------
 

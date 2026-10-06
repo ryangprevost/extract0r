@@ -2897,7 +2897,7 @@ in this document.
 | X0R-1415 | Per-drum sections get a disclosure and an Apply all | 2 | **`DONE` 2026-10-06** |
 | X0R-1416 | Expand all and collapse all | 1 | **`DONE` 2026-10-06** |
 | X0R-1417 | A fixed section nav, and sections that close | 3 | `TODO` |
-| X0R-1418 | A Remaster button in the chat | 1 | `TODO` |
+| X0R-1418 | A Remaster button in the chat | 1 | **`DONE` 2026-10-06** |
 | X0R-1419 | **One profile per instrument, and a profile made of profiles** | 5 | **`DONE` 2026-10-06** · Ryan chose **character, not balance** |
 
 ---
@@ -3120,10 +3120,16 @@ point"*.
 Every exchange moves real controls, and the controls only reach the file on a render - so
 the natural end of a conversation is a button, and today it is a scroll back up to find one.
 
-**"Once it has reached a good point" is the part to be careful with.** The box has no opinion
-about whether a mix is good and should not grow one. The honest reading is *once it has done
-something* - offer the button after the first applied change, and keep offering it, rather
-than trying to detect a moment.
+**"Once it has reached a good point" was the part to be careful with**, and the answer was
+to not try. The box has no opinion about whether a mix is good and should not grow one -
+nothing in it measures taste. So the button appears after the **first applied change** and
+stays, rather than attempting to detect a moment the application cannot see.
+
+It clicks the real Master button rather than calling the render itself, which keeps the
+double-click guard and everything else on that path in one place, and scrolls it into view
+first so a render that takes tens of seconds starts where the user is looking. Verified:
+one button however many changes are made, and a listener on the real button confirms it is
+the one that fires.
 
 ---
 

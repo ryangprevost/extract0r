@@ -16,6 +16,7 @@ from app.jobs.stages import (
     COMPARE_BOTH_SIDES,
     COMPARE_FROM_PROFILE,
     SECONDS_PER_SECOND_OF_AUDIO,
+    SECONDS_PER_SECOND_OF_SEPARATION,
     Plan,
     Stage,
 )
@@ -91,9 +92,13 @@ def test_the_browser_uses_the_same_constant():
     the user sees the stale one.
     """
     source = (STUDIO / "waiting.js").read_text(encoding="utf-8")
-    match = re.search(r"SECONDS_PER_SECOND_OF_AUDIO\s*=\s*([0-9.]+)", source)
-    assert match, "waiting.js no longer declares the constant"
-    assert float(match.group(1)) == SECONDS_PER_SECOND_OF_AUDIO
+    for name, expected in (
+        ("SECONDS_PER_SECOND_OF_AUDIO", SECONDS_PER_SECOND_OF_AUDIO),
+        ("SECONDS_PER_SECOND_OF_SEPARATION", SECONDS_PER_SECOND_OF_SEPARATION),
+    ):
+        match = re.search(name + r"\s*=\s*([0-9.]+)", source)
+        assert match, f"waiting.js no longer declares {name}"
+        assert float(match.group(1)) == expected, name
 
 
 def test_the_comparison_job_reports_every_stage_it_has():
@@ -102,3 +107,17 @@ def test_the_comparison_job_reports_every_stage_it_has():
     source = route.read_text(encoding="utf-8")
     for stage in COMPARE_BOTH_SIDES.stages:
         assert f'plan.report(handle, "{stage.key}")' in source, stage.key
+
+
+def test_the_separation_estimate_matches_the_benchmark():
+    """X0R-306 measured 180 s of audio in 145.7 s. An estimate is allowed to be rounded
+    up; it is not allowed to be a different measurement."""
+    measured = 145.7 / 180.0
+    assert measured <= SECONDS_PER_SECOND_OF_SEPARATION <= measured * 1.2
+
+
+def test_the_separation_estimate_runs_over_rather_than_under():
+    """Deliberately the slow end of the measured spread, because the separation screen
+    has no overrun message behind it the way the comparison does."""
+    fastest = 145.7 / 180.0
+    assert SECONDS_PER_SECOND_OF_SEPARATION > fastest

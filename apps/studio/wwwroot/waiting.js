@@ -32,11 +32,40 @@ const Waiting = (() => {
   //: run - 23.57 s of a 98.75 s job.
   const PROFILE_SHARE = 0.76;
 
+  //: Wall clock per second of audio for one separation pass, htdemucs_6s, CPU.
+  //: **Must match `SECONDS_PER_SECOND_OF_SEPARATION` in `app/jobs/stages.py`**, and the
+  //: same test reads this file to check it.
+  //:
+  //: X0R-306 measured 180 s of audio in 145.7 s, which is 1.24x real time, or 0.81 s of
+  //: waiting per second of song. That benchmark also warns that the same track and model
+  //: came back at 1.09x and 1.24x on one afternoon - a 14% spread caused only by what
+  //: else the laptop was doing - so the honest range is 0.81 to 0.92.
+  //:
+  //: This takes the slow end rather than the mean, which is the opposite of the choice
+  //: made for the comparison, and the difference is deliberate: the comparison's
+  //: indicator says so when it overruns, and this one has no such thing behind it. An
+  //: estimate nobody can correct should run over rather than under.
+  //:
+  //: It replaces "roughly twice the length of the audio", which was on screen for months
+  //: and overstated the wait by about sixty per cent.
+  const SECONDS_PER_SECOND_OF_SEPARATION = 0.9;
+
   function clock(seconds) {
     const whole = Math.max(0, Math.round(seconds));
     if (whole < 60) return whole + "s";
     const minutes = Math.floor(whole / 60);
     return minutes + "m " + String(whole % 60).padStart(2, "0") + "s";
+  }
+
+  /**
+   * Roughly how long separating takes, for `passes` songs of this length.
+   *
+   * `passes` is 2 when a reference is being split as well, which is the single largest
+   * wait in the application and the one nothing used to put a number on.
+   */
+  function separationEstimate(durationSeconds, passes = 1) {
+    if (!durationSeconds) return 0;
+    return durationSeconds * SECONDS_PER_SECOND_OF_SEPARATION * Math.max(1, passes);
   }
 
   /** Roughly how long a comparison takes on a song this long. */
@@ -123,5 +152,13 @@ const Waiting = (() => {
     };
   }
 
-  return { begin, estimate, clock, SECONDS_PER_SECOND_OF_AUDIO, PROFILE_SHARE };
+  return {
+    begin,
+    estimate,
+    separationEstimate,
+    clock,
+    SECONDS_PER_SECOND_OF_AUDIO,
+    SECONDS_PER_SECOND_OF_SEPARATION,
+    PROFILE_SHARE,
+  };
 })();

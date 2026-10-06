@@ -48,6 +48,20 @@ from dataclasses import dataclass
 SECONDS_PER_SECOND_OF_AUDIO = 0.5
 
 
+#: Wall clock per second of audio for one separation pass, `htdemucs_6s`, CPU.
+#:
+#: X0R-306 measured 180 s of audio in 145.7 s - 1.24x real time, or 0.81 s of waiting per
+#: second of song. That benchmark also warns that the same track and model came back at
+#: 1.09x and 1.24x on one afternoon, a 14% spread caused only by what else the laptop was
+#: doing, so the honest range is 0.81 to 0.92.
+#:
+#: This takes the slow end rather than the mean, which is the opposite of the choice above
+#: for the comparison, and the difference is deliberate: the comparison's indicator says so
+#: when it overruns and the separation screen has no such thing behind it. An estimate
+#: nobody can correct should run over rather than under.
+SECONDS_PER_SECOND_OF_SEPARATION = 0.9
+
+
 @dataclass(frozen=True, slots=True)
 class Stage:
     """One stretch of work, its cost relative to the others in the same plan.

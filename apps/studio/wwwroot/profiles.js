@@ -52,7 +52,11 @@ async function refreshProfilePanels() {
         + "mix at this song's overall tone. This reference has not been separated, so "
         + "its instruments will not be in it; turn on instrument-by-instrument matching "
         + "above first if you want them.";
-    what.innerHTML = base + (state.referenceSeparated ? drums : "");
+    // X0R-1401: the panel explained what a profile contains and never what it saves.
+    // "Only your own song left to split" is true and abstract; the number is the thing
+    // that makes somebody click. Measured per X0R-306 and scaled to the song they just
+    // waited for, so it is the wait they have personally just experienced.
+    what.innerHTML = base + (state.referenceSeparated ? drums : "") + savedTime();
   }
 
   if (state.referenceLoaded) {
@@ -60,6 +64,25 @@ async function refreshProfilePanels() {
     return;
   }
   await renderProfileList();
+}
+
+/**
+ * How much of the wait a profile removes, in the length of the song they just loaded.
+ *
+ * Only claimed when the reference was actually separated here, because that is the pass
+ * a profile skips. With a whole-mix-only profile the saving is the reference upload and
+ * its measurement, which is seconds and not worth a sentence.
+ */
+function savedTime() {
+  if (!state.referenceSeparated) return "";
+  if (typeof Waiting === "undefined" || !state.duration) return "";
+  const saved = Waiting.separationEstimate(state.duration, 1);
+  return (
+    " <strong>It also skips this wait.</strong> Splitting that reference took about " +
+    Waiting.clock(saved) +
+    ", and every future song you aim at this profile starts from the measurements " +
+    "instead — so the next one is roughly that much shorter, however many you do."
+  );
 }
 
 async function renderProfileList() {

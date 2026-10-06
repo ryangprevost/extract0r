@@ -407,6 +407,27 @@ function pickFile(file) {
   refreshUploadButton();
 }
 
+/**
+ * What the longest wait in this application is about to cost, in this song's terms.
+ *
+ * The one stage that never said. The per-drum pass states its cost before you press it
+ * and the instrument comparison states its own; separation, which is several times longer
+ * than either, said only that demucs runs "at roughly twice the length of the audio" -
+ * a figure that was wrong by sixty per cent and identical for every song.
+ */
+function separationCost(durationSeconds, passes) {
+  if (typeof Waiting === "undefined" || !durationSeconds) {
+    return "Splitting runs on the CPU and takes a little less than the length of the song.";
+  }
+  const each = Waiting.separationEstimate(durationSeconds, 1);
+  const total = Waiting.separationEstimate(durationSeconds, passes);
+  const song = "About " + Waiting.clock(total) + " on this machine";
+  return passes > 1
+    ? song + " — " + Waiting.clock(each) + " for your song and the same again for the " +
+      "reference, which is split separately."
+    : song + ".";
+}
+
 async function upload() {
   $("upload-error").hidden = true;
 
@@ -434,11 +455,24 @@ async function upload() {
     state.duration = track.duration_s ?? 0;
 
     const job = await api(`/tracks/${track.track_id}/separate`, { method: "POST" });
+    // "Roughly twice the length of the audio" was on this screen for months and
+    // overstated the wait by about sixty per cent: X0R-306 measured htdemucs_6s at 1.24x
+    // real time, not 0.5x. It also said the same thing about a thirty-second clip and a
+    // six-minute one, which is the part that made it useless.
+    // Two passes only when a reference file is going up *and* instrument matching is on;
+    // a saved profile carries its instruments already and splits nothing. Worked out
+    // from the same three inputs the code below branches on, so the number promised here
+    // and the work actually done cannot disagree.
+    const willSplitReference =
+      !!state.upfrontReference &&
+      !$("upfront-profile-pick")?.value &&
+      !!$("plan-match")?.checked;
+    const splits = willSplitReference ? 2 : 1;
     await runJob(
       job.job_id,
       "Splitting the track into stems…",
-      "Demucs runs on the CPU at roughly twice the length of the audio. The very first " +
-      "run also downloads the model, which takes a few minutes more.",
+      separationCost(state.duration, splits) +
+      " The very first run also downloads the model, which takes a few minutes more.",
     );
 
     // A saved profile chosen on the first screen: no upload, no second split, just the
@@ -486,8 +520,12 @@ async function upload() {
         await runJob(
           split.job_id,
           "Splitting the reference…",
-          "The second half of the wait, and the last of it. Everything after this is " +
-          "instant.",
+          "The second half of the wait, and the last of it — about " +
+          (typeof Waiting !== "undefined" && state.duration
+            ? Waiting.clock(Waiting.separationEstimate(state.duration, 1))
+            : "as long as the first") +
+          ". Save this reference as a profile afterwards and no song you aim at it ever " +
+          "pays for this pass again.",
         );
       }
     }

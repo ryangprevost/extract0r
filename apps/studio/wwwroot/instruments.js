@@ -253,6 +253,10 @@ function openPerDrum() {
 function renderInstruments(data) {
   const host = $("instruments");
   host.innerHTML = "";
+  // New suggestions, so nothing has been taken against them yet. Without this, pressing
+  // "Compare again" at a different budget would leave a row claiming it had been applied
+  // because a previous run's identical suggestion once was.
+  forgetTakenMoves();
 
   // Where the reference half came from. Worth a line, because a comparison drawn from a
   // profile is missing exactly one thing a user might go looking for - the ▶ theirs
@@ -546,6 +550,10 @@ function buildMove(stem, move) {
     slider.value = move.suggested;
     slider.dataset.stem = stem;
     slider.dataset.control = move.control;
+    // What this row is suggesting, so dragging the slider onto it counts as taking it.
+    // The Apply button already carried the number; the slider did not, and the slider is
+    // the other way a user reaches the same value.
+    slider.dataset.suggested = String(move.suggested);
 
     const out = document.createElement("output");
     out.textContent = formatMove(move.control, move.suggested);
@@ -579,6 +587,37 @@ function formatMove(control, value) {
   return (number > 0 ? "+" : "") + number.toFixed(1) + " dB";
 }
 
+// ───────────────────── what was taken, as opposed to what matches ─────────────────────
+//
+// X0R-1405. "Applied ✓" was decided by comparing the lane's value with the suggestion,
+// which is right whenever the suggestion asks for a move - and wrong whenever it does
+// not. A reference whose guitars are already centred offers `pan: 0`, and 0 is also
+// where the control sits when nobody has touched it, so the row claimed credit for a
+// move it had not made. Pan is where it bit; width at 1.0 and dynamics at 0 are the same
+// shape.
+//
+// The per-drum rows were fixed by recording what was taken. The lanes keep no such
+// record, so this is one - deliberately narrow. It is consulted **only** when the
+// suggestion sits at the control's resting value, because everywhere else the value
+// comparison is not merely adequate, it is better: it keeps "Applied ✓" true when
+// somebody reaches the suggested number by dragging the slider instead of pressing the
+// button, which is a thing people do and should not be punished for.
+const takenMoves = new Set();
+
+const takenKey = (stem, control) => stem + "|" + control;
+
+/** Record or forget a move, by the route the user took it. */
+function markTaken(stem, control, taken) {
+  const key = takenKey(stem, control);
+  if (taken) takenMoves.add(key);
+  else takenMoves.delete(key);
+}
+
+/** A fresh comparison is a fresh set of suggestions; nothing has been taken against it. */
+function forgetTakenMoves() {
+  takenMoves.clear();
+}
+
 function wireInstrumentCards() {
   // The slider IS the setting. Dragging it applies it, so there is never a state where
   // the number on the screen and the number in the mix disagree.
@@ -588,6 +627,14 @@ function wireInstrumentCards() {
       writeControl(slider.dataset.stem, slider.dataset.control, value);
       slider.parentElement.querySelector("output").textContent =
         formatMove(slider.dataset.control, value);
+      // Dragging onto the suggested number is taking the suggestion, and dragging off it
+      // is putting it back. Recorded here as well as on the button so the two routes to
+      // the same value cannot disagree about whether it was taken.
+      markTaken(
+        slider.dataset.stem,
+        slider.dataset.control,
+        atSuggestion(slider.dataset.control, value, parseFloat(slider.dataset.suggested)),
+      );
       refreshMoveButtons();
     });
   });
@@ -602,6 +649,7 @@ function wireInstrumentCards() {
       const value = applied
         ? (MOVE_CONTROLS[control] || {}).off ?? 0
         : parseFloat(button.dataset.value);
+      markTaken(button.dataset.stem, control, !applied);
       setMove(button.dataset.stem, control, value);
     });
   });
@@ -621,6 +669,7 @@ function wireInstrumentCards() {
       const selector = '.move-apply[data-stem="' + button.dataset.stem + '"]';
       document.querySelectorAll(selector).forEach((one) => {
         const control = one.dataset.control;
+        markTaken(one.dataset.stem, control, false);
         setMove(one.dataset.stem, control, (MOVE_CONTROLS[control] || {}).off ?? 0);
       });
     });
@@ -668,14 +717,39 @@ function setMove(stem, control, value) {
  * would leave the button reading "Apply" forever on a setting that had in fact been
  * applied. That exact bug shipped once on the whole-mix findings.
  */
+/**
+ * Is this control sitting on the suggested value?
+ *
+ * Within half a slider step rather than exactly. The slider quantises, so a suggestion
+ * of +2.43 dB becomes 2.4 the moment it is applied, and an exact comparison would leave
+ * the button reading "Apply" forever on a setting that had in fact been applied. That
+ * exact bug shipped once on the whole-mix findings.
+ */
+function atSuggestion(control, value, suggested) {
+  if (!Number.isFinite(value) || !Number.isFinite(suggested)) return false;
+  const step = (MOVE_CONTROLS[control] || {}).step || 0.1;
+  return Math.abs(value - suggested) <= step / 2 + 1e-9;
+}
+
+/** True when taking the suggestion would move nothing - pan 0, width 1.0, dynamics 0. */
+function suggestsNothing(control, suggested) {
+  const rest = (MOVE_CONTROLS[control] || {}).off ?? 0;
+  return atSuggestion(control, suggested, rest);
+}
+
 function refreshMoveButtons() {
   document.querySelectorAll(".move-apply").forEach((button) => {
     const lane = state.lanes.get(button.dataset.stem);
     if (!lane) return;
+    const control = button.dataset.control;
     const wanted = parseFloat(button.dataset.value);
-    const step = (MOVE_CONTROLS[button.dataset.control] || {}).step || 0.1;
-    const applied =
-      Math.abs(readControl(lane, button.dataset.control) - wanted) <= step / 2 + 1e-9;
+    const matches = atSuggestion(control, readControl(lane, control), wanted);
+    // A suggestion that asks for nothing cannot be recognised by its value, because the
+    // value it asks for is the one the control already had. Those - and only those - are
+    // decided by whether the move was actually taken.
+    const applied = matches
+      && (!suggestsNothing(control, wanted)
+          || takenMoves.has(takenKey(button.dataset.stem, control)));
     button.textContent = applied ? "Applied ✓" : "Apply";
     button.classList.toggle("applied", applied);
     button.title = applied ? "Click again to undo this one" : "";

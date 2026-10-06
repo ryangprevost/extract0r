@@ -1454,6 +1454,11 @@ async function runMaster() {
         vocal_presence: $("vocal-presence").value || null,
         vocal_duck_db: parseFloat($("vocal-duck").value),
         bitrate_kbps: parseInt($("bitrate").value, 10),
+        // X0R-1414. The WAV export has existed on the API since it was written and the
+        // page never asked for it. Its depth only affects the WAV - the MP3 encoder
+        // takes 16-bit PCM and has no setting for anything else.
+        export_wav: !!$("export-wav")?.checked,
+        wav_depth: $("wav-depth")?.value || "24",
       }),
     });
     const finished = await runJob(
@@ -2664,6 +2669,13 @@ for (const id of ["brightness", "warmth", "bass", "stereo-width", "width-profile
     document.querySelectorAll(".mode").forEach((b) => b.setAttribute("aria-pressed", "false"));
   });
 }
+// The depth only means anything when a WAV is being written, so it follows the box.
+$("export-wav")?.addEventListener("change", () => {
+  const on = $("export-wav").checked;
+  $("wav-depth").disabled = !on;
+  $("wav-depth-note").classList.toggle("dimmed", !on);
+});
+
 $("kit-on").addEventListener("change", () => {
   const on = $("kit-on").checked;
   $("kit-options").hidden = !on;

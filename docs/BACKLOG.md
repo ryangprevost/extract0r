@@ -2893,7 +2893,7 @@ in this document.
 |---|---|---|---|
 | X0R-1412 | Dock the chat panel to the side | 2 | **`DONE` 2026-10-06** |
 | X0R-1413 | **The kick auditioned as the reference's snare** | 3 | **`DONE` 2026-10-06** · reproduced and measured |
-| X0R-1414 | Let the export's bit depth be chosen | 2 | `TODO` |
+| X0R-1414 | Let the export's bit depth be chosen | 2 | **`DONE` 2026-10-06** · and the premise was half wrong |
 | X0R-1415 | Per-drum sections get a disclosure and an Apply all | 2 | **`DONE` 2026-10-06** |
 | X0R-1416 | Expand all and collapse all | 1 | **`DONE` 2026-10-06** |
 | X0R-1417 | A fixed section nav, and sections that close | 3 | `TODO` |
@@ -3014,25 +3014,36 @@ application already offers 128, 192, 256 and 320 kbps. Nothing about a 32-bit an
 an MP3 better, and a control implying otherwise would be the kind of dial this project
 refuses to ship.
 
-**But the instinct is right, and it lands on two things that are real and hard-coded.**
+**Half of what this card proposed turned out not to exist**, and the half that did was
+bigger than described. Both corrections on 2026-10-06.
 
-1. **The mix is quantised to 16-bit on the way out, and nobody can choose it.**
-   `MasterResult.quantisation` reports `"16-bit with TPDF dither and noise shaping"` and its
-   own docstring calls it *"the one stage of mastering with no control attached: the user
-   cannot choose it, so the least the export can do is say what happened"*. That sentence has
-   been sitting in the codebase asking for this card.
-2. **The WAV export is hard-coded to PCM_24.** `encode.write_wav` passes
-   `subtype="PCM_24"`, and `export_wav` is already plumbed through the API. 24-bit is a
-   defensible default and an undiscussed one.
+**Wrong: "the mix is quantised to 16-bit and nobody can choose it."** True, but not as a
+hard-coded choice somebody forgot to expose - **LAME takes 16-bit PCM and that is its input
+format.** `lameenc.Encoder` has `set_bit_rate` in kilobits per second and no setter for
+sample depth at all, which a test now asserts so that a future version growing one gets
+noticed. `MasterResult.quantisation` saying *"the user cannot choose it"* is literally true,
+and a control for it would have been a dial wired to nothing. Proposing it here was a
+mistake made from reading a docstring rather than the encoder.
 
-So the work is: expose the quantisation depth and the WAV subtype, default both where they
-are now, and put a sentence beside them explaining that neither improves an MP3 - because the
-whole value of answering this honestly is lost if the control appears next to the bitrate
-dropdown without one.
+**Understated: the WAV.** It was not merely hard-coded to `PCM_24` - **the page never
+offered a WAV export at all.** `export_wav` had existed on the request and on the pipeline
+since they were written, and nothing in the Studio ever sent it. So this card turned out to
+be another "expose what you have" like X0R-1422.
 
-**Worth measuring while here:** whether 24-bit dither before a 320 kbps encode is audibly or
-measurably different from 16-bit. If it is not, that is the answer to the original question
-and it belongs on screen.
+**Shipped:** a WAV checkbox and a depth beside the bitrate - 16, 24 (the default, unchanged)
+and 32-bit float - plus the sentence the card correctly insisted on: *"This does not change
+the MP3. MP3 has a bitrate, not a bit depth."* The depth control disables itself when no WAV
+is being written, because a setting for a file nobody asked for is clutter.
+
+32-bit float is offered for one honest reason and the option says it: samples over 0 dBFS
+survive instead of clipping, which matters to a master going back into another tool and not
+at all to a finished file. A test writes a 1.5-peak signal and checks that 24-bit clips it
+and float does not - and the first version of that test used a fixture peaking at 0.6, which
+clipped nothing and proved nothing.
+
+**Not done, and still worth doing:** measuring whether a 24-bit intermediate is audibly
+different from 16-bit before a 320 kbps encode. It cannot change the MP3 path, which is
+fixed at 16-bit, so it is now a question about the WAV alone.
 
 ---
 

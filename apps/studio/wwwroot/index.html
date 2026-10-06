@@ -446,6 +446,27 @@
           <option value="128">128 kbps</option>
         </select>
       </label>
+<!-- X0R-1414. The WAV export existed on the API and the page never offered it, and its
+     depth was hard-coded to 24-bit. Both now choosable - and the note is the point of
+     the card, because the question that prompted it was about the MP3. -->
+<label class="control" title="Writes an uncompressed copy beside the MP3.">
+        <span>Also a WAV</span>
+        <input type="checkbox" id="export-wav" />
+      </label>
+<label class="control" title="Only the WAV. The MP3 has no bit depth to set.">
+        <span>WAV depth</span>
+        <select id="wav-depth" disabled>
+          <option value="24" selected>24-bit — the default</option>
+          <option value="16">16-bit — CD depth, smallest</option>
+          <option value="32f">32-bit float — keeps peaks over 0 dBFS</option>
+        </select>
+      </label>
+      <p class="muted tiny" id="wav-depth-note">
+        <strong>This does not change the MP3.</strong> MP3 has a bitrate, not a bit depth —
+        the encoder takes 16-bit and there is nothing on that path to choose. A deeper WAV
+        is worth having when the master is going back into another tool, and makes no
+        audible difference to a finished file.
+      </p>
     </div>
 
     <details class="control-group" id="group-tone" data-group="tone">

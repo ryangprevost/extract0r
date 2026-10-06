@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import (
     APIRouter,
@@ -245,6 +245,10 @@ class MasterJobRequest(BaseModel):
 
     bitrate_kbps: int = Field(default=320)
     export_wav: bool = False
+    #: "16", "24" or "32f" for the exported WAV. Nothing to do with the MP3: LAME takes
+    #: 16-bit PCM and `lameenc` has no setter for anything else, so there is no bit depth
+    #: on that path to choose. See `encode.WAV_SUBTYPES`.
+    wav_depth: Literal["16", "24", "32f"] = "24"
 
 
 class ReferenceStemsResponse(BaseModel):
@@ -1616,6 +1620,7 @@ def start_master(
             protect_dynamics=body.protect_dynamics,
         ),
         export_wav=body.export_wav,
+        wav_depth=body.wav_depth,
     )
     work_dir = storage.exports_dir(track_id)
 

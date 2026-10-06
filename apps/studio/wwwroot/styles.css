@@ -1395,3 +1395,7 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   .ask-dock { display: none; }
   .ask-launch { right: 12px; bottom: 12px; }
 }
+
+/* The WAV depth note, quiet until a WAV is actually being written. */
+#wav-depth-note { max-width: 64ch; margin: 2px 0 0; transition: opacity 0.15s ease; }
+#wav-depth-note.dimmed { opacity: 0.45; }

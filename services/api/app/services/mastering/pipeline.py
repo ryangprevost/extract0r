@@ -192,6 +192,10 @@ class MasterRequest:
     #: Air, width and headroom - the finishing moves a reference match cannot make.
     polish: Polish = field(default_factory=Polish)
     export_wav: bool = False
+    #: "16", "24" or "32f". Only the exported master honours this; the intermediate WAVs
+    #: this pipeline writes to pass audio between its own stages stay at 24-bit, because
+    #: they are plumbing and nobody downloads them.
+    wav_depth: str = "24"
 
 
 @dataclass(slots=True)
@@ -704,7 +708,7 @@ def run(
     wav_path = None
     if request.export_wav:
         wav_path = work_dir / "master.wav"
-        write_wav(wav_path, final.samples, final.sample_rate)
+        write_wav(wav_path, final.samples, final.sample_rate, request.wav_depth)
 
     report(1.0, "done")
     return MasterResult(

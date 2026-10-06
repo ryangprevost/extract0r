@@ -72,11 +72,36 @@ def read_audio(path: Path) -> AudioBuffer:
     return AudioBuffer(samples=samples, sample_rate=int(sample_rate))
 
 
-def write_wav(path: Path, samples: np.ndarray, sample_rate: int) -> Path:
+#: What a WAV export can be written as, and what each one is for.
+#:
+#: X0R-1414, from Ryan: *"is it possible to pick different bit encodings? 16, 32, etc to
+#: upscale the quality of the mastered mp3?"* **Not of the MP3** - LAME takes 16-bit PCM
+#: and `lameenc` has no setter for anything else, so there is no bit depth on that path to
+#: choose. The instinct lands here instead, on the WAV, which had been hard-coded to 24-bit
+#: since it was written without the choice ever being discussed.
+WAV_SUBTYPES: dict[str, str] = {
+    #: CD depth. Smallest, and what anything will play.
+    "16": "PCM_16",
+    #: The default, and the right one for a master that may be processed again: 24 bits
+    #: put the quantisation floor far enough down that another pass cannot reach it.
+    "24": "PCM_24",
+    #: 32-bit float. Not "better" than 24 in any audible sense - what it buys is that
+    #: samples over 0 dBFS survive instead of clipping, which matters to a mix going back
+    #: into another tool and not at all to a finished file.
+    "32f": "FLOAT",
+}
+
+DEFAULT_WAV_SUBTYPE = "24"
+
+
+def write_wav(
+    path: Path, samples: np.ndarray, sample_rate: int, depth: str = DEFAULT_WAV_SUBTYPE
+) -> Path:
     import soundfile as sf
 
+    subtype = WAV_SUBTYPES.get(depth, WAV_SUBTYPES[DEFAULT_WAV_SUBTYPE])
     path.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(path), _as_stereo(samples), sample_rate, subtype="PCM_24")
+    sf.write(str(path), _as_stereo(samples), sample_rate, subtype=subtype)
     return path
 
 

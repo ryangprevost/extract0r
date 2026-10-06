@@ -1360,3 +1360,38 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 /* The way out of the chat, once it has actually done something. */
 .ask-remaster-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ask-remaster { flex: 0 0 auto; }
+
+/* ── the chat, docked ─────────────────────────────────────────────────────────
+   X0R-1412. Deliberately not a help bubble: this panel moves real faders and
+   quotes measurements, and a cheerful circle in the corner would misrepresent
+   what pressing things in it does. Same shelf, same square edges, same type as
+   the rest of the application. */
+.ask-launch {
+  position: fixed; right: 18px; bottom: 18px; z-index: 40;
+  padding: 9px 15px; font-size: 12.5px; font-family: inherit; cursor: pointer;
+  color: var(--text); background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--edge));
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.35);
+}
+.ask-launch:hover { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.ask-launch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 2px;
+}
+.ask-dock {
+  position: fixed; right: 18px; bottom: 64px; z-index: 39;
+  width: min(30rem, calc(100vw - 36px)); max-height: min(62vh, 34rem);
+  overflow-y: auto;
+  box-shadow: 0 10px 34px rgb(0 0 0 / 0.45);
+  border-radius: var(--radius);
+}
+/* Inside the shelf the panel is already framed by it. */
+.ask-dock > .ask-card { margin: 0; border-radius: var(--radius); }
+.ask-dock .ask-log { max-height: 34vh; }
+
+/* Below the layout's own breakpoint there is no docking: a fixed panel over 375 px
+   is the whole screen, so the launcher scrolls to the panel where it sits. */
+@media (max-width: 720px) {
+  .ask-dock { display: none; }
+  .ask-launch { right: 12px; bottom: 12px; }
+}

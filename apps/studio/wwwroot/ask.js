@@ -199,11 +199,78 @@ function offerRemaster() {
   say(row);
 }
 
+  // --- docking ----------------------------------------------------------------------
+  //
+  // X0R-1412, from Ryan: *"The chat bot should be on the side of the page accessible as
+  // you scroll. like an online help chat on amazon"*. It sits above the instrument
+  // comparison, so it scrolls away exactly when somebody is deep in the rows it could
+  // help with.
+  //
+  // **The same panel is moved, not copied.** A second rendering of it would be a second
+  // transcript, a second input and a second set of listeners, and the two would disagree
+  // the first time anybody undid something. Moving one DOM node keeps all of that at one.
+  //
+  // **It is not styled as a help widget**, which the card flagged before this was built:
+  // it moves real faders and quotes measurements, and a cheerful bubble in the corner
+  // would misrepresent what pressing things in it does.
+  //
+  // **Narrow screens do not dock at all.** A fixed panel over 375 px is the whole screen,
+  // so below the layout's own breakpoint the launcher scrolls to the panel where it sits
+  // instead - which is the same destination by the honest route.
+
+  const NARROW = 720;
+
+  function docked() {
+    const dock = $("ask-dock");
+    return dock && !dock.hidden;
+  }
+
+  function dock(open) {
+    const panel = $("ask-panel");
+    const shelf = $("ask-dock");
+    const home = $("ask-home");
+    const launch = $("ask-launch");
+    if (!panel || !shelf || !home) return;
+
+    if (open) {
+      shelf.appendChild(panel);
+      shelf.hidden = false;
+    } else {
+      home.after(panel);
+      shelf.hidden = true;
+    }
+    if (launch) {
+      launch.setAttribute("aria-expanded", open ? "true" : "false");
+      launch.textContent = open ? "Close" : "Say what you want";
+    }
+  }
+
+  /** The launcher: dock on a wide screen, scroll to it on a narrow one. */
+  function toggle() {
+    if (window.innerWidth <= NARROW) {
+      dock(false);
+      const panel = $("ask-panel");
+      panel.hidden = false;
+      panel.scrollIntoView({ block: "center", behavior: "smooth" });
+      $("ask-input")?.focus();
+      return;
+    }
+    const open = !docked();
+    dock(open);
+    if (open) $("ask-input")?.focus();
+  }
+
+  /** A window narrowed while docked would leave the panel covering everything. */
+  function onResize() {
+    if (window.innerWidth <= NARROW && docked()) dock(false);
+  }
+
   // --- wiring ----------------------------------------------------------------------
 
   function reset() {
     baseline = null;
     history = [];
+    dock(false);
     const log = $("ask-log");
     if (log) {
       log.innerHTML = "";
@@ -215,6 +282,8 @@ function offerRemaster() {
     const panel = $("ask-panel");
     if (!panel) return;
     panel.hidden = false;
+    const launch = $("ask-launch");
+    if (launch) launch.hidden = false;
     if (!$("ask-log").children.length) {
       say(
         line(
@@ -239,6 +308,13 @@ function offerRemaster() {
       event.preventDefault();
       submit();
     });
+
+    const launch = $("ask-launch");
+    if (launch && !launch.dataset.wired) {
+      launch.dataset.wired = "yes";
+      launch.addEventListener("click", toggle);
+      window.addEventListener("resize", onResize);
+    }
     api("/tracks/ask/vocabulary")
       .then((vocabulary) => {
         if (vocabulary && vocabulary.examples) EXAMPLES = vocabulary.examples;
@@ -259,7 +335,7 @@ function offerRemaster() {
       .catch(() => {});
   }
 
-  return { init, show, reset, submit };
+  return { init, show, reset, submit, toggle };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Ask.init());

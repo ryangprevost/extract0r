@@ -2891,7 +2891,7 @@ in this document.
 
 | id | title | pts | state |
 |---|---|---|---|
-| X0R-1412 | Dock the chat panel to the side | 2 | `TODO` |
+| X0R-1412 | Dock the chat panel to the side | 2 | **`DONE` 2026-10-06** |
 | X0R-1413 | **The kick auditioned as the reference's snare** | 3 | **`DONE` 2026-10-06** · reproduced and measured |
 | X0R-1414 | Let the export's bit depth be chosen | 2 | `TODO` |
 | X0R-1415 | Per-drum sections get a disclosure and an Apply all | 2 | **`DONE` 2026-10-06** |
@@ -3045,10 +3045,23 @@ It currently sits above the instrument comparison, so it scrolls away exactly wh
 is deep in the rows it could help with. A docked panel - collapsed to a tab, expanding over
 the page - keeps it reachable from the bottom of a six-screen comparison.
 
-**Two things to settle before building.** The panel moves real faders and says what the
-comparison makes of each move, so it is not a help widget and should probably not look like
-one. And at mobile width a docked panel over a 375 px screen is most of the screen; the
-existing layout already has a hamburger pattern to borrow from.
+**Both of the things flagged here were settled rather than discovered**, which is the
+point of writing them down first.
+
+*Not a help widget.* It moves real faders and quotes measurements, so it keeps the
+application's own square edges, type and panel colour. A cheerful bubble in the corner
+would misrepresent what pressing things in it does.
+
+*Narrow screens do not dock at all.* Below the layout's own 720 px breakpoint a fixed panel
+is the whole screen, so the launcher scrolls to the panel where it sits instead - the same
+destination by the honest route. A window narrowed while docked undocks itself, or the
+panel would be left covering everything.
+
+**The same node is moved, not copied.** A second rendering would be a second transcript, a
+second input and a second set of listeners, and the two would disagree the first time
+anybody pressed undo. Verified: the panel docks, the chat still works while docked - a
+"wider" ask moved every stem's width to 1.12 from inside the shelf - and the transcript
+survives the move back to the page.
 
 ---
 

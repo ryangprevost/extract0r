@@ -315,6 +315,7 @@
          Placed above the instrument comparison on purpose: a sentence is the cheap way
          in, and the comparison underneath is where the measurements behind every reply
          come from. -->
+    <div id="ask-home"></div>
     <section class="compare-card ask-card" id="ask-panel" hidden>
       <div class="row-between">
         <h4 class="sub" style="margin:0">Say what you want</h4>
@@ -787,6 +788,12 @@
   <article id="modal-body"></article>
   <button class="primary" id="modal-close">Close</button>
 </dialog>
+
+<!-- X0R-1412. The chat moves real faders, so it is docked rather than turned into a
+     help widget: same panel, same state, moved between the page and a fixed shelf. -->
+<button class="ask-launch" id="ask-launch" hidden aria-expanded="false"
+        aria-controls="ask-panel">Say what you want</button>
+<div class="ask-dock" id="ask-dock" hidden></div>
 
 <script src="waiting.js"></script>
 <script src="monitor.js"></script>

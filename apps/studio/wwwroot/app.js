@@ -661,6 +661,13 @@ The tail length comes from the reference when the comparison can measure it.">re
   if (state.page === "tab") loadTiming();
   updateMasterSummary();
 
+  // The chat box needs lanes and nothing else - it works before a reference is loaded,
+  // just without the sentence that says what the comparison makes of your request.
+  if (typeof Ask !== "undefined") {
+    Ask.reset();
+    Ask.show();
+  }
+
   // Waveforms are a separate, cacheable request per stem - draw them as they arrive so
   // the mixer is usable immediately rather than after the slowest one.
   await Promise.all(

@@ -2137,3 +2137,98 @@ def drum_kits(settings: Settings = Depends(get_config)) -> dict:
         },
     }
 
+class AskRequest(BaseModel):
+    """One sentence, plus where every fader currently stands.
+
+    The page owns the controls and this service does not keep any state about them - a
+    deliberate consequence of EPIC-07 being a `NON-GOAL`. So the request carries them,
+    and the response names absolute values rather than deltas, which is what keeps a
+    clamp on this side from disagreeing with the slider on that side.
+    """
+
+    text: str = Field(max_length=400)
+    #: {stem: {control: value}}, as the mixer has them right now.
+    lanes: dict[str, dict[str, float]] = Field(default_factory=dict)
+    #: The same, as they stood when the conversation opened. `ask.CEILING` is measured
+    #: from here, so somebody who dragged a fader by hand is not refused their first ask.
+    baseline: dict[str, dict[str, float]] | None = None
+    #: The instrument comparison, if one has been run. Sent by the page rather than
+    #: recomputed here: it costs about half the song's length to produce (X0R-1403), and
+    #: asking a question must not cost that.
+    comparison: dict | None = None
+
+
+@router.post("/{track_id}/ask")
+def ask_for_a_change(
+    track_id: str,
+    body: AskRequest,
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Say what you want in words, and have it move the controls that already exist.
+
+    The comparison, when one has been run, is passed in from the page rather than
+    recomputed: it costs about half the song's length to produce (X0R-1403) and asking a
+    question must not cost that. What it buys is the second sentence of every reply -
+    where the measurement had you, before you asked for more of it.
+    """
+    from app.services.mastering import ask as ask_module
+
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    answer = ask_module.interpret(
+        body.text,
+        lanes=body.lanes,
+        baseline=body.baseline,
+        comparison=body.comparison,
+    )
+    return {
+        "understood": answer.understood,
+        "reply": answer.reply,
+        "heard": answer.heard,
+        "suggestions": list(answer.suggestions),
+        "changes": [
+            {
+                "control": change.control,
+                "stem": change.stem,
+                "delta": change.delta,
+                "to": change.to,
+                "clamped": change.clamped,
+            }
+            for change in answer.changes
+        ],
+    }
+
+
+@router.get("/ask/vocabulary")
+def ask_vocabulary() -> dict:
+    """Everything the box understands, so the page can show it instead of guessing.
+
+    A parser with a vocabulary rather than a language model has exactly one obligation:
+    to be honest about where its edges are. This is that obligation as an endpoint.
+    """
+    from app.services.mastering import ask as ask_module
+
+    return {
+        "examples": list(ask_module.EXAMPLES),
+        "parts": [
+            {"label": t.label, "words": list(t.words)}
+            for t in ask_module.TARGETS
+            if t.stem
+        ],
+        "tone": [
+            {"label": t.label, "words": list(t.words)}
+            for t in ask_module.TARGETS
+            if not t.stem
+        ],
+        "qualities": sorted(ask_module.QUALITIES),
+        "amounts": ["a little", "(plain)", "a lot"],
+        "note": (
+            "It reads a vocabulary rather than English, so it will say when it has not "
+            "understood rather than quietly doing nothing. Everything it moves is a "
+            "control you can also drag, and every reply says what the reference "
+            "comparison makes of what you asked for."
+        ),
+    }

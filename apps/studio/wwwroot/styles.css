@@ -1189,3 +1189,34 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 @media (prefers-reduced-motion: reduce) {
   .wait-fill::after { animation: none; }
 }
+
+/* ── say what you want ────────────────────────────────────────────────────────
+   A transcript, not a chat app: there is no model at the other end and nothing is
+   streamed, so it reads as a log of what was asked and what moved. */
+.ask-card { border-color: color-mix(in srgb, var(--accent) 28%, var(--edge)); }
+.ask-log {
+  max-height: 230px; overflow-y: auto; margin: 12px 0 0;
+  padding: 2px 2px 2px 0; display: flex; flex-direction: column; gap: 8px;
+}
+.ask-line { margin: 0; font-size: 13px; line-height: 1.5; }
+.ask-you {
+  align-self: flex-end; max-width: 80%; padding: 6px 11px; border-radius: 13px 13px 3px 13px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text);
+}
+.ask-reply {
+  max-width: 92%; padding: 7px 12px; border-radius: 13px 13px 13px 3px;
+  background: var(--panel-2, color-mix(in srgb, var(--edge) 45%, transparent));
+  color: var(--text);
+}
+.ask-note { color: var(--muted); font-size: 12px; max-width: 70ch; }
+.ask-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.ask-chips .chip { font-size: 11.5px; padding: 3px 9px; }
+.ask-undo { font-size: 11.5px; }
+.ask-form { display: flex; gap: 8px; margin-top: 12px; }
+.ask-form input {
+  flex: 1; min-width: 0; padding: 9px 12px; font-size: 13.5px;
+  border-radius: var(--radius); border: 1px solid var(--edge);
+  background: var(--bg); color: var(--text);
+}
+.ask-form input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+.tiny { font-size: 11px; }

@@ -2562,6 +2562,64 @@ as a whole either.
 | X0R-1408 | Say what a run will cost before it starts, everywhere | 1 | **Half done 2026-10-05.** The instrument comparison's estimate was a flat "about twenty seconds" regardless of the song; it now scales with what the user loaded, from the X0R-1403 measurement, and a saved profile is quoted lower because it measurably is. **Separation still says nothing**, and it remains the longest wait in the application - that is what is left of this card. |
 | X0R-1409 | A wait that shows it is alive | 2 | **`DONE` 2026-10-05, unplanned, from Ryan's "loading indicators when comparing stems".** The server had been sending a stage name on every poll since the job existed and `pollJobQuietly` dropped it on the floor - so a ninety-second wait showed one unchanging sentence and a pulsing dot. `apps/studio/wwwroot/waiting.js` draws the stage, a measured bar, and a clock counting up against the estimate, and says so when the estimate is overrun rather than going quiet. It deliberately does **not** creep the bar between stages: interpolating toward a boundary the page was never told about is inventing progress, which is the fault X0R-1404 exists to fix. |
 
+### Unplanned, built 2026-10-05 — the chat box
+
+| id | title | pts | state |
+|---|---|---|---|
+| X0R-1410 | Say what you want, in words | 5 | **`DONE`** |
+
+Ryan's idea, in his words: *"it'd be awesome if there was the ability to have a chat prompt
+and say things like 'I want this song a little bassier' or 'i want the guitars to pop a
+little more'"*. Built as `app/services/mastering/ask.py`, `POST /tracks/{id}/ask`, and the
+panel above the instrument comparison.
+
+**The design decision worth recording is what it is not.** It is not a model and it invents
+no processing. Every move it makes goes through `writeControl` - the same function the
+comparison's own buttons use - so a sentence and a dragged fader end in the same place, the
+slider visibly moves, the monitor hears it, and "Undo that" puts it back. Nothing is applied
+that cannot be seen.
+
+**And every reply carries the measurement.** Asking for more bass when the comparison has
+you 1.8 dB above the reference's gets you the bass you asked for *and* the sentence saying
+where that leaves you:
+
+> A touch more bass: level +0.5 dB on the bass. The comparison put your bass 1.8 dB over
+> Reference Song's, so this moves away from it, which may be exactly what you want.
+
+That is the whole reason this was worth building rather than a worse set of faders.
+
+**A vocabulary, not English** - no model runs on this machine, and a feature that depended
+on a network call would make the one deterministic thing about this application untrue. The
+cost is real, and the honest response to it is to fail loudly: it says when it has not
+understood, lists what it knows, and publishes the whole vocabulary at
+`GET /tracks/ask/vocabulary` so the page shows the edges rather than guessing at them. Four
+families of request that get a straight "no, and here is the nearest thing that exists":
+sounding professional, instrumentals, tempo and pitch, and adding reverb.
+
+**Limits, because a box you can type into nine times is a box somebody will.** Each control
+has its own ceiling measured from where the conversation started, not from where the last
+sentence left it - so somebody who dragged a fader up by hand first is not refused their
+opening request. 44 tests, including one that types the same thing nine times and one that
+asserts every example it offers a user actually parses.
+
+**One bug worth keeping on the record.** "Less mud" originally *added* low-mid. A complaint
+word pulls its two signs apart - more mud is more low-mid, and somebody typing "muddy" wants
+less of it - and conflating them inverts exactly the phrase a user is most likely to type.
+Caught by a test, now locked by six parametrised cases.
+
+**Two requests in one sentence work**, and did not at first: "less bass and more drums"
+used to resolve by picking the longer verb and silently dropping the rest, which is the one
+behaviour this box is least allowed to have. It now splits on a conjunction, applies each
+half in turn against the faders the previous half left, and **only keeps the split when both
+halves parse on their own** - so "a little more bass and" is still read as one sentence. A
+modifier stated once governs both halves, because "bass and drums up a lot" means it about
+both and giving one of them half as much is the sort of inconsistency a user notices and
+cannot explain.
+
+**What it still cannot do:** anything the five tone bands, six levels, width and dynamics
+cannot. It has no memory of the conversation beyond the ceiling, so "no, less than that"
+is not a sentence it understands - "less bass" is.
+
 ### What is deliberately **not** in here
 
 - **Persistence of any kind.** EPIC-07 is a `NON-GOAL` and nothing in a performance epic may

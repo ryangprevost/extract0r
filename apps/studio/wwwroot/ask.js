@@ -1,0 +1,228 @@
+// ──────────────────────────────── say what you want ────────────────────────────────
+//
+// Ryan's idea: a box you type "I want this song a little bassier" into. The parser is on
+// the server, in `app/services/mastering/ask.py`, and its docstring has the reasoning for
+// why it is a vocabulary and not a language model.
+//
+// What lives here is the part that matters on screen, which is **the controls visibly
+// move**. A sentence does not open a hidden pipeline: it drives `writeControl`, the same
+// function the comparison's own buttons use, so the fader slides, the monitor hears it,
+// and the user can drag it back. Nothing is applied that cannot be seen and undone.
+//
+// The one piece of judgement in this file is the undo. A box that moves six faders at
+// once needs it, and it is a snapshot of exactly the controls that moved rather than a
+// general undo stack - which is honest about its limits and roughly a hundred lines
+// cheaper than one that is not.
+
+const Ask = (() => {
+  //: Every control this can be asked to move, as the server names them. Only used to
+  //: read the current values out of the lanes - the server decides what is legal.
+  const CONTROLS = [
+    "gain_db",
+    "pan",
+    "width",
+    "compress_db",
+    "tone_low_db",
+    "tone_low_mid_db",
+    "tone_high_mid_db",
+    "tone_presence_db",
+    "tone_air_db",
+  ];
+
+  //: Where the faders stood when this conversation opened, so a ceiling is measured from
+  //: there rather than from wherever the last sentence left things. Reset when a new
+  //: track is loaded, not when a reply arrives.
+  let baseline = null;
+  let history = [];
+
+  function lanesNow() {
+    const out = {};
+    for (const [stem, lane] of state.lanes) {
+      const values = {};
+      for (const control of CONTROLS) values[control] = readControl(lane, control);
+      out[stem] = values;
+    }
+    return out;
+  }
+
+  function snapshot(changes) {
+    const before = {};
+    for (const change of changes) {
+      const lane = state.lanes.get(change.stem);
+      if (!lane) continue;
+      before[change.stem] = before[change.stem] || {};
+      before[change.stem][change.control] = readControl(lane, change.control);
+    }
+    return before;
+  }
+
+  function restore(before) {
+    for (const stem of Object.keys(before)) {
+      for (const control of Object.keys(before[stem])) {
+        writeControl(stem, control, before[stem][control]);
+      }
+    }
+  }
+
+  // --- the transcript --------------------------------------------------------------
+
+  function line(kind, text) {
+    const row = document.createElement("p");
+    row.className = "ask-line ask-" + kind;
+    row.textContent = text;
+    return row;
+  }
+
+  function say(node) {
+    const log = $("ask-log");
+    log.appendChild(node);
+    log.hidden = false;
+    log.scrollTop = log.scrollHeight;
+    return node;
+  }
+
+  function chips(suggestions) {
+    const wrap = document.createElement("p");
+    wrap.className = "ask-chips";
+    for (const text of suggestions) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.textContent = text;
+      chip.addEventListener("click", () => {
+        $("ask-input").value = text;
+        submit();
+      });
+      wrap.appendChild(chip);
+    }
+    return wrap;
+  }
+
+  function undoButton(before, heard) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "link ask-undo";
+    button.textContent = "Undo that";
+    button.addEventListener("click", () => {
+      restore(before);
+      button.disabled = true;
+      button.textContent = "Undone";
+      say(line("note", "Put " + heard + " back where it was."));
+    });
+    return button;
+  }
+
+  // --- asking ----------------------------------------------------------------------
+
+  async function submit() {
+    const input = $("ask-input");
+    const text = input.value.trim();
+    if (!text) return;
+    if (!state.trackId || state.lanes.size === 0) {
+      say(line("reply", "Separate a track first — then there are controls to move."));
+      return;
+    }
+
+    input.value = "";
+    say(line("you", text));
+
+    const lanes = lanesNow();
+    if (baseline === null) baseline = lanes;
+
+    let answer;
+    try {
+      answer = await api("/tracks/" + state.trackId + "/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          lanes,
+          baseline,
+          // The measurement half of every reply. Sent rather than recomputed: producing
+          // it costs about half the song's length, and a question must not cost that.
+          comparison: state.instruments || null,
+        }),
+      });
+    } catch (error) {
+      say(line("reply", error.message || String(error)));
+      return;
+    }
+
+    const before = snapshot(answer.changes || []);
+    for (const change of answer.changes || []) {
+      writeControl(change.stem, change.control, change.to);
+    }
+
+    const reply = say(line("reply", answer.reply));
+    if ((answer.changes || []).length) {
+      reply.appendChild(document.createTextNode(" "));
+      reply.appendChild(undoButton(before, answer.heard || "that"));
+      history.push({ text, heard: answer.heard, before });
+    }
+    if ((answer.suggestions || []).length) say(chips(answer.suggestions));
+  }
+
+  // --- wiring ----------------------------------------------------------------------
+
+  function reset() {
+    baseline = null;
+    history = [];
+    const log = $("ask-log");
+    if (log) {
+      log.innerHTML = "";
+      log.hidden = true;
+    }
+  }
+
+  function show() {
+    const panel = $("ask-panel");
+    if (!panel) return;
+    panel.hidden = false;
+    if (!$("ask-log").children.length) {
+      say(
+        line(
+          "note",
+          "Say what you want and it moves the real controls — the faders slide, you " +
+            "hear it straight away, and every reply says what the reference comparison " +
+            "makes of what you asked for.",
+        ),
+      );
+      say(chips(EXAMPLES));
+    }
+  }
+
+  //: Shown before the server has been asked for its vocabulary, so the panel is never
+  //: empty on first paint. Replaced by the server's own list once it answers.
+  let EXAMPLES = ["a little bassier", "make the guitars pop", "less mud", "wider"];
+
+  function init() {
+    const form = $("ask-form");
+    if (!form) return;
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submit();
+    });
+    api("/tracks/ask/vocabulary")
+      .then((vocabulary) => {
+        if (vocabulary && vocabulary.examples) EXAMPLES = vocabulary.examples;
+        const help = $("ask-help");
+        if (help && vocabulary) {
+          help.textContent =
+            "Parts: " +
+            vocabulary.parts.map((p) => p.label).join(", ") +
+            ". Tone: " +
+            vocabulary.tone.map((t) => t.label).join(", ") +
+            ". Qualities: " +
+            vocabulary.qualities.join(", ") +
+            ". Sizes: a little, plain, a lot.";
+        }
+      })
+      // A panel that works without its help text is better than one that fails to open
+      // because the help text did not arrive.
+      .catch(() => {});
+  }
+
+  return { init, show, reset, submit };
+})();
+
+document.addEventListener("DOMContentLoaded", () => Ask.init());

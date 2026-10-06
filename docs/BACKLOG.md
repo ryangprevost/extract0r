@@ -2655,7 +2655,7 @@ as a whole either.
 | X0R-1405 | A dial that says "Applied" was applied | 2 | **`DONE` 2026-10-06.** Fixed by recording what was *taken*, consulted **only** where the value cannot tell - that is, where the suggestion sits on the control's own resting value. Everywhere else the value comparison stays, because it is not merely adequate there, it is better: it keeps "Applied ✓" true when somebody reaches the suggested number by dragging the slider instead of pressing the button, which people do. Three routes update the record - the button, the slider and the per-instrument reset - and a fresh comparison forgets it, or "Compare again" at a different budget would inherit the last run's credit. Walked in a browser: untouched reads Apply, taking a no-op suggestion reads Applied ✓ at an unchanged value, pressing again undoes it, and an ordinary suggestion is unaffected. The guard in `tests/test_applied_record.py` is structural - this project has no JavaScript runner and adding one for two points is a bigger decision than the card - and was mutation-tested by reverting the logic, which fails it. Original filing below. |
 | | | | **The defect as filed.** `refreshMoveButtons` decides by comparing the lane's value with the suggestion, so any suggestion equal to the control's rest position reads as already applied — pan is where it bites, because a centred reference offers `pan: 0` and that is also where the control does nothing. Fixed in the per-drum rows by recording what was *taken*; the lanes keep no such record, and giving them one is a change to the mixer. QA SPRINT-2 D4. |
 | X0R-1406 | Decide what happens to "Match strength" | 1 | It now sits beside a control that measurably does more (X0R-1306). Experiment 2 put its whole range at 0.56 dB, under half this project's own threshold. Leaving a working control next to one that only looks like it works is a decision, and right now it is an unmade one. **Ryan's call, not the PM's.** |
-| X0R-1407 | The comparison screen after three sprints of additions | 3 | Sprint 1 spent 5 points reducing 19 controls to 6 groups. Since then the screen has gained a per-drum expander, a band ladder, two observation rows and a budget control. R8 of sprint 2 predicted exactly this and nobody has gone back to look. |
+| X0R-1407 | The comparison screen after three sprints of additions | 3 | `TODO` — **counted 2026-10-06, not decided.** Sprint 1 spent 5 points reducing 19 controls to 6 groups; R8 of sprint 2 predicted the screen would grow back and nobody had gone to look. Now somebody has, and the numbers are below. **The design call is Ryan's**, so this is the measurement and nothing else. |
 | X0R-1408 | Say what a run will cost before it starts, everywhere | 1 | **`DONE` 2026-10-06.** The separation half found a wrong number rather than a missing one: the screen said demucs runs "at roughly twice the length of the audio", and X0R-306 measured `htdemucs_6s` at **1.24x real time** - so it overstated the wait by about sixty per cent, and said the same thing about a thirty-second clip as about a six-minute song. It now reads "About 3m 09s on this machine" for a three-and-a-half-minute track, and "About 6m 18s - 3m 09s for your song and the same again for the reference" when one is being split too, which is EPIC-14's own six-minute figure arrived at independently. The constant takes the **slow** end of the benchmark's 0.81-0.92 spread rather than the mean, the opposite of the choice made for the comparison: that one says so when it overruns and this one has nothing behind it, so an estimate nobody can correct should run over. Earlier half: | The instrument comparison's estimate was a flat "about twenty seconds" regardless of the song; it now scales with what the user loaded, from the X0R-1403 measurement, and a saved profile is quoted lower because it measurably is. **Separation still says nothing**, and it remains the longest wait in the application - that is what is left of this card. |
 | X0R-1409 | A wait that shows it is alive | 2 | **`DONE` 2026-10-05, unplanned, from Ryan's "loading indicators when comparing stems".** The server had been sending a stage name on every poll since the job existed and `pollJobQuietly` dropped it on the floor - so a ninety-second wait showed one unchanging sentence and a pulsing dot. `apps/studio/wwwroot/waiting.js` draws the stage, a measured bar, and a clock counting up against the estimate, and says so when the estimate is overrun rather than going quiet. It deliberately does **not** creep the bar between stages: interpolating toward a boundary the page was never told about is inventing progress, which is the fault X0R-1404 exists to fix. |
 
@@ -2762,6 +2762,51 @@ path in order for anybody who is stuck rather than browsing.
 which does not run in a backgrounded tab - so the test harness clicked the button and nothing
 happened. Opening a `<details>` applies synchronously and `scrollIntoView` forces its own
 layout, so the frame callback was buying nothing and is gone.
+
+### X0R-1407, the count — 2026-10-06
+
+Measured in a browser against a full comparison: six instruments, every dimension that can
+produce a row, both observation rows, and the per-drum panel present. **Numbers, not a
+verdict.**
+
+| | the comparison alone | outside it | the master page |
+|---|---:|---:|---:|
+| sliders | **54** | 16 | **70** |
+| buttons | **87** | 33 | **120** |
+| disclosures | 7 | 6 | 13 |
+| selects | 0 | 8 | 8 |
+| checkboxes | 0 | 12 | 12 |
+| height, collapsed | 1 024 px | | |
+| height, fully open | **5 678 px** | | **6.3 screens at 900 px** |
+
+**Sprint 1's benchmark was 19 controls reduced to 6 groups.** By that measure the part it
+actually worked on has held: the controls *outside* the comparison are 16 sliders, 8 selects
+and 12 checkboxes in 6 groups, which is the shape it left behind. All of the growth is in
+the comparison, which now carries 54 sliders of its own - nearly three times what the whole
+screen had before sprint 1.
+
+**The one number here that is a ceiling rather than a reading.** 66 move rows is eleven per
+instrument times six, which happens only when every instrument differs in every dimension
+measured. Real comparisons emit fewer, because a matched dimension produces no row at all -
+and **nobody has measured the typical**, which is the first thing this card should do. A
+redesign aimed at the worst case would be solving a screen most users never see.
+
+**What is not in doubt** is the depth: fully expanded the comparison is six and a third
+screens, and the deepest control sits one disclosure inside another. That was two before
+X0R-1411 opened the inner one by default.
+
+Three directions, none of them chosen:
+
+1. **Measure the typical first.** One real pair, counted. Cheap, and it decides whether
+   this card is a redesign or a paragraph.
+2. **The rows are already grouped by instrument; they are not grouped by dimension.** Five
+   of the eleven rows per card are tone bands, which sprint 1's own logic would have made
+   one group with a ladder inside it - and the band ladder exists already, on the per-drum
+   panel.
+3. **Leave it.** Six screens of detail that are closed by default and summarised in a
+   sentence each is arguably what "instrument by instrument" means, and the collapsed
+   height is 1 024 px - a little over one screen. The cost is paid only by somebody who
+   opens everything.
 
 ### What is deliberately **not** in here
 

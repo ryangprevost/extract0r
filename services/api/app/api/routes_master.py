@@ -311,6 +311,54 @@ async def upload_reference(
     )
 
 
+def _forget_the_previous_reference(track_id: str, record, storage) -> None:
+    """Everything derived from the reference that has just been replaced.
+
+    X0R-1420. `save_reference` replaces the bytes correctly, and for a long time that
+    looked like the whole job. It is not: three things outlive the file they came from,
+    and all three are read by name afterwards.
+
+    * `reference_stems` - the six stems the old reference was separated into. Left in
+      place, the instrument comparison measures the new record on one side and the old one
+      on the other, and a profile saved from it carries the old record's instruments under
+      the new record's name.
+    * `drum_stems["reference"]` - the four drums inside those. Same fault, one level in.
+      The source's own drums are untouched, because they have nothing to do with the
+      reference and throwing away a separation the user paid for would be its own bug.
+    * `reference_profile` - a saved profile this track was aimed at before. A file and a
+      profile are two answers to the same question; leaving both set makes which one wins
+      depend on the order some other function happens to check them in.
+
+    This survived from September because a profile is six kilobytes of numbers with no
+    audio behind it: there is no way to look at one afterwards and tell which record it
+    describes. It was found when two of them turned out to be byte-identical.
+
+    The stale directories go too, not only the registry entries. Keeping them would leave
+    the next separation writing into a folder that already holds another record's stems.
+    """
+    import shutil
+
+    record.reference_stems = {}
+    record.reference_profile = None
+    if record.drum_stems:
+        record.drum_stems = {
+            side: stems for side, stems in record.drum_stems.items() if side != "reference"
+        }
+
+    for directory in (
+        storage.reference_stems_dir(track_id),
+        storage.drum_stems_dir(track_id, "reference"),
+    ):
+        try:
+            if Path(directory).is_dir():
+                shutil.rmtree(directory)
+        except OSError:
+            # A stale folder is untidy; failing the upload over it would be worse, and
+            # the registry no longer points at it either way.
+            log.info("could not remove %s after a reference swap", directory, exc_info=True)
+
+
+
 def _store_reference(
     track_id: str,
     filename: str,
@@ -330,6 +378,7 @@ def _store_reference(
 
     if record is not None:
         record.reference_name = filename
+        _forget_the_previous_reference(track_id, record, storage)
 
     from app.services.audio.probe import UnreadableAudioError, probe
 

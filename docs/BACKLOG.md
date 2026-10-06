@@ -2947,23 +2947,9 @@ existing layout already has a hamburger pattern to borrow from.
 Ryan: *"expand collapse icons on the individual drum sections along with apply all
 functionality similar to the other instruments would be nice"*.
 
-The four drums render as open sections with individual Apply buttons; the six instruments
-render as `<details>` with an **Apply all** in the summary. The per-drum panel was built
-second and did not inherit either. Straightforward parity work, and `buildInstrumentCard` is
-the thing to copy - including its rule that Apply all skips the rows flagged as worth hearing
-first, which exists for a reason and must not be dropped on the way across.
-
----
-
 ### X0R-1416 · Expand all and collapse all · 1 · `TODO`
 
 Ryan: *"add 'collapse all' and 'expand all' buttons in the instrument by instrument header"*.
-
-Six cards plus the per-drum panel is seven disclosures in the comparison alone, thirteen on
-the master page. Two buttons in the comparison header. The smallest card in this epic and
-probably the one with the best ratio in it.
-
----
 
 ### X0R-1417 · A fixed section nav, and sections that close · 3 · `TODO`
 
@@ -2996,7 +2982,7 @@ than trying to detect a moment.
 
 ---
 
-### X0R-1420 · Two saved profiles hold identical measurements · 2 · `TODO` · **unreproduced**
+### X0R-1420 · Two saved profiles hold identical measurements · 2 · `PARTIAL` · **one real bug found and fixed; the rest unexplained**
 
 Found by accident on 2026-10-06 while verifying X0R-1419 against Ryan's own profiles.
 
@@ -3015,16 +3001,57 @@ before writing, so the obvious cause - two files side by side and `reference_pat
 API: upload a 10-second reference, save a profile, upload a 20-second one, save another. The
 profiles came back at 10.0 s and 20.0 s with the right names. The path is correct.
 
-**What is left to check**, in order of suspicion:
+**Ryan confirmed on 2026-10-06 that he did swap the reference between the two saves**, which
+ruled out the innocent explanation and turned this into a hunt. It found a real bug, and the
+bug does not account for all of what he saw. Both halves of that are below, kept apart on
+purpose.
 
-1. **The fetch-by-URL route.** It is a different way of getting the bytes and was not
-   exercised by the reproduction, which needs a reachable URL.
-2. **Whether the reference was actually swapped between the two saves.** The innocent
-   explanation is that the same audio was measured twice - which is exactly what this
-   repository's own test suite does when it writes `test ref` and `with drums` one second
-   apart, and those two are identical for that reason. **Ask Ryan before building anything.**
-3. A third `MSTRKRFT Bounce - club target` exists at 171.27 s and −6.07 LUFS, genuinely
-   different - so whatever happened on 09-23 did not happen on 09-22.
+#### Found and fixed: everything derived from a reference outlived it
+
+`storage.save_reference` replaces the bytes correctly - it unlinks every existing
+`reference.*` before writing - and for a long time that looked like the whole job. It is
+not. Three things survive a swap and are all read by name afterwards:
+
+* **`reference_stems`**, the six stems the old reference was separated into. Left in place,
+  the instrument comparison measures the new record on one side and **the old one on the
+  other**, and a profile saved from it carries the old record's instruments under the new
+  record's name.
+* **`drum_stems["reference"]`**, the four drums inside those. Same fault, one level in.
+* **`reference_profile`**, a saved profile the track was aimed at before. A file and a
+  profile are two answers to the same question, and leaving both set makes which one wins
+  depend on the order some other function happens to check them in.
+
+Confirmed by `tests/test_reference_swap.py`, which failed on all three before the fix.
+`_forget_the_previous_reference` now clears the registry entries and removes the stale
+directories, so the next separation cannot write into a folder holding another record's
+stems. The source's own drums are deliberately untouched: they have nothing to do with the
+reference, and discarding a separation the user paid for would be its own bug.
+
+**This explains the six instrument snapshots being identical.** It is enough on its own to
+have corrupted every comparison run after a swap since September, silently, because a
+profile is six kilobytes of numbers with no audio behind it and there is no way to look at
+one afterwards and tell which record it describes.
+
+#### Still unexplained: the whole-mix half
+
+It does **not** explain the rest. `lufs`, `seconds`, `true_peak_db` and the 96-point curve
+are read fresh from the file on disk at save time, and a test written for this
+(`test_a_profile_saved_after_a_swap_describes_the_new_reference`) **passed before the fix as
+well as after** - two profiles saved either side of a swap already came back with different
+durations. So the stale-state bug cannot be why Ryan's two profiles share a curve.
+
+What is left, in order of suspicion:
+
+1. **Which track each profile was saved from.** The fix covers a swap on one track; two
+   tracks open at once is a different story and nothing here would have caught it.
+2. **The fetch-by-URL route**, which shares `_store_reference` and so should behave the
+   same - but was not exercised, because reproducing it needs a reachable URL.
+3. A third profile, `MSTRKRFT Bounce - club target`, is genuinely different at 171.27 s and
+   −6.07 LUFS, so whatever happened on 09-23 did not happen on 09-22.
+
+**Do not close this card on the strength of the fix.** One bug was found by looking; that is
+not evidence it was the only one, and the symptom that started the hunt is still unaccounted
+for.
 
 **Worth a guard either way.** A profile is six kilobytes of numbers with no audio behind it,
 so there is no way to look at one later and tell whether it describes the record its name

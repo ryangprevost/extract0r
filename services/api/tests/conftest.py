@@ -103,6 +103,14 @@ def settings(tmp_path: Path) -> Settings:
         # shell out to demucs. A test that wants the weights names them itself; see
         # `test_drum_separation`.
         models_dir=tmp_path / "models",
+        # Same reason, same bug, found the same way. `profile_dir` defaults to the repo's
+        # `profiles/` folder, which is a *user's* folder - it is gitignored because the
+        # profiles in it are theirs. Without this line every test that saves a profile
+        # wrote into it, and on this machine the suite had quietly left `test ref`,
+        # `with drums` and `per-drum e2e` sitting in a real person's list among records
+        # they had actually measured. Writing to a developer's own data is worse than the
+        # flakiness the other two lines prevent.
+        profile_dir=tmp_path / "profiles",
         separation_backend="stub",
         transcription_backend="stub",
         drum_backend="stub",

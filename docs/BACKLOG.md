@@ -26,7 +26,7 @@ another card, ❌ not started.
 | [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
 | [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 41 | 4 |
 | [EPIC-14](#epic-14--speed-and-the-feel-of-using-it) | Speed and usability | ~15 | 3 · *placeholder* |
-| [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 19 | 3 · *from Ryan, unscoped* |
+| [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 22 | 3 · *from Ryan, 1421 done* |
 
 EPIC-08 and EPIC-11 were carrying their *original* scope in this table (21 and 24) while
 cards kept being added underneath. Both are now the sum of the cards actually in them.
@@ -2993,6 +2993,69 @@ the natural end of a conversation is a button, and today it is a scroll back up 
 about whether a mix is good and should not grow one. The honest reading is *once it has done
 something* - offer the button after the first applied change, and keep offering it, rather
 than trying to detect a moment.
+
+---
+
+### X0R-1420 · Two saved profiles hold identical measurements · 2 · `TODO` · **unreproduced**
+
+Found by accident on 2026-10-06 while verifying X0R-1419 against Ryan's own profiles.
+
+`MSTRKRFT Bounce - full` and `Pop Punk - Blink 182` are **byte-identical in every
+measurement**: same 96-point curve, same six instrument snapshots, same 139.68 seconds, same
+−4.9 LUFS, same true peak, same width. Only `name`, `captured_at` and `captured_from` differ.
+Two different records cannot measure identically.
+
+They were saved two and a half hours apart on 2026-09-23, and `captured_from` differs between
+them - so the application knew a second file had arrived and still wrote the first one's
+numbers.
+
+**It does not reproduce.** `storage.save_reference` deletes every existing `reference.*`
+before writing, so the obvious cause - two files side by side and `reference_path` taking
+`next(glob(...))` - cannot happen on the upload path. Tested directly against the running
+API: upload a 10-second reference, save a profile, upload a 20-second one, save another. The
+profiles came back at 10.0 s and 20.0 s with the right names. The path is correct.
+
+**What is left to check**, in order of suspicion:
+
+1. **The fetch-by-URL route.** It is a different way of getting the bytes and was not
+   exercised by the reproduction, which needs a reachable URL.
+2. **Whether the reference was actually swapped between the two saves.** The innocent
+   explanation is that the same audio was measured twice - which is exactly what this
+   repository's own test suite does when it writes `test ref` and `with drums` one second
+   apart, and those two are identical for that reason. **Ask Ryan before building anything.**
+3. A third `MSTRKRFT Bounce - club target` exists at 171.27 s and −6.07 LUFS, genuinely
+   different - so whatever happened on 09-23 did not happen on 09-22.
+
+**Worth a guard either way.** A profile is six kilobytes of numbers with no audio behind it,
+so there is no way to look at one later and tell whether it describes the record its name
+claims. If this is real it has been silently wrong since September, and the only reason it
+was noticed is that a new feature put two profiles side by side.
+
+---
+
+### X0R-1421 · The test suite wrote into a user's own profiles · 1 · `DONE` 2026-10-06
+
+The `settings` fixture isolated `storage_dir` and `models_dir` and **not** `profile_dir`,
+which defaults to the repository's `profiles/` folder - a folder that is gitignored
+precisely because what is in it belongs to whoever is running this.
+
+So every test that saved a profile wrote into that person's list. On this machine the suite
+had left `test ref`, `with drums` and `per-drum e2e` sitting among records Ryan had actually
+measured, and the leak was only noticed because a new test used a name - "My blend" -
+memorable enough to spot.
+
+**This is the second time, in the same way.** The fixture's own comment already explains why
+`models_dir` had to be isolated: whether a route reported per-drum separation as available
+depended on whether the developer had downloaded a 167 MB file. Same class, worse
+consequence - flakiness is recoverable and writing into somebody's data is not.
+
+Fixed, and **`tests/test_isolation.py` makes the guard general rather than a third one-line
+patch**: it derives every `Path` field from `Settings` and asserts each resolves inside the
+test's temporary folder, so the next such setting is covered before anybody thinks about it.
+Mutation-tested by removing the fix, which fails it with the offending path named.
+
+The four profiles the new tests created were removed. The three older leavings were left in
+place - they are Ryan's folder, and deleting files from it is his call, not a cleanup task.
 
 ---
 

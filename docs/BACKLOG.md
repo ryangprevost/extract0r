@@ -26,6 +26,7 @@ another card, ❌ not started.
 | [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
 | [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 41 | 4 |
 | [EPIC-14](#epic-14--speed-and-the-feel-of-using-it) | Speed and usability | ~15 | 3 · *placeholder* |
+| [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 14 | 3 · *from Ryan, unscoped* |
 
 EPIC-08 and EPIC-11 were carrying their *original* scope in this table (21 and 24) while
 cards kept being added underneath. Both are now the sum of the cards actually in them.
@@ -2825,3 +2826,169 @@ Three directions, none of them chosen:
 Run the benchmark on a real three-minute song **through the API rather than the harness**,
 so the figures above include job overhead, I/O and the comparison, not just separation. The
 numbers in the table are the separator alone, and the user's six minutes is not.
+
+---
+
+## EPIC-15 — The feedback sprint (Phase 3) · **from Ryan, 2026-10-06, after using it**
+
+Seven notes, written while using the application rather than reading the backlog, which is
+why this epic is worth keeping separate from EPIC-14's measured candidates. **One of them is
+a defect**, three are the same complaint about navigation arriving from three directions, and
+one asks for something that does not exist in the form it was asked for but points at two
+real controls that are hard-coded.
+
+**Three of these independently confirm the X0R-1407 count.** Notes 4, 5 and 6 are all asking
+for a way to open and close things in bulk, and they were written without seeing that the
+comparison measures 5 678 px fully expanded - six and a third screens. That is a user and a
+measurement arriving at the same conclusion from opposite ends, which is the strongest signal
+in this document.
+
+| id | title | pts | state |
+|---|---|---|---|
+| X0R-1412 | Dock the chat panel to the side | 2 | `TODO` |
+| X0R-1413 | **The kick auditioned as the reference's snare** | 3 | `TODO` · **defect** |
+| X0R-1414 | Let the export's bit depth be chosen | 2 | `TODO` |
+| X0R-1415 | Per-drum sections get a disclosure and an Apply all | 2 | `TODO` |
+| X0R-1416 | Expand all and collapse all | 1 | `TODO` |
+| X0R-1417 | A fixed section nav, and sections that close | 3 | `TODO` |
+| X0R-1418 | A Remaster button in the chat | 1 | `TODO` |
+
+---
+
+### X0R-1413 · The kick auditioned as the reference's snare · 3 · `TODO` · **defect**
+
+Ryan: *"the kick picked up the snare of the reference track instead of the actual kick"*.
+
+**The pairing is not the suspect.** `subdrum.compare_all` matches kick to kick by name, so
+there is no path by which the kick row compares against the reference's snare. What is left
+is that **DrumSep put snare into the file it labelled kick**, and the row then faithfully
+played and measured what was in it.
+
+**There is already evidence for exactly this, from X0R-1310 on 2026-10-05.** The separated
+*toms* stem on the Experiment 2 reference was investigated and found not to be toms: 79% of
+its onsets landed within 30 ms of a kick, 100% on the source side, its strongest partial was
+at 80 Hz, and its waveform correlation with the kick was +0.08. It was loud residue that
+fires when other drums do, sitting only 4.7 LU under the kit. So one of the four sub-stems
+being something other than its label is a thing this model is already known to do on real
+material, and the presence test shipped in X0R-1314 does not catch it - it was designed for
+residue at -40 LU and this is residue at -5.
+
+**What this card is, therefore: a check that each drum stem looks like that drum.** The
+measurements are cheap and already in the codebase - spectral centroid, decay length, the
+band distribution `subdrum.BAND_RESIDENTS` already encodes, and the onset-independence
+figures X0R-1310 computed. A kick whose energy sits where a snare's does should say so and
+decline to be compared, in the same voice `why_absent` already uses.
+
+**What this card is not: a fix for DrumSep.** The weights are what they are, LarsNet was
+rejected on its licence and its synthesised training set, and nothing here retrains a model.
+The honest ceiling is detecting it and saying so.
+
+**Before scoping, reproduce it.** Which reference, and which drum did he press? The audition
+route (`/tracks/{id}/drums/{side}/{drum}`) serves the sub-stem straight off disk, so a
+listen plus `subdrum.profile_all` on the four files says immediately whether the file is
+mislabelled or the player is pointing at the wrong one - and those are different bugs with
+different fixes. **Ask Ryan for the track before building anything.**
+
+---
+
+### X0R-1414 · Let the export's bit depth be chosen · 2 · `TODO`
+
+Ryan: *"is it possible to pick different bit encodings? 16, 32, etc to upscale the quality of
+the mastered mp3?"*
+
+**Not of the MP3, and the card should say so plainly rather than quietly shipping something
+adjacent.** MP3 is a lossy perceptual codec; it has a bitrate, not a bit depth, and the
+application already offers 128, 192, 256 and 320 kbps. Nothing about a 32-bit anything makes
+an MP3 better, and a control implying otherwise would be the kind of dial this project
+refuses to ship.
+
+**But the instinct is right, and it lands on two things that are real and hard-coded.**
+
+1. **The mix is quantised to 16-bit on the way out, and nobody can choose it.**
+   `MasterResult.quantisation` reports `"16-bit with TPDF dither and noise shaping"` and its
+   own docstring calls it *"the one stage of mastering with no control attached: the user
+   cannot choose it, so the least the export can do is say what happened"*. That sentence has
+   been sitting in the codebase asking for this card.
+2. **The WAV export is hard-coded to PCM_24.** `encode.write_wav` passes
+   `subtype="PCM_24"`, and `export_wav` is already plumbed through the API. 24-bit is a
+   defensible default and an undiscussed one.
+
+So the work is: expose the quantisation depth and the WAV subtype, default both where they
+are now, and put a sentence beside them explaining that neither improves an MP3 - because the
+whole value of answering this honestly is lost if the control appears next to the bitrate
+dropdown without one.
+
+**Worth measuring while here:** whether 24-bit dither before a 320 kbps encode is audibly or
+measurably different from 16-bit. If it is not, that is the answer to the original question
+and it belongs on screen.
+
+---
+
+### X0R-1412 · Dock the chat panel to the side · 2 · `TODO`
+
+Ryan: *"The chat bot should be on the side of the page accessible as you scroll. like an
+online help chat on amazon"*.
+
+It currently sits above the instrument comparison, so it scrolls away exactly when somebody
+is deep in the rows it could help with. A docked panel - collapsed to a tab, expanding over
+the page - keeps it reachable from the bottom of a six-screen comparison.
+
+**Two things to settle before building.** The panel moves real faders and says what the
+comparison makes of each move, so it is not a help widget and should probably not look like
+one. And at mobile width a docked panel over a 375 px screen is most of the screen; the
+existing layout already has a hamburger pattern to borrow from.
+
+---
+
+### X0R-1415 · Per-drum sections get a disclosure and an Apply all · 2 · `TODO`
+
+Ryan: *"expand collapse icons on the individual drum sections along with apply all
+functionality similar to the other instruments would be nice"*.
+
+The four drums render as open sections with individual Apply buttons; the six instruments
+render as `<details>` with an **Apply all** in the summary. The per-drum panel was built
+second and did not inherit either. Straightforward parity work, and `buildInstrumentCard` is
+the thing to copy - including its rule that Apply all skips the rows flagged as worth hearing
+first, which exists for a reason and must not be dropped on the way across.
+
+---
+
+### X0R-1416 · Expand all and collapse all · 1 · `TODO`
+
+Ryan: *"add 'collapse all' and 'expand all' buttons in the instrument by instrument header"*.
+
+Six cards plus the per-drum panel is seven disclosures in the comparison alone, thirteen on
+the master page. Two buttons in the comparison header. The smallest card in this epic and
+probably the one with the best ratio in it.
+
+---
+
+### X0R-1417 · A fixed section nav, and sections that close · 3 · `TODO`
+
+Ryan: *"Add a fixed header to the top that takes you directly to each section. have each
+section be collapsible by way of a button"*.
+
+The master page is one long scroll: stems, reference, the comparison, the control groups,
+export. X0R-1411 put one signpost into it for one destination, which worked and does not
+generalise - the answer to "everything is far away" is not one button per thing.
+
+**This card overlaps X0R-1407 and should be scoped with it, not before it.** A sticky section
+nav makes a long page navigable; closing sections makes it shorter. They are different
+answers to the same measurement and doing both without deciding would leave the screen with
+two navigation systems.
+
+---
+
+### X0R-1418 · A Remaster button in the chat · 1 · `TODO`
+
+Ryan: *"have the chat bot have a shortcut button to 'Remaster' once its reached a good
+point"*.
+
+Every exchange moves real controls, and the controls only reach the file on a render - so
+the natural end of a conversation is a button, and today it is a scroll back up to find one.
+
+**"Once it has reached a good point" is the part to be careful with.** The box has no opinion
+about whether a mix is good and should not grow one. The honest reading is *once it has done
+something* - offer the button after the first applied change, and keep offering it, rather
+than trying to detect a moment.
+

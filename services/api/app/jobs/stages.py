@@ -146,3 +146,24 @@ def estimate_seconds(duration_s: float, both_sides: bool) -> float:
     share = 1.0 if both_sides else 1.0 - (23.57 / 98.75)
     return duration_s * SECONDS_PER_SECOND_OF_AUDIO * share
 
+# --- the groove read (EPIC-13 stage 1) ----------------------------------------------------
+#
+# Weights are shares rather than measured seconds, and that is worth admitting: unlike the
+# comparison above, this one has not been profiled. Reading a fingerprint is onset detection
+# plus a beat grid plus a per-drum timing pass over one record, and the two sides are the
+# same work twice - so an even split is the honest first guess and the comparison at the end
+# is arithmetic on numbers that are already in hand.
+#
+# X0R-1403 is the template for replacing these with measurements when somebody profiles it.
+
+GROOVE_BOTH_SIDES = Plan(
+    Stage("mine", "reading your groove", 1.0),
+    Stage("theirs", "reading the reference's", 1.0),
+    Stage("comparing", "putting them side by side", 0.02),
+)
+
+GROOVE_ONE_SIDE = Plan(
+    Stage("mine", "reading your groove", 1.0),
+    Stage("theirs", "no reference to read", 0.0),
+    Stage("comparing", "finishing up", 0.02),
+)

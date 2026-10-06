@@ -29,6 +29,7 @@ from app.api.routes_jobs import to_response
 from app.api.schemas import JobResponse
 from app.config import Settings
 from app.domain.notes import StemKind
+from app.jobs.stages import GROOVE_BOTH_SIDES, GROOVE_ONE_SIDE
 from app.jobs.store import JobHandle, JobState, JobStore
 from app.services.mastering import pipeline as master_pipeline
 from app.services.mastering.depth import (
@@ -2492,3 +2493,150 @@ def combine_reference_profiles(
         ),
     }
 
+def _figure_json(figure) -> dict:
+    """One measured number, or an honest refusal, in the shape the page reads.
+
+    `basis` travels with the value on purpose - "43 hats over 15.1 bars" is the reader's
+    only way to disagree with a figure, and a number without its sample size invites
+    exactly the confidence it has not earned.
+    """
+    return {
+        "value": None if figure.value is None else round(float(figure.value), 2),
+        "confidence": round(float(figure.confidence), 3),
+        "unit": figure.unit,
+        "basis": figure.basis,
+        "caveat": figure.caveat,
+        "measured": bool(figure.measured),
+    }
+
+
+def _fingerprint_json(print_) -> dict:
+    """Everything one record's groove measured out to, as plain types."""
+    return {
+        "name": print_.name,
+        "duration_s": round(print_.duration_s, 2),
+        "tempo_bpm": round(print_.grid.tempo_bpm, 1),
+        "beats_per_bar": print_.grid.beats_per_bar,
+        "grid_confidence": round(print_.grid.confidence, 3),
+        "bars": round(print_.grid.bars, 1),
+        "key": print_.key_name,
+        "key_confidence": round(print_.key_confidence, 3),
+        "metre_source": print_.metre_source,
+        # Where each drum falls across the bar, in sixteenths. The shape of a groove, and
+        # the one thing here that is a picture rather than a number.
+        "kick_histogram": list(print_.kick_histogram),
+        "snare_histogram": list(print_.snare_histogram),
+        "hat_histogram": list(print_.hat_histogram),
+        "kick_on_beats": list(print_.kick_on_beats),
+        "kick_on_downbeats": list(print_.kick_on_downbeats),
+        "snare_on_backbeats": list(print_.snare_on_backbeats),
+        "hat_offbeat_share": _figure_json(print_.hat_offbeat_share),
+        "swing": _figure_json(print_.swing),
+        "timing": {
+            drum: {
+                "raw_ms": _figure_json(spread.raw_ms),
+                "detrended_ms": _figure_json(spread.detrended_ms),
+                "resolution_floor_ms": round(spread.resolution_floor_ms, 1),
+            }
+            for drum, spread in (print_.timing or {}).items()
+        },
+        "duck": (
+            None
+            if print_.duck is None
+            else {
+                "dip_db": _figure_json(print_.duck.dip_db),
+                "control_dip_db": _figure_json(print_.duck.control_dip_db),
+                "excess_db": _figure_json(print_.duck.excess_db),
+                "kicks_examined": print_.duck.kicks_examined,
+                "kicks_bass_silent": print_.duck.kicks_bass_silent,
+                "kicks_total": print_.duck.kicks_total,
+            }
+        ),
+    }
+
+
+@router.post(
+    "/{track_id}/groove", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED
+)
+def compare_groove(
+    track_id: str,
+    request: Request,
+    jobs: JobStore = Depends(get_jobs),
+    registry: TrackRegistry = Depends(get_registry),
+    storage: TrackStorage = Depends(get_storage),
+):
+    """What each record does rhythmically, measured, side by side.
+
+    EPIC-13 stage 1. The measurements have existed and been tested for weeks -
+    `analysis.fingerprint.measure` reads the beat grid, where each drum falls across the
+    bar, how far from the grid it sits, the swing, and whether the bass ducks to the kick
+    - and **no route ever called it**, so none of it had ever been on a screen.
+
+    **Nothing here has a dial behind it, and the response says so.** Experiment 2 measured
+    that processing gets you tone and never groove: the drum layer moves the tonal gap by
+    at most 0.09 dB and places zero new grid positions. Where a reference's hats sit
+    against the beat is a fact about a performance, and moving yours there would be
+    composition rather than mastering - which is X0R-1307's whole point and the line this
+    epic's governing sentence draws. So this reports and offers nothing, deliberately.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    mine_stems = {
+        kind: path
+        for kind in StemKind
+        if (path := _stem_path(record.separation, kind)) is not None
+    }
+    if not mine_stems:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Separate this track before reading its groove."
+        )
+
+    source = storage.normalized_path(track_id)
+    if not source.exists():
+        source = storage.source_path(track_id)
+    if source is None or not Path(source).exists():
+        raise HTTPException(status.HTTP_409_CONFLICT, "This track's audio is gone.")
+
+    reference = storage.reference_path(track_id)
+    theirs_stems = {
+        kind: Path(path) for kind, path in (record.reference_stems or {}).items()
+    }
+
+    def work(handle: JobHandle) -> dict:
+        from app.services.analysis.fingerprint import measure
+
+        plan = GROOVE_BOTH_SIDES if theirs_stems else GROOVE_ONE_SIDE
+
+        plan.report(handle, "mine")
+        mine = measure(Path(source), mine_stems, timing=record.timing, name="yours")
+
+        theirs = None
+        plan.report(handle, "theirs")
+        if theirs_stems and reference is not None and reference.exists():
+            theirs = measure(Path(reference), theirs_stems, name="the reference")
+
+        plan.report(handle, "comparing")
+        return {
+            "yours": _fingerprint_json(mine),
+            "reference": _fingerprint_json(theirs) if theirs else None,
+            # Said with the measurements rather than beside them, because the whole risk
+            # of putting groove on a screen is that somebody reads it as a to-do list.
+            "note": (
+                "These are observations, not suggestions - there is no control here and "
+                "there is not going to be one. Experiment 2 measured that processing "
+                "gets you tone and never groove: where a record's hats sit against the "
+                "beat is a fact about a performance, and moving yours there would be "
+                "composition rather than mastering."
+            ),
+            "reference_measured": theirs is not None,
+            "why_no_reference": (
+                ""
+                if theirs is not None
+                else "The reference has not been separated, so only your own groove was read."
+            ),
+        }
+
+    return to_response(jobs.submit("groove", track_id, work))

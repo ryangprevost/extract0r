@@ -708,6 +708,9 @@ The tail length comes from the reference when the comparison can measure it.">re
     Ask.reset();
     Ask.show();
   }
+  // The groove read needs stems and nothing else. A reference makes it a comparison
+  // rather than a precondition - your own groove is worth seeing on its own.
+  if (typeof Groove !== "undefined") Groove.show();
 
   // Waveforms are a separate, cacheable request per stem - draw them as they arrive so
   // the mixer is usable immediately rather than after the slowest one.

@@ -1789,7 +1789,7 @@ kick there is composition), and shipping recorded samples (the licensing positio
 | Stage | What | Pts | State |
 |---|---|---|---|
 | 0 | X0R-306, the benchmark | 5 | `TODO`, in EPIC-03. Gates stage 5 only. |
-| 1 | The reference fingerprint | 5 | `TODO`, deferred twice. Conditional on X0R-1307/1308 — **1308 shipped 2026-10-06**. |
+| 1 | The reference fingerprint | 5 | **`DONE` 2026-10-06.** Deferred twice, and it turned out to be built: `analysis/fingerprint.measure` had read the grid, the per-drum placement, the swing, the timing spread and the duck for weeks, with 26 tests behind it, and **no route ever called it**. Exposing it was `POST /tracks/{id}/groove` plus a panel. See below. |
 | 2 | Genre as a hedge | 5 | `NON-GOAL`. Three documents running. |
 | 3 | Re-produce: the processing half | 8 | `TODO`. X0R-1306 holds the measured headroom. |
 | **3B** | **Compare drum to drum** | **11** | **sprint 2** |
@@ -2210,6 +2210,44 @@ unprocessed bass, so it means either a record whose stems are published or a mix
 from real recordings.
 
 Shares its blocker with X0R-1310: all roads end at material this machine does not have.
+
+---
+
+### X0R-1422 · What each record plays, on a screen · 3 · `DONE` 2026-10-06
+
+Ryan: *"begin to expose what you have in the web"*. An audit of what the API could do
+against what the Studio surfaced found one whole subsystem with no web surface at all.
+
+**`analysis/fingerprint.measure` was finished, tested and unreachable.** It reads the beat
+grid and key, where the kick, snare and hats fall across the bar, how far from the grid each
+sits with tempo drift taken out, the swing, and whether the bass ducks to its own kick. 26
+tests. The only import of that module anywhere in `app/api` was of three helpers borrowed
+for X0R-1308's sidechain - `measure` itself had never been called outside its own tests.
+This was EPIC-13 stage 1, deferred twice on the assumption it was work still to do.
+
+**The panel has no controls and is never getting any**, which made the design problem the
+opposite of the usual one. Experiment 2 measured that processing gets you tone and never
+groove - the drum layer moves the tonal gap by at most 0.09 dB and places zero new grid
+positions - so where a record's hats sit against the beat is a fact about a performance, and
+moving yours there would be composition rather than mastering. Everything else on that screen
+ends in a dial; this ends in a sentence, and the risk is that rhythmic differences read as a
+to-do list regardless. Three answers: say so in the intro, say so again in the response
+(`"observations, not suggestions"`, asserted by a test), and **draw the bar rather than
+tabulate it** - two bars side by side invite "theirs is busier on the offbeats", where two
+rows of counts invite "mine should say 12 there".
+
+**One bug, caught on the first real render and worth recording.** Every server-computed
+figure abstains when the grid is below `MIN_GRID_CONFIDENCE`, saying so in words. The two
+percentages the page worked out for itself - kick on the beat, snare on the backbeat - were
+printed bare beside them, reading "kick on the beat 0%" next to six honest abstentions. They
+count hits against that same untrusted lattice, so they were the one dishonest number in the
+panel and the most eye-catching one. Both now abstain with the grid, and a test holds the
+floor in step across the two languages.
+
+**Not done:** the estimate. The comparison's wait is measured (X0R-1403) and this one's is
+not, so the indicator shows a clock and no target rather than a figure with nothing behind
+it. Profiling it is the same shape of job as X0R-1403 and should be done before anybody
+optimises it.
 
 ---
 

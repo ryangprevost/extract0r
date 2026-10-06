@@ -338,6 +338,27 @@
       </p>
     </section>
 
+    <!-- EPIC-13 stage 1. The measurements behind this have existed and been tested for
+         weeks and no route ever called them, so none of it had ever been on a screen.
+         Placed after the comparison because it is the one panel here with no controls in
+         it at all - it reports, and says plainly that it reports. -->
+    <section class="compare-card groove-card" id="groove" hidden>
+      <div class="row-between">
+        <h4 class="sub" style="margin:0">What each record plays</h4>
+        <button class="primary small" id="groove-btn">Read the groove</button>
+      </div>
+      <p class="muted small" id="groove-intro">
+        Where the kick, the snare and the hats fall across the bar, how far from the grid
+        they sit, the swing, and whether the bass gets out of the kick's way.
+        <strong>Nothing here has a dial behind it</strong> — where a record's hats sit
+        against the beat is a fact about a performance, and moving yours there would be
+        composition rather than mastering.
+      </p>
+      <p class="muted small working" id="groove-working" hidden></p>
+      <p class="error" id="groove-error" hidden></p>
+      <div id="groove-body"></div>
+    </section>
+
     <section class="compare-card" id="instrument-compare" hidden>
       <div class="row-between">
         <h4 class="sub" style="margin:0">Instrument by instrument</h4>
@@ -773,6 +794,7 @@
 <script src="instruments.js"></script>
 <script src="ask.js"></script>
 <script src="drums.js"></script>
+<script src="groove.js"></script>
 <script src="spectrum.js"></script>
 <script src="groups.js"></script>
 <script src="library.js"></script>

@@ -178,10 +178,14 @@ const PerDrum = (() => {
     const working = box.querySelector(".per-drum-working");
     const error = box.querySelector(".per-drum-error");
     error.hidden = true;
-    working.textContent =
-      "Splitting the drums into kick, snare, cymbals and toms. " +
-      costSentence(state.perDrum);
-    working.hidden = false;
+    // The server already estimates this one, because it knows how many separation
+    // passes are left to pay for and the length of the audio they run on.
+    const wait = Waiting.begin(working, {
+      headline:
+        "Splitting the drums into kick, snare, cymbals and toms. " +
+        costSentence(state.perDrum),
+      estimateSeconds: state.perDrum.estimate_s || 0,
+    });
     button.disabled = true;
 
     try {
@@ -190,7 +194,7 @@ const PerDrum = (() => {
         "/tracks/" + state.trackId + "/reference/drums?budget=" + budget,
         { method: "POST" },
       );
-      const result = await pollJobQuietly(job.job_id);
+      const result = await pollJobQuietly(job.job_id, wait.stage);
       state.perDrumResult = result;
       // Only when the reference's own drums were split here. A comparison drawn from a
       // profile already had them, and nothing on this track can be saved into a new one.
@@ -203,7 +207,7 @@ const PerDrum = (() => {
       error.textContent = failure.message || String(failure);
       error.hidden = false;
     } finally {
-      working.hidden = true;
+      wait.done();
       button.disabled = false;
     }
   }

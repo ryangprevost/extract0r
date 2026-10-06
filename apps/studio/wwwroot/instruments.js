@@ -131,11 +131,18 @@ async function loadInstrumentComparison() {
   // Neither route costs the "around half a minute" this used to claim. By the time the
   // button is pressable both sides are already separated, so what is left is reading
   // them: measured at 4.3 s from a profile and 5.0 s from a pair of split references.
-  $("instrument-working").textContent = state.profileHasInstruments
-    ? "Reading your stems and comparing them with the saved profile. A moment."
-    : "Reading every stem on both sides, end to end, and tracking the vocal's pitch. " +
-      "About twenty seconds.";
-  $("instrument-working").hidden = false;
+  // "About twenty seconds" was true of the twenty-eight-second pair it was measured on
+  // and of nothing else. X0R-1403 measured the job at 0.47x the song's length, so a
+  // three-and-a-half-minute song is closer to a minute and three quarters - and the
+  // estimate now comes from the length of what the user actually loaded.
+  const bothSides = !state.profileHasInstruments;
+  const wait = Waiting.begin($("instrument-working"), {
+    headline: bothSides
+      ? "Reading every stem on both sides, end to end, and tracking the vocal's pitch."
+      : "Reading your stems and comparing them with the saved profile, which was " +
+        "measured when you saved it.",
+    estimateSeconds: Waiting.estimate(state.duration, bothSides),
+  });
   button.disabled = true;
 
   try {
@@ -146,7 +153,7 @@ async function loadInstrumentComparison() {
       "/tracks/" + state.trackId + "/reference/instruments?budget=" + budget,
       { method: "POST" },
     );
-    const result = await pollJobQuietly(job.job_id);
+    const result = await pollJobQuietly(job.job_id, wait.stage);
     state.instruments = result;
     renderInstruments(result);
     $("monitor-note").hidden = !Monitor.available();
@@ -155,7 +162,7 @@ async function loadInstrumentComparison() {
   } catch (error) {
     fail("instrument-error", error);
   } finally {
-    $("instrument-working").hidden = true;
+    wait.done();
     button.disabled = false;
   }
 }
@@ -167,9 +174,13 @@ async function loadInstrumentComparison() {
  * wrong for this: the comparison belongs beside the mix it is about, and sending the user
  * to a full-page bar and back would lose their scroll position and their place.
  */
-async function pollJobQuietly(jobId) {
+async function pollJobQuietly(jobId, onProgress) {
   for (;;) {
     const job = await api("/jobs/" + jobId);
+    // The server has been sending a stage name and a measured fraction on every one of
+    // these polls since the job existed, and this function used to drop both on the
+    // floor. Handing them to a caller is the whole of the loading indicator.
+    if (onProgress) onProgress(job);
     if (job.state === "succeeded") return job.result;
     if (job.state === "failed") throw new Error(job.error || "The comparison failed.");
     await new Promise((resolve) => setTimeout(resolve, 600));

@@ -841,6 +841,7 @@ def compare_instruments(
     reference_name = saved.name if from_profile else ""
 
     def work(handle: JobHandle) -> dict:
+        from app.jobs.stages import COMPARE_BOTH_SIDES, COMPARE_FROM_PROFILE
         from app.services.mastering.budget import limits_for
         from app.services.mastering.critique import STEM_WORDS
         from app.services.mastering.instrument import (
@@ -851,18 +852,23 @@ def compare_instruments(
 
         ceilings = limits_for(budget)
 
-        handle.update(JobState.RUNNING, 0.05, "measuring your instruments")
+        # Fractions from measured stage costs rather than chosen by hand. This job used
+        # to report 0.9 immediately before the character pass, which is half of it, so
+        # the bar reached ninety per cent and then appeared to hang. See `jobs.stages`.
+        plan = COMPARE_FROM_PROFILE if from_profile else COMPARE_BOTH_SIDES
+
+        plan.report(handle, "mine")
         mine = profile_all(mine_paths)
-        if from_profile:
-            # Already measured, once, whenever the profile was saved. This is the whole
-            # point of the feature: the half of the work that used to take longer than
-            # the user's own song did is now a dictionary lookup.
-            handle.update(JobState.RUNNING, 0.9, "reading the saved reference")
-            theirs = from_snapshot_all(theirs_saved)
-        else:
-            handle.update(JobState.RUNNING, 0.55, "measuring the reference's")
-            theirs = profile_all(theirs_paths)
-        handle.update(JobState.RUNNING, 0.9, "comparing them")
+        plan.report(handle, "theirs")
+        # From a profile this is already measured, once, whenever the profile was
+        # saved - which is the whole point of the feature: the half of the work that used
+        # to take longer than the user's own song did is now a dictionary lookup.
+        theirs = (
+            from_snapshot_all(theirs_saved) if from_profile else profile_all(theirs_paths)
+        )
+        # Named for the work, not for the step. "Comparing them" was measured at 0.00 s
+        # across six instruments; what the user is waiting for here is the pitch tracker.
+        plan.report(handle, "character")
 
         instruments = []
         for kind in StemKind:
@@ -2130,3 +2136,4 @@ def drum_kits(settings: Settings = Depends(get_config)) -> dict:
             "voices": dict(VOICE_FOR_STEM),
         },
     }
+

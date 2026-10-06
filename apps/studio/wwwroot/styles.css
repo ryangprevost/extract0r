@@ -1156,3 +1156,36 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   padding-left: 10px;
 }
 .subdrum-flip { color: var(--accent); }
+
+/* ── waiting well ─────────────────────────────────────────────────────────────
+   The pulsing dot stays for short waits. These are the long ones, where the stage
+   message and a clock are the difference between "working" and "hung". */
+.working.waiting::before { display: none; }
+.working.waiting {
+  display: block; margin: 14px 0 0; max-width: 62ch;
+}
+.wait-head { display: block; color: var(--text); font-size: 13px; }
+.wait-bar {
+  display: block; height: 6px; margin: 9px 0 7px; border-radius: 999px;
+  background: var(--edge); overflow: hidden; position: relative;
+}
+.wait-fill {
+  display: block; height: 100%; width: 0; background: var(--accent);
+  transition: width 0.4s ease; position: relative;
+}
+/* The bar is honestly still for a stretch at a time, so the motion that proves the
+   job is alive lives here rather than in the fraction. */
+.wait-fill::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(
+    90deg, transparent, color-mix(in srgb, var(--bg) 55%, transparent), transparent);
+  animation: wait-sheen 1.5s linear infinite;
+}
+@keyframes wait-sheen { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.wait-bar.wait-over .wait-fill { background: var(--warn, var(--accent)); }
+.wait-stage {
+  display: block; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wait-fill::after { animation: none; }
+}

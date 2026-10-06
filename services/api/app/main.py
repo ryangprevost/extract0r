@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -48,6 +49,33 @@ async def _retention_sweep(interval_minutes: int, retention_hours: int) -> None:
             log.exception("retention sweep failed; will retry next interval")
 
 
+
+def _warm_probes() -> None:
+    """Pay for the out-of-process capability probes at boot, off the request path.
+
+    Daemon so it can never hold up a shutdown, and every failure swallowed: this is an
+    optimisation, and an optimisation that can break startup is not one. Whatever goes
+    wrong here, the probe runs again on first use exactly as it used to.
+    """
+    import threading
+
+    def warm() -> None:
+        try:
+            from app.services.separation.demucs import demucs_is_importable
+
+            started = time.perf_counter()
+            answer = demucs_is_importable()
+            log.info(
+                "demucs importable: %s (probed in %.2fs at startup)",
+                answer,
+                time.perf_counter() - started,
+            )
+        except Exception:
+            log.info("startup probe failed; it will run again on first use", exc_info=True)
+
+    threading.Thread(target=warm, name="warm-probes", daemon=True).start()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -55,6 +83,18 @@ async def lifespan(app: FastAPI):
     removed = get_storage().purge_expired(settings.retention_hours)
     if removed:
         log.info("purged %d expired track(s) on startup", len(removed))
+
+    # Ask whether demucs can be imported before anybody asks the API. The probe shells
+    # out to a fresh interpreter - deliberately, see `demucs_is_importable` - and it was
+    # measured at 2.53 s on this machine, paid by whichever request happened to be first.
+    # That request is `GET /tracks/drum-kits`, which the drums UI calls on open, so the
+    # cost landed on a plain read of a static capability list.
+    #
+    # In a thread rather than awaited, because a two-and-a-half-second startup is a worse
+    # trade than a two-and-a-half-second first request: the server should accept
+    # connections immediately. A request arriving before the thread finishes simply waits
+    # on the same work it would have done itself, so the worst case is today's behaviour.
+    _warm_probes()
 
     sweeper: asyncio.Task | None = None
     if settings.retention_sweep_minutes > 0:

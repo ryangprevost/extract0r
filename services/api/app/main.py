@@ -23,7 +23,7 @@ from app.api import (
     routes_tracks,
     routes_transcription,
 )
-from app.api.deps import get_storage
+from app.api.deps import get_registry, get_storage
 from app.config import get_settings
 from app.legal import COPYRIGHT_NOTICE
 
@@ -83,6 +83,25 @@ async def lifespan(app: FastAPI):
     removed = get_storage().purge_expired(settings.retention_hours)
     if removed:
         log.info("purged %d expired track(s) on startup", len(removed))
+
+    # Pick up whatever is already in storage. X0R-1423: the registry is in memory and
+    # never looked at the filesystem, so a restart left real audio - six stems, six
+    # reference stems, four drums, minutes of CPU each - sitting on disk with nothing
+    # able to reach it, until the retention sweep deleted it unread.
+    #
+    # Deliberately before the sweep below rather than after: a track adopted and then
+    # found to be past retention is deleted by the same rule as any other, and doing it
+    # the other way round would mean a stale directory could be adopted a moment after
+    # being identified as expired.
+    from app.services.adopt import adopt_all
+
+    try:
+        adopt_all(settings.storage_dir, get_registry())
+    except Exception:
+        # Reading the filesystem is an optimisation on a cold start, not a precondition
+        # for serving. A boot that fails over it would be a worse bug than the one it
+        # fixes.
+        log.warning("could not adopt tracks already on disk", exc_info=True)
 
     # Ask whether demucs can be imported before anybody asks the API. The probe shells
     # out to a fresh interpreter - deliberately, see `demucs_is_importable` - and it was

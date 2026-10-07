@@ -3330,7 +3330,7 @@ the one that fires.
 
 ---
 
-### X0R-1423 · A restart orphans audio that is still on disk · 2 · `TODO`
+### X0R-1423 · A restart orphans audio that is still on disk · 2 · `DONE` 2026-10-07
 
 Found by Ryan on 2026-10-07, the hard way: he uploaded a song and a reference, both
 separated, the per-drum pass ran, and then the API was stopped out from under him. The
@@ -3362,8 +3362,31 @@ Three shapes it could take, cheapest first:
 3. **Nothing, and say so**, by having the sweep log or the UI admit that a restart ends a
    session. Honest, and worse than (1) for less saved effort.
 
-**Recommended: (1).** It is the smallest change that makes the promise the storage layout
-already implies, and it is independent of whether EPIC-07 is ever revisited.
+**Built (1) on 2026-10-07**, as `app/services/adopt.py`, called from the lifespan before
+the retention sweep - so a track adopted and then found to be past retention is deleted by
+the same rule as any other, rather than being adopted a moment after being identified as
+expired.
+
+**Tested against the real loss.** Ryan's orphaned track was answering `"Unknown track."`
+before the change. After a restart with it: all six stems reachable, the reference's six as
+well, per-drum available because its sub-stems were adopted too, and a full instrument
+comparison ran on it to 36 findings. The log said `adopted 7 track(s) already on disk`.
+
+**What is deliberately *not* recovered**, each with a reason that is worse to get wrong than
+to leave blank:
+
+* **the attestation** - recorded as `{"adopted": True}`. Fabricating a rights claim on
+  somebody's behalf is worse than any inconvenience it avoids.
+* **the profile a track was aimed at** - not on disk at all, and guessing would aim a master
+  at the wrong record silently, which is the exact failure X0R-1420 is about.
+* **sample rate and duration on each stem** - left at zero rather than probed. Opening six
+  files to fill in two numbers turns a boot scan into a boot wait, and every route that
+  needs either reads the file itself.
+
+**Nothing is written.** No new file, no format, no database - a test asserts the storage
+tree is byte-identical before and after a scan. The directory layout already was the record;
+this only reads it back, which is the whole of the argument for why it is not EPIC-07
+arriving by the back door.
 
 **Worth noting why it bit now.** The preview servers this session runs are stopped by the
 desktop app when a turn ends, so a restart mid-job is routine here in a way it would not be

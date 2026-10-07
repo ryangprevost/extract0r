@@ -223,6 +223,7 @@ const Groove = (() => {
     const panel = $("groove");
     if (!panel) return;
     panel.hidden = !(state.trackId && state.lanes.size > 0);
+    if (typeof Sections !== "undefined") Sections.render();
   }
 
   function init() {

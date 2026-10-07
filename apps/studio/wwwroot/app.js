@@ -188,6 +188,7 @@ function goToPage(name) {
     ? page.loaded.filter((id) => id !== "step-tabs" || $("tabs").children.length)
     : ["step-upload"];
   showOnly(...sections);
+  if (typeof Sections !== "undefined") Sections.render();
 }
 
 function openNav() {
@@ -711,6 +712,9 @@ The tail length comes from the reference when the comparison can measure it.">re
   // The groove read needs stems and nothing else. A reference makes it a comparison
   // rather than a precondition - your own groove is worth seeing on its own.
   if (typeof Groove !== "undefined") Groove.show();
+  // Sections appear at several different moments; the nav just re-reads which are
+  // on screen rather than being told by each of them.
+  if (typeof Sections !== "undefined") Sections.render();
 
   // Waveforms are a separate, cacheable request per stem - draw them as they arrive so
   // the mixer is usable immediately rather than after the slowest one.
@@ -1135,7 +1139,7 @@ function renderTabs(result) {
   // Keep the mixer on screen: comparing the tab against the stem you can hear is the
   // whole point, and hiding one to show the other defeats it.
   showOnly("step-stems", "step-timing", "step-tabs");
-  $("step-tabs").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("step-tabs").scrollIntoView({ block: "start" });
 }
 
 function escapeHtml(text) {
@@ -2653,7 +2657,7 @@ for (const button of document.querySelectorAll(".mode")) {
 // why they would want it.
 $("apply-suggested").addEventListener("click", () => {
   selectMode("suggested");
-  $("modes").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("modes").scrollIntoView({ block: "start" });
 });
 // Touching a slider means the preset no longer describes what is set.
 for (const id of ["brightness", "warmth", "bass", "stereo-width", "width-profile",

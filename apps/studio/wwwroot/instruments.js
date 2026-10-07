@@ -168,6 +168,7 @@ async function loadInstrumentComparison() {
     renderInstruments(result);
     $("monitor-note").hidden = !Monitor.available();
   refreshDisclosureButtons();
+  if (typeof Sections !== "undefined") Sections.render();
     $("instrument-intro").hidden = true;
     button.textContent = "Compare again";
   } catch (error) {
@@ -280,7 +281,7 @@ function openPerDrum() {
   // synchronously and scrollIntoView forces the layout it needs, so the frame callback
   // bought nothing - and it does not run at all in a backgrounded tab, which is how this
   // was caught: the jump silently did nothing while the pane was hidden.
-  panel.scrollIntoView({ block: "center", behavior: "smooth" });
+  panel.scrollIntoView({ block: "center" });
   panel.classList.add("just-opened");
   setTimeout(() => panel.classList.remove("just-opened"), 1600);
 }

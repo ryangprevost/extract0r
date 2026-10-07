@@ -1399,3 +1399,52 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 /* The WAV depth note, quiet until a WAV is actually being written. */
 #wav-depth-note { max-width: 64ch; margin: 2px 0 0; transition: opacity 0.15s ease; }
 #wav-depth-note.dimmed { opacity: 0.45; }
+
+/* ── section nav ──────────────────────────────────────────────────────────────
+   X0R-1417. Sticky under the topbar, which is itself static - so this is the only
+   thing that follows you, and it stays one row high at every width by scrolling
+   sideways rather than wrapping. */
+.section-nav {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; gap: 4px; align-items: center;
+  padding: 7px 24px; overflow-x: auto; scrollbar-width: thin;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--edge);
+}
+.section-link {
+  flex: 0 0 auto; padding: 5px 11px; border-radius: 999px;
+  font-family: inherit; font-size: 12px; white-space: nowrap; cursor: pointer;
+  color: var(--muted); background: none; border: 1px solid transparent;
+}
+.section-link:hover { color: var(--text); background: color-mix(in srgb, var(--edge) 55%, transparent); }
+.section-link.on {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.section-link:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px;
+}
+@media (max-width: 720px) {
+  .section-nav { padding: 6px 12px; }
+  .section-link { font-size: 11.5px; padding: 4px 9px; }
+}
+
+/* Where a jumped-to section lands: clear of the sticky bar. Declared here rather than
+   computed in JS, so the one number lives with the bar's own height. */
+#step-stems, #step-master, #mix-compare, #ask-panel, #groove,
+#instrument-compare, #group-export { scroll-margin-top: 76px; }
+
+/* ── scrolling ────────────────────────────────────────────────────────────────
+   **No smooth scrolling anywhere, on purpose.** Measured in this project's own
+   browser pane: `scrollIntoView({block:"start"})` moves the page and the
+   identical call with `behavior: "smooth"` leaves scrollY exactly where it was,
+   with prefers-reduced-motion off. Moving the smoothness into CSS here made it
+   worse rather than better - `html { scroll-behavior: smooth }` applies to every
+   programmatic scroll on the page, so it broke the ones that had been working.
+
+   This may well be a limitation of that pane rather than of browsers generally,
+   and it was not worth finding out: a jump that always happens beats an
+   animation that sometimes does not, and five call sites depended on it -
+   including two whose scroll had therefore never worked at all. */

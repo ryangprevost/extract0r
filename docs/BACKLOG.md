@@ -2943,6 +2943,50 @@ sections, each scrolling to its own. Two things to settle while building:
 2. **The signpost from X0R-1411 should fold into it.** It is a one-destination answer to the
    same question, and leaving both means two ways to reach the drums.
 
+### X0R-1417, built 2026-10-07
+
+The nav half, as scoped. A sticky bar under the topbar naming every section currently on
+the page, each jumping to its own, with the entry for whatever you are looking at lit.
+Hidden until there are at least two places to go, because a bar with one button in it is
+furniture.
+
+**Per-section collapse is deferred and that is the scope's recommendation, not an
+omission.** Six of the seven sections are already a single card or already collapsible from
+inside; a second mechanism on top is how a screen ends up with two navigation systems that
+disagree.
+
+**The X0R-1411 signpost stays.** The scope said to fold it in; building it showed that was
+over-tidy. A nav entry scrolls to "instrument by instrument"; the signpost opens two
+disclosures *and* scrolls into the drum panel. Different destinations at different
+granularity, and collapsing them would lose the behaviour that made the signpost worth
+having.
+
+#### Three things that only showed up once it ran
+
+**`behavior: "smooth"` silently does nothing** in this project's browser pane - measured:
+`scrollIntoView({block:"start"})` moves the page and the identical call with the option
+leaves `scrollY` exactly where it was, with `prefers-reduced-motion` off. **Five call sites
+relied on it**, two of them written in this epic - the X0R-1411 signpost and the chat's
+scroll-to - and both had been "verified" by checking that classes changed and disclosures
+opened rather than that the page moved. Their scrolls had never worked.
+
+Moving the smoothness into CSS made it **worse**: `html { scroll-behavior: smooth }` applies
+to every programmatic scroll on the page, so it broke the ones that had been working. There
+is now no smooth scrolling anywhere, which may well be a limitation of that pane rather than
+of browsers generally - and it was not worth finding out. A jump that always happens beats
+an animation that sometimes does not.
+
+**The scroll-spy's first rule was wrong.** "The last section above the middle of the
+viewport" sounds forgiving and lights the section *after* a short one, because that one's
+heading is also above the midpoint. Landing somewhere and watching its neighbour light up is
+worse than no highlight. Now: the last section whose heading has reached the bar.
+
+**Landing offset is `scroll-margin-top` in the stylesheet**, not arithmetic in the handler,
+so the number lives with the bar's own height. Every one of the six sections lands at exactly
+76 px.
+
+---
+
 ### Summary
 
 | card | was | now |
@@ -2995,7 +3039,7 @@ in this document.
 | X0R-1414 | Let the export's bit depth be chosen | 2 | **`DONE` 2026-10-06** · and the premise was half wrong |
 | X0R-1415 | Per-drum sections get a disclosure and an Apply all | 2 | **`DONE` 2026-10-06** |
 | X0R-1416 | Expand all and collapse all | 1 | **`DONE` 2026-10-06** |
-| X0R-1417 | A fixed section nav, and sections that close | 3 | `TODO` — **scoped 2026-10-07 and strengthened**: the page is 4 247 px across 7 sections with everything already collapsed. Nav first; per-section collapse only if the nav is not enough. |
+| X0R-1417 | A fixed section nav, and sections that close | 3 | **`DONE` 2026-10-07** (the nav half; per-section collapse deliberately deferred) |
 | X0R-1418 | A Remaster button in the chat | 1 | **`DONE` 2026-10-06** |
 | X0R-1419 | **One profile per instrument, and a profile made of profiles** | 5 | **`DONE` 2026-10-06** · Ryan chose **character, not balance** |
 

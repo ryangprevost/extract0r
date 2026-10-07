@@ -192,7 +192,7 @@ function offerRemaster() {
   button.addEventListener("click", () => {
     const real = $("master-btn");
     if (!real) return;
-    real.scrollIntoView({ block: "center", behavior: "smooth" });
+    real.scrollIntoView({ block: "center" });
     real.click();
   });
   row.appendChild(button);
@@ -251,7 +251,7 @@ function offerRemaster() {
       dock(false);
       const panel = $("ask-panel");
       panel.hidden = false;
-      panel.scrollIntoView({ block: "center", behavior: "smooth" });
+      panel.scrollIntoView({ block: "center" });
       $("ask-input")?.focus();
       return;
     }

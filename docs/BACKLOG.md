@@ -3300,6 +3300,48 @@ the one that fires.
 
 ---
 
+### X0R-1423 · A restart orphans audio that is still on disk · 2 · `TODO`
+
+Found by Ryan on 2026-10-07, the hard way: he uploaded a song and a reference, both
+separated, the per-drum pass ran, and then the API was stopped out from under him. The
+browser said *"failed to fetch"*.
+
+**Nothing was lost on disk.** `storage/ab3fce1f…` holds `source.mp3`, the normalised source,
+six source stems, `reference.mp3`, six reference stems and the drum sub-stems - every one of
+them intact, roughly forty-five minutes of CPU.
+
+**And nothing can reach any of it.** The registry is in-memory by design, it does not scan
+`storage/` at startup, and `GET /tracks/{id}/stems` on that id answers `"Unknown track."` The
+retention sweep will eventually delete it, so the only thing that ever touches those files
+again is the thing that removes them.
+
+**This is not EPIC-07 arriving by the back door.** That non-goal is about persistence as a
+*feature* - sessions, accounts, a database, work resumed days later. This is narrower and
+different in kind: the application wrote a user's audio to disk, lost the only pointer to it,
+and will delete it unread. A tool is allowed not to remember; it is not really allowed to
+strand data it created and then bin it.
+
+Three shapes it could take, cheapest first:
+
+1. **Adopt on startup.** Scan `storage/` and rebuild a registry entry per directory from
+   what is actually there - the stems that exist, whether a reference is present, which
+   sub-stems were split. No new format and no new file: the directory layout already is the
+   record. Probably an hour, and it is the whole of the problem.
+2. **A route that adopts one id on demand**, so nothing is scanned until somebody asks for
+   a track the registry has never heard of.
+3. **Nothing, and say so**, by having the sweep log or the UI admit that a restart ends a
+   session. Honest, and worse than (1) for less saved effort.
+
+**Recommended: (1).** It is the smallest change that makes the promise the storage layout
+already implies, and it is independent of whether EPIC-07 is ever revisited.
+
+**Worth noting why it bit now.** The preview servers this session runs are stopped by the
+desktop app when a turn ends, so a restart mid-job is routine here in a way it would not be
+on a machine where somebody started the server themselves. That made it visible; it did not
+make it untrue.
+
+---
+
 ### X0R-1420 · Two saved profiles hold identical measurements · 2 · `PARTIAL` · **one real bug found and fixed; the rest unexplained**
 
 Found by accident on 2026-10-06 while verifying X0R-1419 against Ryan's own profiles.

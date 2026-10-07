@@ -2701,7 +2701,7 @@ as a whole either.
 | X0R-1405 | A dial that says "Applied" was applied | 2 | **`DONE` 2026-10-06.** Fixed by recording what was *taken*, consulted **only** where the value cannot tell - that is, where the suggestion sits on the control's own resting value. Everywhere else the value comparison stays, because it is not merely adequate there, it is better: it keeps "Applied ✓" true when somebody reaches the suggested number by dragging the slider instead of pressing the button, which people do. Three routes update the record - the button, the slider and the per-instrument reset - and a fresh comparison forgets it, or "Compare again" at a different budget would inherit the last run's credit. Walked in a browser: untouched reads Apply, taking a no-op suggestion reads Applied ✓ at an unchanged value, pressing again undoes it, and an ordinary suggestion is unaffected. The guard in `tests/test_applied_record.py` is structural - this project has no JavaScript runner and adding one for two points is a bigger decision than the card - and was mutation-tested by reverting the logic, which fails it. Original filing below. |
 | | | | **The defect as filed.** `refreshMoveButtons` decides by comparing the lane's value with the suggestion, so any suggestion equal to the control's rest position reads as already applied — pan is where it bites, because a centred reference offers `pan: 0` and that is also where the control does nothing. Fixed in the per-drum rows by recording what was *taken*; the lanes keep no such record, and giving them one is a change to the mixer. QA SPRINT-2 D4. |
 | X0R-1406 | Decide what happens to "Match strength" | 1 | It now sits beside a control that measurably does more (X0R-1306). Experiment 2 put its whole range at 0.56 dB, under half this project's own threshold. Leaving a working control next to one that only looks like it works is a decision, and right now it is an unmade one. **Ryan's call, not the PM's.** |
-| X0R-1407 | The comparison screen after three sprints of additions | 3 | `TODO` — **counted 2026-10-06, not decided.** Sprint 1 spent 5 points reducing 19 controls to 6 groups; R8 of sprint 2 predicted the screen would grow back and nobody had gone to look. Now somebody has, and the numbers are below. **The design call is Ryan's**, so this is the measurement and nothing else. |
+| X0R-1407 | The comparison screen after three sprints of additions | ~~3~~ **2** | `TODO` — **re-scoped 2026-10-07 on the typical, not the ceiling: 31 rows, not 66, and 848 px collapsed. Most of it dissolved; what is left is grouping the tone rows.** Earlier count: Sprint 1 spent 5 points reducing 19 controls to 6 groups; R8 of sprint 2 predicted the screen would grow back and nobody had gone to look. Now somebody has, and the numbers are below. **The design call is Ryan's**, so this is the measurement and nothing else. |
 | X0R-1408 | Say what a run will cost before it starts, everywhere | 1 | **`DONE` 2026-10-06.** The separation half found a wrong number rather than a missing one: the screen said demucs runs "at roughly twice the length of the audio", and X0R-306 measured `htdemucs_6s` at **1.24x real time** - so it overstated the wait by about sixty per cent, and said the same thing about a thirty-second clip as about a six-minute song. It now reads "About 3m 09s on this machine" for a three-and-a-half-minute track, and "About 6m 18s - 3m 09s for your song and the same again for the reference" when one is being split too, which is EPIC-14's own six-minute figure arrived at independently. The constant takes the **slow** end of the benchmark's 0.81-0.92 spread rather than the mean, the opposite of the choice made for the comparison: that one says so when it overruns and this one has nothing behind it, so an estimate nobody can correct should run over. Earlier half: | The instrument comparison's estimate was a flat "about twenty seconds" regardless of the song; it now scales with what the user loaded, from the X0R-1403 measurement, and a saved profile is quoted lower because it measurably is. **Separation still says nothing**, and it remains the longest wait in the application - that is what is left of this card. |
 | X0R-1409 | A wait that shows it is alive | 2 | **`DONE` 2026-10-05, unplanned, from Ryan's "loading indicators when comparing stems".** The server had been sending a stage name on every poll since the job existed and `pollJobQuietly` dropped it on the floor - so a ninety-second wait showed one unchanging sentence and a pulsing dot. `apps/studio/wwwroot/waiting.js` draws the stage, a measured bar, and a clock counting up against the estimate, and says so when the estimate is overrun rather than going quiet. It deliberately does **not** creep the bar between stages: interpolating toward a boundary the page was never told about is inventing progress, which is the fault X0R-1404 exists to fix. |
 
@@ -2854,6 +2854,105 @@ Three directions, none of them chosen:
    height is 1 024 px - a little over one screen. The cost is paid only by somebody who
    opens everything.
 
+---
+
+## Scoping X0R-1407 with X0R-1417 — 2026-10-07
+
+Ryan asked for these two to be scoped together, which was the right instinct and produces
+the opposite answer to the one expected: **they are two different problems and only one of
+them is real.**
+
+The first thing the scope needed was the measurement X0R-1407's own count said was missing -
+*"66 move rows is a ceiling rather than a reading … nobody has measured the typical, which
+is the first thing this card should do."* Measured now, on Ryan's own separated pair rather
+than on a synthetic worst case.
+
+### The typical, at last
+
+| | the ceiling I counted on 2026-10-05 | **Ryan's real pair** |
+|---|---:|---:|
+| move rows | 66 | **31** |
+| rows with a dial | 54 | **25** |
+| comparison, fully expanded | 5 678 px · 6.3 screens | **3 133 px · 3.5 screens** |
+| comparison, collapsed | 1 024 px | **848 px** |
+
+**The real screen is less than half the one the card was written about.** One of the six
+instruments - the piano - produced **no rows at all**, and the other five averaged six.
+
+### What that does to X0R-1407
+
+**Most of it dissolves, and the honest thing is to say so rather than find work.**
+
+Collapsed, which is the default state and the one anybody arrives at, the entire
+instrument-by-instrument section is **848 px - under one screen**. The 6.3-screen figure
+that prompted the card was a worst case nobody sees, and the 3.5-screen real figure only
+happens when somebody deliberately expands everything. Since X0R-1416 that is one click,
+and one click to undo.
+
+Sprint 1's benchmark was 19 controls reduced to 6 groups. The comparison a user actually
+meets offers **31 sliders across six summarised cards, five of which carry anything** -
+which is not the screen that card was worried about.
+
+**One structural finding survives the measurement.** Broken down by dimension:
+
+| dimension | rows | share |
+|---|---:|---:|
+| **tone** | **17** | **55%** |
+| level | 5 | 16% |
+| dynamics | 4 | 13% |
+| punch | 3 | 10% |
+| width | 2 | 6% |
+
+**Tone is more than half of every comparison**, at two to five rows per stem. Folding a
+stem's tone rows into one row with a band ladder inside it - **a control that already
+exists, on the per-drum panel** - would take the vocal card from 8 rows to 4 and the whole
+screen from 31 to 19. That is the one change the numbers support, and it is sprint 1's own
+move applied one level in.
+
+**Recommended: re-scope X0R-1407 to that single change, 2 points, and drop the rest.** A
+general redesign has no measurement behind it any more.
+
+### What that does to X0R-1417
+
+**It gets stronger, and it is a different problem.** The master page after a full run, with
+every disclosure closed:
+
+| | |
+|---|---:|
+| page height, everything collapsed | **4 247 px · 4.7 screens** |
+| sections | **7** |
+| closed disclosures | 13 |
+
+So the page is nearly five screens **in its tidiest possible state**, across seven named
+destinations - stems, reference & master, how your mix compares, say what you want, what
+each record plays, instrument by instrument, export. Collapsing things cannot fix that,
+because they are already collapsed. That is a navigation problem and nothing to do with the
+comparison's internal density.
+
+**This also explains why the two cards felt related and are not.** X0R-1417 is about
+getting *between* seven sections; X0R-1407 was about the density *inside* one of them.
+Measured, the section is not dense and the page is long.
+
+**Recommended: build X0R-1417 as specified, 3 points.** A sticky bar naming the seven
+sections, each scrolling to its own. Two things to settle while building:
+
+1. **The per-section collapse Ryan also asked for is now the weaker half.** Six of the seven
+   sections are already a single card or already collapsible internally; adding a second
+   collapse mechanism on top risks the "two navigation systems" this scope exists to avoid.
+   Suggest the nav first, and collapse only if the nav turns out not to be enough.
+2. **The signpost from X0R-1411 should fold into it.** It is a one-destination answer to the
+   same question, and leaving both means two ways to reach the drums.
+
+### Summary
+
+| card | was | now |
+|---|---|---|
+| X0R-1407 | 3 pts, general redesign | **2 pts, group the tone rows** - the rest has no measurement behind it |
+| X0R-1417 | 3 pts, nav + per-section collapse | **3 pts, nav first**; collapse only if the nav is not enough |
+
+**Order: X0R-1417 first.** It addresses the problem that measured real, and its sticky bar
+is what would make a denser comparison bearable if X0R-1407 is ever wanted after all.
+
 ### What is deliberately **not** in here
 
 - **Persistence of any kind.** EPIC-07 is a `NON-GOAL` and nothing in a performance epic may
@@ -2896,7 +2995,7 @@ in this document.
 | X0R-1414 | Let the export's bit depth be chosen | 2 | **`DONE` 2026-10-06** · and the premise was half wrong |
 | X0R-1415 | Per-drum sections get a disclosure and an Apply all | 2 | **`DONE` 2026-10-06** |
 | X0R-1416 | Expand all and collapse all | 1 | **`DONE` 2026-10-06** |
-| X0R-1417 | A fixed section nav, and sections that close | 3 | `TODO` |
+| X0R-1417 | A fixed section nav, and sections that close | 3 | `TODO` — **scoped 2026-10-07 and strengthened**: the page is 4 247 px across 7 sections with everything already collapsed. Nav first; per-section collapse only if the nav is not enough. |
 | X0R-1418 | A Remaster button in the chat | 1 | **`DONE` 2026-10-06** |
 | X0R-1419 | **One profile per instrument, and a profile made of profiles** | 5 | **`DONE` 2026-10-06** · Ryan chose **character, not balance** |
 

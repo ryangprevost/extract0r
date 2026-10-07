@@ -532,7 +532,19 @@ function buildInstrumentCard(instrument) {
       '<p class="muted small">Nothing to change. This one already sits where the ' +
       "reference's does, in every dimension measured.</p>";
   } else {
-    for (const move of instrument.moves) moves.appendChild(buildMove(instrument.stem, move));
+    // X0R-1407, re-scoped on the measurement rather than on the ceiling. Counted on a
+    // real pair, tone is **17 of 31 rows - 55%** of everything a comparison emits, at two
+    // to five per stem. Folding them into one row takes the vocal card from 8 rows to 4
+    // and the whole screen from 31 to 19, which is the only change the numbers supported;
+    // the general redesign the card originally proposed had nothing behind it once the
+    // typical turned out to be half the ceiling it was written about.
+    const tone = instrument.moves.filter((m) => m.dimension === "tone" && m.band);
+    const rest = instrument.moves.filter((m) => !(m.dimension === "tone" && m.band));
+
+    for (const move of rest) moves.appendChild(buildMove(instrument.stem, move));
+    // After the others, because a level difference is the thing somebody checks first and
+    // five bands is the thing they go into afterwards.
+    if (tone.length) moves.appendChild(buildToneGroup(instrument, tone));
   }
   card.appendChild(moves);
 
@@ -547,6 +559,116 @@ function describeNumbers(instrument) {
   };
   return line("yours:", instrument.yours) + "<br />" +
     line("reference:", instrument.reference);
+}
+
+//: Below this, two bands are the same. Mirrors the per-drum ladder's own threshold.
+const SAME_BAND_DB = 1.0;
+const LADDER_BANDS = ["low", "low_mid", "high_mid", "presence", "air"];
+
+/**
+ * One stem's five tone bands as a single row, opening onto the dials.
+ *
+ * X0R-1407. The band ladder is borrowed from the per-drum panel, where it has been since
+ * sprint 2 - this is sprint 1's own move ("nineteen controls into six groups") applied one
+ * level further in, using a control that already existed rather than inventing one.
+ *
+ * Closed, it is a sentence and a picture. Open, every band still has its own slider and
+ * its own Apply, because the point was never to take controls away - a user who wants 1.4
+ * dB of air on the drums and nothing else must still be able to say so.
+ */
+function buildToneGroup(instrument, tone) {
+  const group = document.createElement("details");
+  group.className = "move tone-group";
+  group.dataset.stem = instrument.stem;
+
+  const head = document.createElement("summary");
+  head.className = "tone-head";
+  const worst = [...tone].sort(
+    (a, b) => Math.abs(b.measured) - Math.abs(a.measured),
+  )[0];
+  const words = tone
+    .map((m) => (m.suggested > 0 ? "more " : "less ") + (BAND_WORDS[m.band] || m.band))
+    .join(", ");
+  head.innerHTML =
+    "<span class='tone-title'><strong>Tone</strong>" +
+    "<span class='tone-sub'>" +
+    escapeText(tone.length + (tone.length === 1 ? " band: " : " bands: ") + words) +
+    "</span></span>" +
+    // The biggest single gap, so the summary carries a number and not only adjectives.
+    "<span class='tone-worst'>" +
+    escapeText(
+      (BAND_WORDS[worst.band] || worst.band) +
+        " " +
+        (worst.measured > 0 ? "+" : "") +
+        worst.measured.toFixed(1) +
+        " dB apart",
+    ) +
+    "</span>";
+  group.appendChild(head);
+
+  const picture = toneLadder(instrument);
+  if (picture) group.appendChild(picture);
+
+  for (const move of tone) group.appendChild(buildMove(instrument.stem, move));
+  return group;
+}
+
+/**
+ * Where this stem's five bands sit against the reference's, drawn.
+ *
+ * One scale across all five rows, so they can be read against each other - per-row scaling
+ * would make a 0.3 dB gap and a 6 dB gap the same width, which is the opposite of what a
+ * picture is for.
+ */
+function toneLadder(instrument) {
+  const yours = instrument.yours?.bands || {};
+  const theirs = instrument.reference?.bands || {};
+
+  const values = [];
+  for (const key of LADDER_BANDS) {
+    if (typeof yours[key] === "number") values.push(yours[key]);
+    if (typeof theirs[key] === "number") values.push(theirs[key]);
+  }
+  if (!values.length) return null;
+
+  const low = Math.min(...values);
+  const span = Math.max(Math.max(...values) - low, 1);
+  const at = (value) => ((value - low) / span) * 100;
+
+  const wrap = document.createElement("div");
+  wrap.className = "ladder tone-ladder";
+  for (const key of LADDER_BANDS) {
+    const mine = yours[key];
+    if (typeof mine !== "number") continue;
+    const ref = theirs[key];
+    const a = at(mine);
+    const b = typeof ref === "number" ? at(ref) : a;
+
+    const line = document.createElement("div");
+    line.className = "ladder-row";
+    if (typeof ref === "number" && Math.abs(ref - mine) >= SAME_BAND_DB) {
+      line.classList.add("apart");
+    }
+    // Same markup as the per-drum ladder, including the gap column and the `yours`
+    // class the stylesheet already knows - this borrows that control rather than
+    // growing a second one that looks almost the same.
+    const gap = typeof ref === "number" ? ref - mine : 0;
+    line.innerHTML =
+      '<span class="ladder-label">' + (BAND_WORDS[key] || key) + "</span>" +
+      '<span class="ladder-track" title="' + (BAND_RANGES[key] || "") + '">' +
+      '<span class="ladder-span" style="left:' + Math.min(a, b) + "%;width:" +
+      Math.abs(b - a) + '%"></span>' +
+      '<span class="ladder-dot yours" style="left:' + a + '%"></span>' +
+      (typeof ref === "number"
+        ? '<span class="ladder-dot theirs" style="left:' + b + '%"></span>'
+        : "") +
+      "</span>" +
+      '<span class="ladder-gap">' +
+      (typeof ref === "number" ? (gap > 0 ? "+" : "") + gap.toFixed(1) : "—") +
+      "</span>";
+    wrap.appendChild(line);
+  }
+  return wrap;
 }
 
 function buildMove(stem, move) {

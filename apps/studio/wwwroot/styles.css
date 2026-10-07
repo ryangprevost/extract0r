@@ -1448,3 +1448,31 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
    and it was not worth finding out: a jump that always happens beats an
    animation that sometimes does not, and five call sites depended on it -
    including two whose scroll had therefore never worked at all. */
+
+/* ── tone, as one row ─────────────────────────────────────────────────────────
+   X0R-1407. Tone was 17 of the 31 rows a real comparison emits - 55% - at two to
+   five per stem. Closed this is a sentence and a picture; open, every band still
+   has its own slider, because the point was never to take controls away. */
+/* `.move` is a two-column grid for a row with a control on the right. This is not that
+   shape - it is a disclosure containing rows - so it opts out rather than inheriting a
+   layout that strands its summary in a narrow left column. */
+.tone-group { display: block; padding: 0; }
+.tone-group > summary { list-style: none; cursor: pointer; padding: 9px 12px; }
+.tone-group > summary::-webkit-details-marker { display: none; }
+.tone-head {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding-left: 18px; position: relative;
+}
+.tone-head::before {
+  content: "▸"; position: absolute; left: 0; color: var(--muted);
+  transition: transform 0.15s ease;
+}
+.tone-group[open] > summary .tone-head::before { transform: rotate(90deg); }
+.tone-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.tone-sub { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.tone-worst {
+  flex: 0 0 auto; font-size: 11.5px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tone-ladder { margin: 2px 12px 10px; }
+.tone-group > .move { margin: 0 12px 10px; }

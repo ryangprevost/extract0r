@@ -2701,7 +2701,7 @@ as a whole either.
 | X0R-1405 | A dial that says "Applied" was applied | 2 | **`DONE` 2026-10-06.** Fixed by recording what was *taken*, consulted **only** where the value cannot tell - that is, where the suggestion sits on the control's own resting value. Everywhere else the value comparison stays, because it is not merely adequate there, it is better: it keeps "Applied ✓" true when somebody reaches the suggested number by dragging the slider instead of pressing the button, which people do. Three routes update the record - the button, the slider and the per-instrument reset - and a fresh comparison forgets it, or "Compare again" at a different budget would inherit the last run's credit. Walked in a browser: untouched reads Apply, taking a no-op suggestion reads Applied ✓ at an unchanged value, pressing again undoes it, and an ordinary suggestion is unaffected. The guard in `tests/test_applied_record.py` is structural - this project has no JavaScript runner and adding one for two points is a bigger decision than the card - and was mutation-tested by reverting the logic, which fails it. Original filing below. |
 | | | | **The defect as filed.** `refreshMoveButtons` decides by comparing the lane's value with the suggestion, so any suggestion equal to the control's rest position reads as already applied — pan is where it bites, because a centred reference offers `pan: 0` and that is also where the control does nothing. Fixed in the per-drum rows by recording what was *taken*; the lanes keep no such record, and giving them one is a change to the mixer. QA SPRINT-2 D4. |
 | X0R-1406 | Decide what happens to "Match strength" | 1 | It now sits beside a control that measurably does more (X0R-1306). Experiment 2 put its whole range at 0.56 dB, under half this project's own threshold. Leaving a working control next to one that only looks like it works is a decision, and right now it is an unmade one. **Ryan's call, not the PM's.** |
-| X0R-1407 | The comparison screen after three sprints of additions | ~~3~~ **2** | `TODO` — **re-scoped 2026-10-07 on the typical, not the ceiling: 31 rows, not 66, and 848 px collapsed. Most of it dissolved; what is left is grouping the tone rows.** Earlier count: Sprint 1 spent 5 points reducing 19 controls to 6 groups; R8 of sprint 2 predicted the screen would grow back and nobody had gone to look. Now somebody has, and the numbers are below. **The design call is Ryan's**, so this is the measurement and nothing else. |
+| X0R-1407 | The comparison screen after three sprints of additions | ~~3~~ **2** | **`DONE` 2026-10-07** — re-scoped 2026-10-07 on the typical, not the ceiling: 31 rows, not 66, and 848 px collapsed. Most of it dissolved; what is left is grouping the tone rows.** Earlier count: Sprint 1 spent 5 points reducing 19 controls to 6 groups; R8 of sprint 2 predicted the screen would grow back and nobody had gone to look. Now somebody has, and the numbers are below. **The design call is Ryan's**, so this is the measurement and nothing else. |
 | X0R-1408 | Say what a run will cost before it starts, everywhere | 1 | **`DONE` 2026-10-06.** The separation half found a wrong number rather than a missing one: the screen said demucs runs "at roughly twice the length of the audio", and X0R-306 measured `htdemucs_6s` at **1.24x real time** - so it overstated the wait by about sixty per cent, and said the same thing about a thirty-second clip as about a six-minute song. It now reads "About 3m 09s on this machine" for a three-and-a-half-minute track, and "About 6m 18s - 3m 09s for your song and the same again for the reference" when one is being split too, which is EPIC-14's own six-minute figure arrived at independently. The constant takes the **slow** end of the benchmark's 0.81-0.92 spread rather than the mean, the opposite of the choice made for the comparison: that one says so when it overruns and this one has nothing behind it, so an estimate nobody can correct should run over. Earlier half: | The instrument comparison's estimate was a flat "about twenty seconds" regardless of the song; it now scales with what the user loaded, from the X0R-1403 measurement, and a saved profile is quoted lower because it measurably is. **Separation still says nothing**, and it remains the longest wait in the application - that is what is left of this card. |
 | X0R-1409 | A wait that shows it is alive | 2 | **`DONE` 2026-10-05, unplanned, from Ryan's "loading indicators when comparing stems".** The server had been sending a stage name on every poll since the job existed and `pollJobQuietly` dropped it on the floor - so a ninety-second wait showed one unchanging sentence and a pulsing dot. `apps/studio/wwwroot/waiting.js` draws the stage, a measured bar, and a clock counting up against the estimate, and says so when the estimate is overrun rather than going quiet. It deliberately does **not** creep the bar between stages: interpolating toward a boundary the page was never told about is inventing progress, which is the fault X0R-1404 exists to fix. |
 
@@ -2911,6 +2911,36 @@ move applied one level in.
 
 **Recommended: re-scope X0R-1407 to that single change, 2 points, and drop the rest.** A
 general redesign has no measurement behind it any more.
+
+#### Built 2026-10-07
+
+A stem's tone bands are now one `<details>` carrying a sentence, the biggest gap as a
+number, and the band ladder **borrowed from the per-drum panel** - sprint 1's own move
+("nineteen controls into six groups") applied one level in, with a control that already
+existed rather than a new one that looks almost the same.
+
+| | before | after |
+|---|---:|---:|
+| top-level rows | 31 | **19** |
+| sliders (all still reachable) | 31 | 31 |
+| everything closed | 848 px | **779 px** |
+| cards open, tone closed | 3 133 px | **2 333 px** |
+| one instrument fully open | — | 1 457 px |
+
+**Open, it is bigger, and that is the trade.** Expanding every card *and* every tone group
+comes to 3 677 px against the old 3 133, because the ladders are new pixels. The states a
+user is actually in - arriving, and opening one instrument - are both smaller, and the row
+count a reader has to scan drops by nearly two fifths.
+
+**No control was removed.** All 31 sliders and all 31 Apply buttons are still there, one
+disclosure further in; a user who wants 1.4 dB of air on the drums and nothing else can
+still say exactly that. `refreshMoveButtons`, the per-card "Apply all" count and the
+X0R-1405 taken-record all work unchanged, because they query by class rather than by depth.
+
+**One layout bug on the way:** `.tone-group` is a `.move`, and `.move` is a two-column grid
+built for a row with a control on the right. The group inherited it and stranded its own
+summary in a narrow left column with the ladder pushed off to the side. It opts out with
+`display: block` - the shape is a disclosure containing rows, not a row.
 
 ### What that does to X0R-1417
 

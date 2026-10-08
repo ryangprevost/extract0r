@@ -2523,6 +2523,13 @@ def _fingerprint_json(print_) -> dict:
         "tempo_bpm": round(print_.grid.tempo_bpm, 1),
         "beats_per_bar": print_.grid.beats_per_bar,
         "grid_confidence": round(print_.grid.confidence, 3),
+        # How well the *bar length* is supported, which is a separate question from the
+        # beat and the one a histogram actually rests on. X0R-1319 criterion 4: this was
+        # computed by `detect_beats_per_bar`, written to a log and dropped, so every
+        # consumer saw a bar length with no way to tell whether it had been read or
+        # assumed - and drew bars against it regardless.
+        "metre_confidence": round(getattr(print_.grid, "metre_confidence", 0.0), 3),
+        "metre_resolved": bool(getattr(print_.grid, "metre_resolved", False)),
         "bars": round(print_.grid.bars, 1),
         "key": print_.key_name,
         "key_confidence": round(print_.key_confidence, 3),

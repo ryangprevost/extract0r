@@ -182,8 +182,27 @@ const Groove = (() => {
       host.appendChild(why);
     }
 
-    for (const [key, title] of DRUMS.map(([k, label]) => [k, `${label} across the bar`])) {
-      host.appendChild(barChart(title, data.yours?.[key], data.reference?.[key]));
+    // X0R-1319 criterion 4: a histogram is indexed by the bar length, so it means
+    // nothing against a bar length nobody measured. `detect_beats_per_bar` reports zero
+    // confidence when there is no accent to read - that is what X0R-407 added - and until
+    // now that figure was logged and dropped, so these drew bars against an assumption
+    // and said nothing about it.
+    const resolved = data.yours?.metre_resolved !== false;
+    if (resolved) {
+      for (const [key, title] of DRUMS.map(([k, label]) => [k, `${label} across the bar`])) {
+        host.appendChild(barChart(title, data.yours?.[key], data.reference?.[key]));
+      }
+    } else {
+      const why = document.createElement("p");
+      why.className = "groove-note groove-unresolved";
+      why.textContent =
+        "No bar chart here: nothing in the audio marks where a bar begins, so " +
+        (data.yours?.beats_per_bar || 4) +
+        " beats to a bar is an assumption rather than a reading. A picture of where each " +
+        "drum falls across a bar is only worth drawing once the bar is known - these " +
+        "would be the same hits chopped at an arbitrary point. The figures below do not " +
+        "depend on it and are still measured.";
+      host.appendChild(why);
     }
 
     const sides = document.createElement("div");

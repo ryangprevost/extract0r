@@ -1476,3 +1476,6 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 }
 .tone-ladder { margin: 2px 12px 10px; }
 .tone-group > .move { margin: 0 12px 10px; }
+
+/* Why a bar chart is absent. Not an error - the figures beside it are still measured. */
+.groove-unresolved { border-left-color: var(--warn); }

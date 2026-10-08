@@ -76,7 +76,21 @@ class TimingEstimate:
     beats_per_bar: int = 4
     beat_unit: int = 4          # the 4 in 3/4; 8 for 6/8
     first_beat_s: float = 0.0
+    #: How well the chosen tempo explains the onsets. **Tempo only** - see
+    #: `metre_confidence` for the other half, which used to be computed and thrown away.
     confidence: float = 0.0
+    #: How well `beats_per_bar` is actually supported, 0..1.
+    #:
+    #: X0R-1319 criterion 4. `detect_beats_per_bar` has always returned this - it is what
+    #: X0R-407 added, so that a metre read without an accent reports no confidence rather
+    #: than a confident guess - and `TimingEstimate` had nowhere to put it. The analyser
+    #: computed it, wrote it to the log and dropped it, so **every consumer downstream saw
+    #: a bar length with no way to tell whether it had been read or assumed**, and every
+    #: histogram is indexed by that number.
+    #:
+    #: Zero means "4/4 assumed because nothing in the audio said otherwise". It is not the
+    #: same claim as 4/4 measured, and anything drawing bars should say which it has.
+    metre_confidence: float = 0.0
     key: KeyEstimate | None = None
     candidates: list[TempoCandidate] = field(default_factory=list)
     source: str = "detected"

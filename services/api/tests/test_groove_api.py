@@ -178,3 +178,72 @@ def test_grid_confidence_reaches_the_page_at_all(client, separated):
     started = client.post(f"/api/v1/tracks/{separated}/groove")
     result = finish(client, started.json()["job_id"])["result"]
     assert isinstance(result["yours"]["grid_confidence"], float)
+
+
+# --- X0R-1319 criterion 4: a histogram needs a bar -----------------------------------
+
+
+def test_metre_confidence_survives_into_the_grid():
+    """It was computed, logged and dropped.
+
+    `detect_beats_per_bar` has returned a confidence since X0R-407, precisely so a metre
+    read without an accent would not look like a measurement - and `TimingEstimate` had
+    nowhere to put it. Every consumer saw a bar length with no way to tell whether it had
+    been read or assumed, and drew bars against it regardless.
+    """
+    from app.domain.timing import TimingEstimate
+    from app.services.analysis.fingerprint import BeatGrid
+
+    estimate = TimingEstimate(tempo_bpm=120.0, beats_per_bar=4, metre_confidence=0.42)
+    grid = BeatGrid.from_timing(estimate, duration_s=30.0)
+    assert grid.metre_confidence == 0.42
+    assert grid.metre_resolved is True
+
+
+def test_an_assumed_metre_is_not_resolved():
+    """Zero is what `detect_beats_per_bar` returns when there is no accent to read."""
+    from app.domain.timing import TimingEstimate
+    from app.services.analysis.fingerprint import BeatGrid
+
+    grid = BeatGrid.from_timing(
+        TimingEstimate(tempo_bpm=120.0, beats_per_bar=4, metre_confidence=0.0),
+        duration_s=30.0,
+    )
+    assert grid.metre_resolved is False
+
+
+def test_metre_and_tempo_are_gated_separately():
+    """A tempo can be solid while the bar length is a guess, and the two gate different
+    things: a timing figure needs the beat, a histogram needs the bar."""
+    from app.domain.timing import TimingEstimate
+    from app.services.analysis.fingerprint import BeatGrid
+
+    grid = BeatGrid.from_timing(
+        TimingEstimate(tempo_bpm=120.0, confidence=0.9, metre_confidence=0.0),
+        duration_s=30.0,
+    )
+    assert grid.usable is True
+    assert grid.metre_resolved is False
+
+
+def test_the_response_says_whether_the_bar_was_read_or_assumed(client, separated):
+    started = client.post(f"/api/v1/tracks/{separated}/groove")
+    mine = finish(client, started.json()["job_id"])["result"]["yours"]
+    assert isinstance(mine["metre_confidence"], float)
+    assert isinstance(mine["metre_resolved"], bool)
+
+
+def test_the_page_refuses_to_draw_bars_against_an_unresolved_metre():
+    """Structural, like the other Studio guards: this project has no JavaScript runner.
+
+    What it catches is the thing that was actually wrong - histograms drawn
+    unconditionally against a bar length nobody had measured.
+    """
+    from pathlib import Path
+
+    studio = Path(__file__).resolve().parents[3] / "apps" / "studio" / "wwwroot"
+    source = (studio / "groove.js").read_text(encoding="utf-8")
+    assert "metre_resolved" in source
+    assert "const resolved" in source
+    # And it has to say why, rather than silently drawing nothing.
+    assert "an assumption rather than a reading" in source

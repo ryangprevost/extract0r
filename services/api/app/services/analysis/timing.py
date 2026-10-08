@@ -89,6 +89,7 @@ class TimingAnalyser:
             beats_per_bar=beats_per_bar,
             first_beat_s=round(chosen.offset_s, 4),
             confidence=round(chosen.score, 3),
+            metre_confidence=round(metre_confidence, 3),
             key=key,
             source=f"{self.name} (librosa reported {reported:.1f})",
         )

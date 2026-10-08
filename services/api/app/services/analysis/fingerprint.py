@@ -52,6 +52,15 @@ STEPS_PER_BEAT = 4
 #: explains the onsets" and starts meaning "some onsets happen to land on it".
 MIN_GRID_CONFIDENCE = 0.35
 
+#: Below this, `beats_per_bar` is an assumption rather than a reading.
+#:
+#: `detect_beats_per_bar` reports zero when there is no accent to read, which X0R-407 added
+#: precisely so that a guess would not look like a measurement - so anything above zero is
+#: *some* evidence. This sits low because the figure is a ratio of mean onset strength on
+#: candidate downbeats against the other beats, and a real backbeat does not have to be
+#: dramatic to be real.
+MIN_METRE_CONFIDENCE = 0.15
+
 #: Minimum hits before a timing *distribution* means anything. Twenty-four is two bars of
 #: steady eighths; below it the standard deviation is dominated by which hits the detector
 #: happened to find.
@@ -145,6 +154,10 @@ class BeatGrid:
     first_beat_s: float
     confidence: float
     duration_s: float
+    #: How well `beats_per_bar` is supported. Zero means 4/4 was assumed because nothing
+    #: in the audio said otherwise - a different claim from 4/4 measured, and the one that
+    #: decides whether a histogram indexed by it means anything. X0R-1319 criterion 4.
+    metre_confidence: float = 0.0
 
     @classmethod
     def from_timing(cls, timing: TimingEstimate, duration_s: float) -> BeatGrid:
@@ -154,11 +167,22 @@ class BeatGrid:
             first_beat_s=timing.first_beat_s,
             confidence=timing.confidence,
             duration_s=duration_s,
+            metre_confidence=getattr(timing, "metre_confidence", 0.0),
         )
 
     @property
     def usable(self) -> bool:
         return self.tempo_bpm > 0 and self.confidence >= MIN_GRID_CONFIDENCE
+
+    @property
+    def metre_resolved(self) -> bool:
+        """Whether the bar length was read from the audio or assumed.
+
+        Separate from `usable` on purpose: a tempo can be solid while the metre is a
+        guess, and the two gate different things. A timing figure needs the beat; a
+        histogram needs the *bar*, because that is what it is indexed by.
+        """
+        return self.metre_confidence >= MIN_METRE_CONFIDENCE
 
     @property
     def seconds_per_beat(self) -> float:

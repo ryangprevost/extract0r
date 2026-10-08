@@ -2449,6 +2449,61 @@ Measured on two live records and one programmed control, 28 s each:
 - Tested against at least one live-drummed and one programmed record, with the before and
   after numbers written down.
 
+#### 2026-10-08: criterion 4 done, and the octave proved structural
+
+**Criterion 4 is met.** `detect_beats_per_bar` has returned a metre confidence since
+X0R-407 - the whole point of that card - and **`TimingEstimate` had nowhere to put it**. The
+analyser computed it, wrote it to the log and dropped it, so every consumer downstream saw a
+bar length with no way to tell whether it had been read or assumed. The groove panel shipped
+in X0R-1422 drew three histograms against it regardless.
+
+It now travels: `TimingEstimate.metre_confidence` → `BeatGrid.metre_confidence` →
+`grid.metre_resolved` → the groove response → the page, which draws no bar chart against an
+unresolved metre and says why instead. Gated separately from `usable`, because a tempo can be
+solid while the bar is a guess and the two gate different things - a timing figure needs the
+beat, a histogram needs the bar.
+
+Measured on real material:
+
+| | tempo | tempo conf | metre conf | bars drawn |
+|---|---:|---:|---:|---|
+| Ryan's own source | 129.20 | 0.383 | **0.000** | no, and says why |
+| another source | 166.71 | 0.427 | 0.212 | yes |
+
+**Ryan's own record reads 0.000** - the bar length was pure assumption, and yesterday's panel
+drew bars on it anyway.
+
+#### The octave: a structural finding, and deliberately no fix
+
+This card assumed recall should punish a doubled grid and merely fails to on dense material.
+**It is worse than that, and the reason is provable rather than empirical.** Reconstructed on
+a synthetic case - hits on every eighth at a true 100 BPM:
+
+| grid | precision | recall | F |
+|---|---:|---:|---:|
+| 100 BPM (true) | 0.500 | 1.000 | 0.6667 |
+| 200 BPM (wrong) | **1.000** | 1.000 | **1.0000** |
+
+Every onset on a 100 BPM beat is also on a 200 BPM beat, so precision can never favour the
+slower grid; recall cannot compensate once both grids are fully occupied. **No onset-only
+F-measure can prefer the slower reading on subdivided material.** The wrong answer does not
+win narrowly - it wins with a perfect score and a 0.33 margin.
+
+An abstention rule was built and **not shipped**. Flagging "both this grid and its half are
+fully occupied" correctly identifies undecidability - and fires on four-on-the-floor, where
+the answer is right, because *hits on every beat at 100* and *hits on every eighth at 200*
+are literally the same set of times. Shipping it would have zeroed confidence on exactly the
+programmed records that work best today. Measured on five real drum stems: four resolve with
+margins of 0.17-0.26, one (195.02 BPM) trips the rule and cannot be verified either way.
+
+So the card's own conclusion stands and is now better supported: **this needs X0R-306's eval
+set, not another heuristic.** What has changed is that one line of attack is closed off for
+good rather than left as something to try again.
+
+**Still open: criteria 1, 2, 3, 5 and 6** - the tempo map, the drift measurement, zero
+confidence on an unresolved octave, downstream abstention on an unlocked clip, and the
+before/after write-up on a live-drummed pair.
+
 **Out of scope.** Tempo *editing* by the user. Any timing comparison — that is X0R-1322.
 Beat tracking replaced wholesale with a different library; the failure here is in the
 choosing and the fitting, not in librosa's onset envelope.

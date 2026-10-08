@@ -18,7 +18,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.domain.tempo_map import MAX_TEMPO_DRIFT, TempoMap, fit, residual_ms, subdivisions
+from app.domain.tempo_map import (
+    LOCK_FLOOR,
+    MAX_TEMPO_DRIFT,
+    TempoMap,
+    fit,
+    residual_ms,
+    subdivisions,
+)
 
 SIXTEENTHS_PER_BEAT = 4
 
@@ -244,3 +251,65 @@ def test_nothing_to_fit_is_not_an_error():
     for bad in (fit([], 0.0, 0.0, 10.0), fit([1.0], 120.0, 0.0, 0.0)):
         assert isinstance(bad, TempoMap)
         assert not bad.fitted
+
+
+# --- is this grid worth computing against at all ------------------------------------------
+#
+# Criterion 5. These exist because two of the four real stems measured for criterion 2
+# started at *exactly* the chance distance: the tempo they were handed explained nothing
+# about the playing, and every figure computed against it was noise with units.
+
+
+def test_chance_is_a_quarter_of_a_step():
+    """The number the lock is measured against. A time unrelated to the grid lands uniformly
+    within a step, so its distance to the nearest grid point has a median of a quarter step -
+    29 ms for a sixteenth at 129 BPM."""
+    mapped = fit(hits(129.0, bars=8), 129.0, 0.0, 15.0)
+
+    assert mapped.chance_residual_ms == pytest.approx(60.0 / 129.0 / 4 * 1000 / 4, rel=0.02)
+
+
+def test_a_record_on_its_grid_locks():
+    mapped = fit(hits(120.0, bars=8), 120.0, 0.0, 16.0)
+
+    assert mapped.lock > 0.9
+    assert mapped.locked
+
+
+def test_a_grid_no_better_than_chance_does_not_lock():
+    """The case from real material: 29.0 ms at 129 BPM, which is chance exactly. Criterion 5
+    asks for this to be said plainly rather than quietly carried downstream."""
+    rng = np.random.default_rng(1319)
+    anchors = sorted(rng.uniform(0.0, 20.0, 160).tolist())
+    mapped = fit(anchors, 129.0, 0.0, 20.0)
+
+    assert mapped.lock < LOCK_FLOOR
+    assert not mapped.locked
+
+
+def test_lock_does_not_resolve_the_octave():
+    """Stated as a test so nobody reads `lock` as an octave check. Every hit on a 100 BPM
+    grid is also on a 200 BPM grid, so the doubled reading scores **at least as well** - and
+    this card proved no onset-only measure can prefer the slower one on subdivided material.
+    Criterion 3 is still open and this is not it."""
+    period = 60.0 / 100.0
+    eighths = [i * period / 2 for i in range(64)]
+
+    truth = fit(eighths, 100.0, 0.0, 32 * period)
+    doubled = fit(eighths, 200.0, 0.0, 32 * period)
+
+    assert doubled.lock >= truth.lock
+    assert doubled.locked
+
+
+def test_an_unfitted_map_still_reports_a_lock():
+    """A caller gating on `locked` must get an answer even when there was nothing to fit -
+    otherwise the quiet intro case silently skips the gate."""
+    mapped = fit([0.0, 0.5, 1.0, 1.5], 120.0, 0.0, 8.0)
+
+    assert not mapped.fitted
+    assert 0.0 <= mapped.lock <= 1.0
+
+
+def test_lock_is_zero_when_there_is_no_grid():
+    assert fit([], 0.0, 0.0, 10.0).lock == 0.0

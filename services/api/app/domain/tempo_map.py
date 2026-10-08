@@ -24,6 +24,29 @@ roughly correct tempo; **it cannot rescue a tempo that is wrong**, and the rows 
 barely moves are the rows where the grid was never locked in the first place. Those are
 criteria 3 and 5 - reporting no confidence, and abstaining downstream - not this one.
 
+### Whether a grid is worth computing against at all
+
+That table is also where criterion 5 came from. A time with no relationship to the grid sits
+a median of a quarter-step away, so at 129 BPM **chance is 29 ms** - and the bottom two rows
+start at 29.0 and 23.2. Their tempo explained nothing, and every figure computed against them
+was noise with units. `TempoMap.lock` is that comparison, one meaning exact and zero meaning
+no better than chance:
+
+| | before | after | chance | lock | locked |
+|---|---:|---:|---:|---:|---|
+| a live source | 23.2 ms | 6.4 ms | 22.2 ms | **0.71** | yes |
+| its reference | 29.0 ms | 27.1 ms | 27.8 ms | **0.03** | **no** |
+
+`lock` **does not resolve the octave** and must not be read as if it does: every hit on a
+100 BPM grid is also on a 200 BPM grid, so a doubled reading scores at least as well as the
+truth. That is criterion 3, this card proved no onset-only measure can settle it, and there
+is a test asserting the limitation rather than hiding it.
+
+A note on reproducing any of this: two of the four tracks measured above were **deleted by
+the retention sweep between two runs minutes apart** - 24 hours by design, working correctly.
+The figures survive because they are written here. A committed synthetic pair, programmed and
+drifting, is what would make them re-runnable, and that is criterion 6's remaining gap.
+
 A note for whoever measures this next: the first run of that table found 1721 onsets in a
 28-second clip, 61 a second, which no drummer plays. Default onset detection with no `delta`
 or `wait` finds texture, and a residual computed against it improved beautifully and meant
@@ -75,6 +98,13 @@ MAX_TEMPO_DRIFT = 0.08
 PHASE_GAIN = 0.30
 TEMPO_GAIN = 0.10
 
+#: A grid whose hits sit this fraction of the random-chance distance away, or further, is
+#: not locked. See `TempoMap.lock` for where the chance figure comes from and why this is a
+#: measure of the grid rather than of the playing. 0.35 is set from measurement: real stems
+#: score 0.72-0.82 once mapped, and the two whose global tempo was no better than chance
+#: score 0.00 - there is nothing near the threshold to argue about.
+LOCK_FLOOR = 0.35
+
 #: Below this many anchors there is nothing to fit and the global grid stands. Four hits is
 #: not a tempo, and fitting one anyway is how a quiet intro gets a grid built out of noise.
 MIN_ANCHORS = 12
@@ -103,6 +133,48 @@ class TempoMap:
     #: False when the map is the steady grid unchanged, because there was too little to fit
     #: or because fitting made the figure worse.
     fitted: bool
+    #: Subdivision the residuals were measured against, needed to say what distance chance
+    #: would have produced.
+    division: int = 4
+
+    @property
+    def chance_residual_ms(self) -> float:
+        """How far from the grid a *random* set of times would sit.
+
+        A time with no relationship to the grid lands uniformly within a step, so its
+        distance to the nearest grid point is uniform on half a step and its median is a
+        **quarter of a step**. At 129 BPM a sixteenth is 116 ms, so chance is 29 ms.
+        """
+        if self.beats.size < 2:
+            return 0.0
+        step = float(np.mean(np.diff(self.beats))) / self.division
+        return step * 1000.0 / 4.0
+
+    @property
+    def lock(self) -> float:
+        """How much of the playing this grid actually explains, 0 to 1.
+
+        Criterion 5: *a clip the grid cannot lock is said so plainly*. One measured against
+        chance, so 1.0 is hits exactly on the grid and 0.0 is a grid no better than picking
+        times at random. This is what made the need visible in the first place - two of the
+        four real stems measured for criterion 2 started at **exactly** the chance figure,
+        meaning the tempo they were handed explained nothing, and every timing figure
+        computed against them was noise with units.
+
+        **It does not resolve the octave**, and must not be read as though it does. Every hit
+        on a 100 BPM grid is also on a 200 BPM grid, so a doubled reading scores a *higher*
+        lock than the truth. That is criterion 3, this card proved no onset-only measure can
+        settle it, and there is a test here asserting the limitation rather than hiding it.
+        """
+        chance = self.chance_residual_ms
+        if chance <= 0:
+            return 0.0
+        return float(np.clip(1.0 - self.residual_after_ms / chance, 0.0, 1.0))
+
+    @property
+    def locked(self) -> bool:
+        """Whether anything downstream should compute a timing figure against this grid."""
+        return self.lock >= LOCK_FLOOR
 
     @property
     def improvement_ms(self) -> float:
@@ -210,7 +282,7 @@ def fit(
     """
     anchors = np.sort(np.asarray(list(anchors), dtype=float))
     if tempo_bpm <= 0 or duration_s <= 0:
-        return TempoMap(np.array([]), np.array([]), 0.0, 0.0, fitted=False)
+        return TempoMap(np.array([]), np.array([]), 0.0, 0.0, False, division)
 
     period = 60.0 / tempo_bpm
     count = max(2, int((duration_s - first_beat_s) / period) + 1)
@@ -219,7 +291,7 @@ def fit(
 
     def unfitted() -> TempoMap:
         flat = np.full(max(count - 1, 1), tempo_bpm)
-        return TempoMap(steady, flat, before, before, fitted=False)
+        return TempoMap(steady, flat, before, before, False, division)
 
     if anchors.size < MIN_ANCHORS:
         return unfitted()
@@ -246,4 +318,4 @@ def fit(
     if after > before:
         return unfitted()
 
-    return TempoMap(beats, 60.0 / periods, before, after, fitted=True)
+    return TempoMap(beats, 60.0 / periods, before, after, True, division)

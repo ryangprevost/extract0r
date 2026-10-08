@@ -2435,19 +2435,20 @@ Measured on two live records and one programmed control, 28 s each:
 
 **Acceptance criteria**
 - A tempo per bar, not per clip — a tempo map — fitted to the drum anchors, with the
-  per-bar figure available to anything that reads a grid.
+  per-bar figure available to anything that reads a grid. ✅
 - On a record whose tempo drifts, the median distance of a kick or snare from its nearest
   sixteenth drops to the programmed record's order of magnitude, and the figure is reported
-  so the improvement is visible rather than asserted.
+  so the improvement is visible rather than asserted. ✅ **measured**
 - The octave decision is re-checked on material with a drum on every beat, and a reading it
   cannot resolve comes back at **zero** confidence rather than at 0.486 — the X0R-407 rule,
-  applied to tempo.
+  applied to tempo. ❌ proved structurally unreachable from onsets alone; see below
 - Metre either resolves or abstains; a histogram is never rendered against an unresolved
   metre.
 - A clip the grid cannot lock is said so plainly, and every figure downstream abstains
-  rather than being computed against it.
+  rather than being computed against it. ✅ `TempoMap.lock`, measured against chance
 - Tested against at least one live-drummed and one programmed record, with the before and
-  after numbers written down.
+  after numbers written down. ⏳ numbers written down; the tracks they came from have since
+  been purged by retention, so a committed fixture pair is still needed
 
 #### 2026-10-08: criterion 4 done, and the octave proved structural
 
@@ -2500,9 +2501,54 @@ So the card's own conclusion stands and is now better supported: **this needs X0
 set, not another heuristic.** What has changed is that one line of attack is closed off for
 good rather than left as something to try again.
 
-**Still open: criteria 1, 2, 3, 5 and 6** - the tempo map, the drift measurement, zero
-confidence on an unresolved octave, downstream abstention on an unlocked clip, and the
-before/after write-up on a live-drummed pair.
+#### 2026-10-08: criteria 1, 2 and 5 done; the measurement corpus turned out to be perishable
+
+**Criterion 1 is met.** `app/domain/tempo_map.py` tracks phase and rate beat by beat off kick
+and snare onsets - a phase-locked loop, not a per-bar least squares, because drift is
+continuous and a bar boundary is an arbitrary place to let the tempo jump.
+
+**Criterion 2 is met on two of four real stems, and the other two are explained rather than
+hidden.** Against the 5.7 ms a programmed control scores:
+
+| | tempo | before | after | chance | lock |
+|---|---:|---:|---:|---:|---:|
+| a live source | 166.71 | 23.2 ms | **6.4 ms** | 22.2 | 0.71 |
+| another source | 129.20 | 34.8 ms | **5.2 ms** | 29.0 | 0.82 |
+| its reference | 129.20 | 23.2 ms | 15.9 ms | 29.0 | 0.45 |
+| the other reference | 129.20 | 29.0 ms | 27.1 ms | 27.8 | **0.03** |
+
+**Criterion 5 is met, and it fell out of that table rather than being designed.** A time
+unrelated to the grid sits a median of a quarter-step away, so chance at 129 BPM is 29 ms -
+and the bottom two rows *start* at 29.0 and 23.2. Their tempo explained nothing, and every
+figure computed against them was noise with units. `TempoMap.lock` is one minus the residual
+over chance; `locked` gates on it. The bottom row now reads 0.03 and says so.
+
+Two errors measurement caught that reasoning had not. The first guard capped how far a
+**beat** could move from the steady grid - wrong quantity, because drift accumulates, and it
+pinned the map at 119-120 BPM across a 100-to-150 ramp while recovering a fifth of the error.
+The cap is now on local tempo. Second, the reported tempo was `60 / diff(beats)`; beat spacing
+also carries that beat's phase correction, so it showed **25 BPM of drift under a clamp
+permitting 21** - the figure contradicted the module's own guarantee.
+
+And one near miss worth recording: the first real-material run found **1721 onsets in a
+28-second clip**, 61 a second. The residual against it improved from 29.0 to 5.7 ms and meant
+nothing - the fit-the-noise failure the guards exist for, which they missed because at that
+density every beat has evidence everywhere.
+
+**Criterion 3 stays open, and `lock` is not it.** Every hit on a 100 BPM grid is also on a
+200 BPM grid, so a doubled reading scores a *higher* lock than the truth. There is a test
+asserting that limitation. The structural proof above still stands: this needs X0R-306's eval
+set.
+
+**Criterion 6 is partly met and has a named gap.** The before/after numbers are written down
+- which turned out to matter, because **two of those four tracks were deleted by the retention
+sweep between two measurement runs minutes apart.** Twenty-four hours, by design, working
+correctly. The figures survive only because they are in the module docstring. What would make
+them re-runnable is a committed synthetic pair, programmed and drifting, and that does not
+exist yet.
+
+**Still open: criteria 3 and 6** - zero confidence on an unresolved octave, and a committed
+fixture pair so the before/after can be re-run rather than trusted.
 
 **Out of scope.** Tempo *editing* by the user. Any timing comparison — that is X0R-1322.
 Beat tracking replaced wholesale with a different library; the failure here is in the

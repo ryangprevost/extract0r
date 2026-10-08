@@ -47,10 +47,30 @@ the retention sweep between two runs minutes apart** - 24 hours by design, worki
 The figures survive because they are written here. A committed synthetic pair, programmed and
 drifting, is what would make them re-runnable, and that is criterion 6's remaining gap.
 
-A note for whoever measures this next: the first run of that table found 1721 onsets in a
-28-second clip, 61 a second, which no drummer plays. Default onset detection with no `delta`
-or `wait` finds texture, and a residual computed against it improved beautifully and meant
-nothing. The anchors above are spaced at least 46 ms apart.
+### Two notes for whoever measures this next
+
+**Onset density.** The first run of that table found 1721 onsets in a 28-second clip, 61 a
+second, which no drummer plays. Default onset detection with no `delta` or `wait` finds
+texture, and a residual computed against it improved beautifully and meant nothing. The
+anchors above are spaced at least 46 ms apart.
+
+**Onset *resolution*, which is subtler and nearly got through.** Onset times come back exactly
+frame-aligned, so the analysis frame is a hard floor under any figure in this module. Measured
+against known hit times: 19.19 ms at hop 512, 9.46 at 256, 5.43 at 128, 3.78 at 64. The table
+above was first measured at hop 512, where the frame is 11.6 ms at 44.1 kHz - and it reported
+"after" figures of 6.4 and 5.2 ms, *below the detector's own resolution*, which should have
+been impossible. Re-measured at hop 128 the figures are **6.2 and 27.5 ms**, so they were
+sound and the suspicion was unfounded; but a synthetic fixture built at hop 512 and 22 kHz had
+a 23.22 ms frame and reported a residual of *exactly* 23.22 for both a steady and a drifting
+record. A frame larger than the microtiming cannot measure it, and nothing warned about that.
+
+### The control came out the opposite way round
+
+The card assumed a programmed record is on its grid and has nothing to recover. It is not. On
+a synthesised 129.2 BPM pattern the shipped global grid leaves **17.4 ms**, and this map takes
+it to **7.1** - because `librosa.feature.tempo` returned 129.10, and a tenth of a BPM
+accumulates phase across sixteen bars. The grid is wrong on the easiest possible input, which
+is a better argument for this module than either live record was.
 
 ### What this does, and what it refuses to do
 

@@ -2540,15 +2540,39 @@ density every beat has evidence everywhere.
 asserting that limitation. The structural proof above still stands: this needs X0R-306's eval
 set.
 
-**Criterion 6 is partly met and has a named gap.** The before/after numbers are written down
-- which turned out to matter, because **two of those four tracks were deleted by the retention
-sweep between two measurement runs minutes apart.** Twenty-four hours, by design, working
-correctly. The figures survive only because they are in the module docstring. What would make
-them re-runnable is a committed synthetic pair, programmed and drifting, and that does not
-exist yet.
+**Criterion 6: the programmed half is now re-runnable; the live half cannot be.** The numbers
+being written down turned out to matter, because **two of those four tracks were deleted by the
+retention sweep between two measurement runs minutes apart** - 24 hours, by design, working
+correctly. `tests/test_tempo_map_end_to_end.py` replaces the perishable half: it *generates* a
+programmed and a drifting kit, runs the real detector and the real tempo estimate over them,
+and measures. No audio in the repository, nothing for retention to delete, same figures on any
+machine. The live-drummed half still depends on material the person supplies, because a
+generator cannot honestly produce a human performance.
 
-**Still open: criteria 3 and 6** - zero confidence on an unresolved octave, and a committed
-fixture pair so the before/after can be re-run rather than trusted.
+#### Two findings from building that fixture, both of which change what this card says
+
+**The analysis frame is a hard floor under every figure here, and nothing warned about it.**
+Onset times come back *exactly* frame-aligned. Measured against known hit times: 19.19 ms at
+hop 512, 9.46 at 256, 5.43 at 128, 3.78 at 64. The table above was first measured at hop 512,
+reporting "after" figures of 6.4 and 5.2 ms - **below the detector's own resolution**, which
+should have been impossible. Re-measured at hop 128 they come out 6.2 and 27.5 ms, so the
+figures were sound and the suspicion was unfounded. But the synthetic fixture, built at hop
+512 and 22 kHz, had a 23.22 ms frame and reported a residual of *exactly* 23.22 for both a
+steady and a drifting record - the detector describing itself. There is now a test asserting
+the reported residual is above the frame.
+
+**The control came out the opposite way round from what this card assumed.** The card treats a
+programmed record as being on its grid with nothing to recover. It is not: on a synthesised
+129.2 BPM pattern the shipped global grid leaves **17.4 ms**, and the map takes it to **7.1**,
+because `librosa.feature.tempo` returned 129.10 and a tenth of a BPM accumulates phase across
+sixteen bars. **The grid is wrong on the easiest possible input.** That is a stronger argument
+for this work than either live record was, and it means the "programmed control" figure of
+5.7 ms quoted throughout this card was a best case for the *fitting*, not evidence the global
+grid was ever adequate.
+
+**Still open: criterion 3** - zero confidence on an unresolved octave, which needs X0R-306's
+eval set - and the live-drummed half of criterion 6, which needs material that outlives a
+24-hour retention window.
 
 **Out of scope.** Tempo *editing* by the user. Any timing comparison — that is X0R-1322.
 Beat tracking replaced wholesale with a different library; the failure here is in the

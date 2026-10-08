@@ -28,13 +28,14 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
 
 from app.domain.notes import StemKind
 from app.domain.timing import TimingEstimate, choose_tempo
+from app.services.analysis.tempo_map import TempoMap, fit
 
 log = logging.getLogger(__name__)
 
@@ -158,6 +159,15 @@ class BeatGrid:
     #: in the audio said otherwise - a different claim from 4/4 measured, and the one that
     #: decides whether a histogram indexed by it means anything. X0R-1319 criterion 4.
     metre_confidence: float = 0.0
+    #: A tempo that is allowed to change during the clip, fitted to the drum anchors.
+    #: X0R-1319 criterion 1: *the per-bar figure available to anything that reads a grid*.
+    #: `step_of` and `phase_of` are what "anything that reads a grid" means in practice -
+    #: every histogram and every timing figure in this application goes through one of them -
+    #: so attaching it here reaches all of them at once instead of per consumer.
+    #:
+    #: None when there were no drum anchors to fit, which is the honest state rather than a
+    #: map built out of nothing.
+    tempo_map: TempoMap | None = None
 
     @classmethod
     def from_timing(cls, timing: TimingEstimate, duration_s: float) -> BeatGrid:
@@ -173,6 +183,31 @@ class BeatGrid:
     @property
     def usable(self) -> bool:
         return self.tempo_bpm > 0 and self.confidence >= MIN_GRID_CONFIDENCE
+
+    @property
+    def lock(self) -> float:
+        """How much of the drumming this grid explains, measured against chance. 0 to 1.
+
+        X0R-1319 criterion 5. Separate from `confidence`, which is an F-measure over onsets
+        and was found to read 0.57-0.61 on a right answer and a wrong one alike, so nothing
+        could gate on it. This is a residual against what random times would have scored, and
+        on real material it separated 0.72 from 0.03.
+
+        Zero when no map was fitted - the absence of drum anchors is not evidence that the
+        grid is good.
+        """
+        return self.tempo_map.lock if self.tempo_map is not None else 0.0
+
+    @property
+    def locked(self) -> bool:
+        """Whether a timing figure computed against this grid means anything.
+
+        **Not a replacement for `usable`.** `usable` asks whether there is a tempo at all;
+        this asks whether the tempo explains the playing. A clip can be `usable` and not
+        `locked`, which is exactly the case this gate exists for - 0.03 at a confidence that
+        cleared `MIN_GRID_CONFIDENCE` comfortably.
+        """
+        return self.tempo_map is not None and self.tempo_map.locked
 
     @property
     def metre_resolved(self) -> bool:
@@ -207,13 +242,34 @@ class BeatGrid:
         return self.beats / self.beats_per_bar if self.beats_per_bar else 0.0
 
     def step_of(self, time_s: float) -> tuple[int, float]:
-        """(absolute step index, signed seconds the hit sits off that step)."""
+        """(absolute step index, signed seconds the hit sits off that step).
+
+        Read off the tempo map when there is one and the hit falls inside its span. Outside
+        that span - or with no map - the steady arithmetic stands, because an extrapolated map
+        is a worse answer than an honest constant one.
+        """
+        if self.tempo_map is not None and self.tempo_map.fitted:
+            found = self.tempo_map.step_of(time_s)
+            if found is not None:
+                return found
         offset = time_s - self.first_beat_s
         index = int(round(offset / self.step_s))
         return index, offset - index * self.step_s
 
     def phase_of(self, time_s: float) -> float:
-        """Where in its beat a hit falls, 0.0 on the beat, 0.5 exactly between two."""
+        """Where in its beat a hit falls, 0.0 on the beat, 0.5 exactly between two.
+
+        Expressed through `step_of` when a map is fitted, so the phase of a hit late in a
+        drifting clip is measured against the beat it was actually played over rather than
+        against one extrapolated from the first bar.
+        """
+        if self.tempo_map is not None and self.tempo_map.fitted:
+            found = self.tempo_map.step_of(time_s)
+            if found is not None:
+                index, off = found
+                step = self.tempo_map.step_at(time_s, STEPS_PER_BEAT)
+                if step > 0:
+                    return ((index % STEPS_PER_BEAT) + off / step) / STEPS_PER_BEAT % 1.0
         offset = (time_s - self.first_beat_s) % self.seconds_per_beat
         return offset / self.seconds_per_beat
 
@@ -252,7 +308,15 @@ def grid_from_drums(
         confidence=round(min(chosen.score, 1.0), 3),
         duration_s=duration_s,
     )
-    return refine_grid(anchors, grid)
+    refined = refine_grid(anchors, grid)
+    # The map goes on *after* refine_grid, not instead of it: that fit resolves the global
+    # period and phase, and this one follows the drift left over. Measured, the refined grid
+    # left 19-23 ms on real stems and the map took it to 3.0-6.2.
+    return replace(
+        refined,
+        tempo_map=fit(anchors, refined.tempo_bpm, refined.first_beat_s, duration_s,
+                      STEPS_PER_BEAT),
+    )
 
 
 def refine_grid(times: list[float], grid: BeatGrid, rounds: int = 4) -> BeatGrid:

@@ -100,7 +100,7 @@ swung.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -156,6 +156,25 @@ class TempoMap:
     #: Subdivision the residuals were measured against, needed to say what distance chance
     #: would have produced.
     division: int = 4
+    #: Every subdivision of `beats`, built once. `step_of` is called per note, so rebuilding
+    #: this per lookup would make one pass over a clip quadratic in its own hit count.
+    lattice: np.ndarray = field(default_factory=lambda: np.array([]))
+
+    def step_of(self, time_s: float) -> tuple[int, float] | None:
+        """(index of the nearest subdivision, signed seconds the hit sits off it).
+
+        None when `time_s` is outside the mapped span, so the caller falls back to its steady
+        grid rather than being handed an extrapolation dressed up as a measurement. The index
+        counts subdivisions from the first beat, which is the same thing `BeatGrid.step_of`
+        has always returned - so a bar-relative figure built on `index % steps_per_bar` keeps
+        meaning what it meant.
+        """
+        if self.lattice.size < 2 or not (self.lattice[0] <= time_s <= self.lattice[-1]):
+            return None
+        i = int(np.clip(np.searchsorted(self.lattice, time_s), 1, self.lattice.size - 1))
+        if time_s - self.lattice[i - 1] <= self.lattice[i] - time_s:
+            i -= 1
+        return i, float(time_s - self.lattice[i])
 
     @property
     def chance_residual_ms(self) -> float:
@@ -227,7 +246,9 @@ class TempoMap:
         """The subdivision closest to `time_s`, on this map rather than on a steady grid."""
         if self.beats.size < 2:
             return time_s
-        grid = subdivisions(self.beats, division)
+        grid = self.lattice if division == self.division else subdivisions(self.beats, division)
+        if grid.size == 0:
+            return time_s
         return float(grid[int(np.argmin(np.abs(grid - time_s)))])
 
 
@@ -309,7 +330,7 @@ def fit(
     """
     anchors = np.sort(np.asarray(list(anchors), dtype=float))
     if tempo_bpm <= 0 or duration_s <= 0:
-        return TempoMap(np.array([]), np.array([]), 0.0, 0.0, False, division)
+        return TempoMap(np.array([]), np.array([]), 0.0, 0.0, False, division, np.array([]))
 
     period = 60.0 / tempo_bpm
     count = max(2, int((duration_s - first_beat_s) / period) + 1)
@@ -318,7 +339,9 @@ def fit(
 
     def unfitted() -> TempoMap:
         flat = np.full(max(count - 1, 1), tempo_bpm)
-        return TempoMap(steady, flat, before, before, False, division)
+        return TempoMap(
+            steady, flat, before, before, False, division, subdivisions(steady, division)
+        )
 
     if anchors.size < MIN_ANCHORS:
         return unfitted()
@@ -345,4 +368,6 @@ def fit(
     if after > before:
         return unfitted()
 
-    return TempoMap(beats, 60.0 / periods, before, after, True, division)
+    return TempoMap(
+        beats, 60.0 / periods, before, after, True, division, subdivisions(beats, division)
+    )

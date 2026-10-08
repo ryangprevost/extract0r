@@ -247,3 +247,71 @@ def test_the_page_refuses_to_draw_bars_against_an_unresolved_metre():
     assert "const resolved" in source
     # And it has to say why, rather than silently drawing nothing.
     assert "an assumption rather than a reading" in source
+
+
+# --- X0R-1319 criterion 5: a figure abstains on a grid that explains nothing ----------
+
+
+def test_the_lock_reaches_the_page(client, separated):
+    """Criterion 5's second clause is unenforceable if the response does not carry it."""
+    started = client.post(f"/api/v1/tracks/{separated}/groove")
+    result = finish(client, started.json()["job_id"])["result"]
+
+    assert isinstance(result["yours"]["grid_lock"], float)
+    assert isinstance(result["yours"]["grid_locked"], bool)
+
+
+def test_the_page_gates_on_the_lock_and_not_only_on_the_confidence():
+    """The reason there are two gates rather than one.
+
+    `grid_confidence` is an F-measure over onsets and X0R-1319 measured it at 0.57-0.61 on
+    a right tempo and a doubled one alike, so it separates nothing. A figure could clear the
+    floor while resting on a grid that explained none of the playing - measured at **0.03**
+    of the way from chance to exact on a real reference, at a confidence well clear of the
+    floor. Gating on the confidence alone would have printed a confident percentage against
+    it.
+    """
+    from pathlib import Path
+
+    studio = Path(__file__).resolve().parents[3] / "apps" / "studio" / "wwwroot"
+    source = (studio / "groove.js").read_text(encoding="utf-8")
+
+    assert "grid_locked" in source
+    # Both gates, and `trusted` built from the pair rather than from either alone.
+    assert "const trusted = confident && locked;" in source
+    # And the bar charts, which are indexed by a grid they cannot be more reliable than.
+    assert "if (!gridLocked)" in source
+
+
+def test_the_two_gates_say_different_things():
+    """A shared message would make the panel unable to tell the user which thing went wrong,
+    and they call for different responses: a weak grid may improve on a longer clip, a tempo
+    that explains nothing usually means the wrong tempo was chosen."""
+    from pathlib import Path
+
+    studio = Path(__file__).resolve().parents[3] / "apps" / "studio" / "wwwroot"
+    source = (studio / "groove.js").read_text(encoding="utf-8")
+
+    assert "below the confidence floor" in source
+    assert "no better than chance" in source
+
+
+def test_lock_and_confidence_are_independent_on_the_grid():
+    """Folding `locked` into `usable` is the obvious simplification and it would lose the
+    only case this gate exists for."""
+    from app.services.analysis.fingerprint import STEPS_PER_BEAT, BeatGrid
+    from app.services.analysis.tempo_map import fit
+
+    rng = __import__("numpy").random.default_rng(1319)
+    anchors = sorted(rng.uniform(0.0, 20.0, 160).tolist())
+    grid = BeatGrid(
+        tempo_bpm=129.0,
+        beats_per_bar=4,
+        first_beat_s=0.0,
+        confidence=0.9,
+        duration_s=20.0,
+        tempo_map=fit(anchors, 129.0, 0.0, 20.0, STEPS_PER_BEAT),
+    )
+
+    assert grid.usable
+    assert not grid.locked

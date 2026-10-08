@@ -124,8 +124,20 @@ const Groove = (() => {
     // trustworthy than the grid is. When it is below the floor they abstain in the same
     // words the server uses, rather than printing a confident-looking percentage derived
     // from a lattice nobody believes.
-    const trusted = (print_.grid_confidence ?? 0) >= MIN_GRID_CONFIDENCE;
-    const untrusted = "the beat grid is below the confidence floor";
+    //
+    // **Two gates, because the confidence alone was never able to do this.** X0R-1319
+    // measured `grid_confidence` at 0.57-0.61 on a right tempo and a doubled one alike, so
+    // it separates nothing and a figure could clear the floor while resting on a grid that
+    // explained none of the playing - 0.03 of the way from chance to exact, on real stems,
+    // at a confidence well clear of this floor. `grid_locked` is the second gate: the
+    // residual of the drums against the grid, measured against what random times would have
+    // scored. Criterion 5.
+    const confident = (print_.grid_confidence ?? 0) >= MIN_GRID_CONFIDENCE;
+    const locked = print_.grid_locked !== false;
+    const trusted = confident && locked;
+    const untrusted = !confident
+      ? "the beat grid is below the confidence floor"
+      : "the tempo is no better than chance at explaining these drums";
 
     const placement = [
       ["kick on the beat", percent(print_.kick_on_beats), print_.kick_on_beats, "kicks"],
@@ -187,8 +199,23 @@ const Groove = (() => {
     // confidence when there is no accent to read - that is what X0R-407 added - and until
     // now that figure was logged and dropped, so these drew bars against an assumption
     // and said nothing about it.
+    // Two independent ways a bar chart can be meaningless, and they fail differently. The
+    // metre decides where a bar *starts*; the lock decides whether the beats inside it are
+    // in the right places at all. A chart needs both, and an unlocked tempo is the worse of
+    // the two - it invalidates the figures below as well, which an unresolved metre does not.
     const resolved = data.yours?.metre_resolved !== false;
-    if (resolved) {
+    const gridLocked = data.yours?.grid_locked !== false;
+    if (!gridLocked) {
+      const why = document.createElement("p");
+      why.className = "groove-note groove-unresolved";
+      why.textContent =
+        "No bar charts, and the placement figures below abstain: the tempo found for this " +
+        "clip is no better than chance at explaining where the drums actually fall. A hit " +
+        "sits about as far from its nearest sixteenth as it would if the times had been " +
+        "picked at random, so every count of hits against this grid would be measuring the " +
+        "ruler rather than the playing. The tempo and key above are still reported.";
+      host.appendChild(why);
+    } else if (resolved) {
       for (const [key, title] of DRUMS.map(([k, label]) => [k, `${label} across the bar`])) {
         host.appendChild(barChart(title, data.yours?.[key], data.reference?.[key]));
       }

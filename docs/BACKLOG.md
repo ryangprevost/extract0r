@@ -2448,8 +2448,8 @@ Measured on two live records and one programmed control, 28 s each:
 
 **Acceptance criteria**
 - A tempo per bar, not per clip — a tempo map — fitted to the drum anchors, with the
-  per-bar figure available to anything that reads a grid. ⏳ the map is built and measured;
-  **nothing reads it yet** - `BeatGrid` still answers `step_of` from one tempo
+  per-bar figure available to anything that reads a grid. ✅ attached to `BeatGrid`, so
+  `step_of` and `phase_of` read it and every rhythmic figure goes through those
 - On a record whose tempo drifts, the median distance of a kick or snare from its nearest
   sixteenth drops to the programmed record's order of magnitude, and the figure is reported
   so the improvement is visible rather than asserted. ✅ **measured**
@@ -2459,8 +2459,8 @@ Measured on two live records and one programmed control, 28 s each:
 - Metre either resolves or abstains; a histogram is never rendered against an unresolved
   metre.
 - A clip the grid cannot lock is said so plainly, and every figure downstream abstains
-  rather than being computed against it. ⏳ `TempoMap.lock` measures it; **no consumer
-  abstains on it yet**
+  rather than being computed against it. ✅ `grid_lock` / `grid_locked` on the response, and
+  both the bar charts and the placement percentages gate on it
 - Tested against at least one live-drummed and one programmed record, with the before and
   after numbers written down. ⏳ numbers written down; the tracks they came from have since
   been purged by retention, so a committed fixture pair is still needed
@@ -2518,14 +2518,21 @@ good rather than left as something to try again.
 
 #### 2026-10-08: criteria 1, 2 and 5 done; the measurement corpus turned out to be perishable
 
-**Criterion 1: the map exists and is measured; it is not wired in.** `app/services/analysis/tempo_map.py`
+**Criterion 1 is met.** `app/services/analysis/tempo_map.py`
 tracks phase and rate beat by beat off kick and snare onsets - a phase-locked loop, not a
 per-bar least squares, because drift is continuous and a bar boundary is an arbitrary place to
-let the tempo jump. But the criterion also says *available to anything that reads a grid*, and
-nothing reads it: `BeatGrid.step_of` and `phase_of` still answer from a single tempo, so every
-histogram and every timing figure is still computed against the grid this card calls wrong.
-The attachment point is `grid_from_drums`, which already receives the anchors, the timing and
-the duration that `fit` needs.
+let the tempo jump. The criterion's second clause - *available to anything that reads a grid* - took a second
+pass, because the first version met only the first clause and was marked done anyway. It is
+attached to `BeatGrid` in `grid_from_drums`, **after** `refine_grid` rather than instead of it:
+that fit resolves the global period and phase, and this one follows the drift left over.
+`step_of` and `phase_of` are what "anything that reads a grid" means in practice - every
+histogram and every timing figure here goes through one of them - so one attachment reaches
+all of them. Outside the mapped span the steady arithmetic stands, because an extrapolated map
+is a worse answer than an honest constant one.
+
+The test that matters is that a steady record is *undisturbed*, parametrised across 90, 120,
+147.7 and 166.7 BPM. The map is a correction, and a correction that moves an already-correct
+answer is a regression.
 
 **Criterion 2 is met on two of four real stems, and the other two are explained rather than
 hidden.** Against the 5.7 ms a programmed control scores:
@@ -2537,13 +2544,18 @@ hidden.** Against the 5.7 ms a programmed control scores:
 | its reference | 129.20 | 23.2 ms | 15.9 ms | 29.0 | 0.45 |
 | the other reference | 129.20 | 29.0 ms | 27.1 ms | 27.8 | **0.03** |
 
-**Criterion 5: measured, not yet enforced.** It fell out of that table rather than being
-designed. A time
+**Criterion 5 is met.** It fell out of that table rather than being designed. A time
 unrelated to the grid sits a median of a quarter-step away, so chance at 129 BPM is 29 ms -
 and the bottom two rows *start* at 29.0 and 23.2. Their tempo explained nothing, and every
 figure computed against them was noise with units. `TempoMap.lock` is one minus the residual
-over chance; `locked` gates on it. The bottom row reads 0.03. **What is missing is the second half of the criterion** - no
-consumer gates on `locked` yet, so a clip at 0.03 still has figures computed against it.
+over chance; `locked` gates on it. The bottom row reads 0.03, and the panel now abstains on it. **Two gates rather than one, and
+that is the point:** `grid_confidence` is an F-measure over onsets that this card measured at
+0.57-0.61 on a right tempo and a doubled one alike, so it separates nothing - a figure could
+clear `MIN_GRID_CONFIDENCE` comfortably while resting on a grid that explained none of the
+playing, which is exactly what 0.03 at a clear confidence is. `grid_locked` is the second gate.
+The two say different things on screen, because they call for different responses: a weak grid
+may improve on a longer clip, a tempo that explains nothing usually means the wrong tempo was
+chosen.
 
 Two errors measurement caught that reasoning had not. The first guard capped how far a
 **beat** could move from the steady grid - wrong quantity, because drift accumulates, and it
@@ -2624,12 +2636,13 @@ Normalising by chance removes the units but not this bias. `lock` answers *is th
 computing against*, never *which grid is right*.
 
 **Still open: criterion 3** - zero confidence on an unresolved octave, which needs X0R-306's
-eval set, and now has a concrete reproducible case in the 3:2 split above. **Criterion 1's
-second clause and criterion 5's second clause** - the map is measured but nothing reads it, and
-`locked` is measured but nothing abstains on it. The attachment point is `grid_from_drums`,
-which already receives everything `fit` needs, and `BeatGrid.step_of` / `phase_of`, which every
-rhythmic figure goes through. **The live-drummed half of criterion 6**, which needs material
-that outlives a 24-hour retention window.
+eval set, and now has a concrete reproducible case in the 3:2 split above. **And the
+live-drummed half of criterion 6**, which needs material that outlives a 24-hour retention
+window - a decision about `retention_hours`, or a folder the sweep ignores, and that touches
+the privacy posture rather than being a code change.
+
+Criteria 1, 2, 4 and 5 are met. **This card moves from `PARTIAL` to `PARTIAL` honestly rather
+than to `DONE`**: the octave is the thing it was opened for, and it is the thing still open.
 
 **Out of scope.** Tempo *editing* by the user. Any timing comparison — that is X0R-1322.
 Beat tracking replaced wholesale with a different library; the failure here is in the

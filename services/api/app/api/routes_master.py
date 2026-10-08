@@ -2530,6 +2530,17 @@ def _fingerprint_json(print_) -> dict:
         # assumed - and drew bars against it regardless.
         "metre_confidence": round(getattr(print_.grid, "metre_confidence", 0.0), 3),
         "metre_resolved": bool(getattr(print_.grid, "metre_resolved", False)),
+        # Whether the *tempo* explains the drumming, measured against what random times would
+        # have scored. X0R-1319 criterion 5, and a different question from `grid_confidence`:
+        # that is an F-measure over onsets, it read 0.57-0.61 on a right answer and a wrong
+        # one alike, and so nothing could ever gate on it. This separated 0.72 from 0.03 on
+        # real stems.
+        #
+        # Reported next to the figures rather than used to suppress them, because the page is
+        # what decides how to show a number it cannot stand behind - and a route that silently
+        # returned fewer keys would break every client that reads them.
+        "grid_lock": round(getattr(print_.grid, "lock", 0.0), 3),
+        "grid_locked": bool(getattr(print_.grid, "locked", False)),
         "bars": round(print_.grid.bars, 1),
         "key": print_.key_name,
         "key_confidence": round(print_.key_confidence, 3),

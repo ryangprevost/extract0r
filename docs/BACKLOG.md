@@ -51,8 +51,21 @@ Current sprint plan: [sprints/SPRINT-2.md](sprints/SPRINT-2.md).
 **As a** developer **I want** notes, tab, and the `.x0r` writer to be pure Python **so that** the interesting logic is testable without a 2 GB ML install.
 
 **Acceptance criteria**
-- Nothing under `app/domain/` imports a third-party package.
-- `pytest` passes with only `requirements.txt` + `requirements-dev.txt` installed.
+- Nothing under `app/domain/` imports a third-party package. ✅ **and now enforced**
+- `pytest` passes with only `requirements.txt` + `requirements-dev.txt` installed. ✅
+
+**2026-10-08: the invariant was broken, and nothing noticed.** X0R-1319's tempo map was
+written into `app/domain/` importing numpy. The whole suite stayed green, and it was caught
+only because somebody re-read this card afterwards. A documented invariant with no test is a
+comment. `tests/test_domain_purity.py` now walks the AST of every module under `app/domain/`
+and fails on any import that is not stdlib or `app`, with a message naming where numpy-shaped
+work belongs instead.
+
+numpy is a base dependency, so the *second* criterion was never at risk and nothing was
+broken in practice. That is exactly why it is worth a test: the slide is gradual, each
+individual crossing looks harmless, and the one after numpy is scipy. The tempo map moved to
+`app/services/analysis/`, which is where it belonged regardless - it fits a model to measured
+onsets, which is analysis rather than a domain type.
 
 ---
 
@@ -2505,7 +2518,7 @@ good rather than left as something to try again.
 
 #### 2026-10-08: criteria 1, 2 and 5 done; the measurement corpus turned out to be perishable
 
-**Criterion 1: the map exists and is measured; it is not wired in.** `app/domain/tempo_map.py`
+**Criterion 1: the map exists and is measured; it is not wired in.** `app/services/analysis/tempo_map.py`
 tracks phase and rate beat by beat off kick and snare onsets - a phase-locked loop, not a
 per-bar least squares, because drift is continuous and a bar boundary is an arbitrary place to
 let the tempo jump. But the criterion also says *available to anything that reads a grid*, and

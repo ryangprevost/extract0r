@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.domain.tempo_map import (
+from app.services.analysis.tempo_map import (
     LOCK_FLOOR,
     MAX_TEMPO_DRIFT,
     TempoMap,

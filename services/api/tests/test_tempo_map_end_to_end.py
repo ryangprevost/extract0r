@@ -23,7 +23,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.domain.tempo_map import fit
+from app.services.analysis.tempo_map import fit
 
 librosa = pytest.importorskip("librosa")
 

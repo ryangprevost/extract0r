@@ -181,10 +181,17 @@ class TempoMap:
         meaning the tempo they were handed explained nothing, and every timing figure
         computed against them was noise with units.
 
-        **It does not resolve the octave**, and must not be read as though it does. Every hit
-        on a 100 BPM grid is also on a 200 BPM grid, so a doubled reading scores a *higher*
-        lock than the truth. That is criterion 3, this card proved no onset-only measure can
-        settle it, and there is a test here asserting the limitation rather than hiding it.
+        **Only ever compare this between two maps at the same tempo hypothesis.** A denser
+        lattice fits everything better, so a faster grid scores higher whether or not it is
+        right - every hit on a 100 BPM grid is also on a 200 BPM grid, and the doubled reading
+        scores a *higher* lock than the truth. Normalising by chance removes the units but not
+        this. Measured on one real reference: the same drums scored **0.02 at 129.2 BPM and
+        0.84 at 193.8**, which are two estimators disagreeing by exactly 3:2 and not evidence
+        for either. Reading that as "193.8 is right" is the one way to misuse this number.
+
+        So it answers *is this grid worth computing against*, and never *which grid is right*.
+        The second is criterion 3, which this card proved no onset-only measure can settle, and
+        there are tests asserting both halves of the limitation rather than hiding them.
         """
         chance = self.chance_residual_ms
         if chance <= 0:

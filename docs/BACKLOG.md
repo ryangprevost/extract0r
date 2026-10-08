@@ -2435,7 +2435,8 @@ Measured on two live records and one programmed control, 28 s each:
 
 **Acceptance criteria**
 - A tempo per bar, not per clip — a tempo map — fitted to the drum anchors, with the
-  per-bar figure available to anything that reads a grid. ✅
+  per-bar figure available to anything that reads a grid. ⏳ the map is built and measured;
+  **nothing reads it yet** - `BeatGrid` still answers `step_of` from one tempo
 - On a record whose tempo drifts, the median distance of a kick or snare from its nearest
   sixteenth drops to the programmed record's order of magnitude, and the figure is reported
   so the improvement is visible rather than asserted. ✅ **measured**
@@ -2445,7 +2446,8 @@ Measured on two live records and one programmed control, 28 s each:
 - Metre either resolves or abstains; a histogram is never rendered against an unresolved
   metre.
 - A clip the grid cannot lock is said so plainly, and every figure downstream abstains
-  rather than being computed against it. ✅ `TempoMap.lock`, measured against chance
+  rather than being computed against it. ⏳ `TempoMap.lock` measures it; **no consumer
+  abstains on it yet**
 - Tested against at least one live-drummed and one programmed record, with the before and
   after numbers written down. ⏳ numbers written down; the tracks they came from have since
   been purged by retention, so a committed fixture pair is still needed
@@ -2503,9 +2505,14 @@ good rather than left as something to try again.
 
 #### 2026-10-08: criteria 1, 2 and 5 done; the measurement corpus turned out to be perishable
 
-**Criterion 1 is met.** `app/domain/tempo_map.py` tracks phase and rate beat by beat off kick
-and snare onsets - a phase-locked loop, not a per-bar least squares, because drift is
-continuous and a bar boundary is an arbitrary place to let the tempo jump.
+**Criterion 1: the map exists and is measured; it is not wired in.** `app/domain/tempo_map.py`
+tracks phase and rate beat by beat off kick and snare onsets - a phase-locked loop, not a
+per-bar least squares, because drift is continuous and a bar boundary is an arbitrary place to
+let the tempo jump. But the criterion also says *available to anything that reads a grid*, and
+nothing reads it: `BeatGrid.step_of` and `phase_of` still answer from a single tempo, so every
+histogram and every timing figure is still computed against the grid this card calls wrong.
+The attachment point is `grid_from_drums`, which already receives the anchors, the timing and
+the duration that `fit` needs.
 
 **Criterion 2 is met on two of four real stems, and the other two are explained rather than
 hidden.** Against the 5.7 ms a programmed control scores:
@@ -2517,11 +2524,13 @@ hidden.** Against the 5.7 ms a programmed control scores:
 | its reference | 129.20 | 23.2 ms | 15.9 ms | 29.0 | 0.45 |
 | the other reference | 129.20 | 29.0 ms | 27.1 ms | 27.8 | **0.03** |
 
-**Criterion 5 is met, and it fell out of that table rather than being designed.** A time
+**Criterion 5: measured, not yet enforced.** It fell out of that table rather than being
+designed. A time
 unrelated to the grid sits a median of a quarter-step away, so chance at 129 BPM is 29 ms -
 and the bottom two rows *start* at 29.0 and 23.2. Their tempo explained nothing, and every
 figure computed against them was noise with units. `TempoMap.lock` is one minus the residual
-over chance; `locked` gates on it. The bottom row now reads 0.03 and says so.
+over chance; `locked` gates on it. The bottom row reads 0.03. **What is missing is the second half of the criterion** - no
+consumer gates on `locked` yet, so a clip at 0.03 still has figures computed against it.
 
 Two errors measurement caught that reasoning had not. The first guard capped how far a
 **beat** could move from the steady grid - wrong quantity, because drift accumulates, and it
@@ -2570,9 +2579,44 @@ for this work than either live record was, and it means the "programmed control"
 5.7 ms quoted throughout this card was a best case for the *fitting*, not evidence the global
 grid was ever adequate.
 
+#### Does the map earn its place? Three columns, not two
+
+The criterion-2 baseline above was measured against raw librosa, which **is not what ships**:
+`grid_from_drums` re-resolves the octave with `choose_tempo` and `refine_grid` re-fits period
+and phase by least squares. So the honest comparison needed a third column, on the one track
+retention had not yet taken:
+
+| | librosa | after `refine_grid` | raw | **shipped** | **mapped** | lock |
+|---|---:|---:|---:|---:|---:|---:|
+| source | 166.71 | 166.69 | 22.1 ms | 23.1 ms | **6.2 ms** | 0.72 |
+| reference | 193.80 | 193.81 | 18.7 ms | 19.3 ms | **3.0 ms** | 0.84 |
+
+**`refine_grid` does not improve the residual on this material** - 22.1 to 23.1 and 18.7 to
+19.3, both marginally worse. Its own docstring documents a dramatic histogram fix on a
+four-on-the-floor record and that is not in question; it simply is not what is happening here.
+
+**The map earns its place against the shipped grid and not only against raw librosa**, which
+was the thing actually in doubt: 19-23 ms down to 3.0-6.2 ms.
+
+**And a live 3:2 disagreement inside this codebase.** `TimingAnalyser` returns **193.80** for
+the same reference file where `librosa.feature.tempo` returns **129.20**. The ratio is 1.5000.
+This card concluded in October that "there is no 3:2 error" - that was about a different record
+and three estimators that agreed, so it is not contradicted, but two estimators here disagree
+by exactly 3:2 on one file and that belongs to criterion 3.
+
+**`lock` cannot arbitrate it**, and that is now pinned by a test rather than left to be
+discovered. A denser lattice fits everything better, so the faster hypothesis scores higher
+whether or not it is right: the same drums scored **0.02 at 129.2 BPM and 0.84 at 193.8**.
+Normalising by chance removes the units but not this bias. `lock` answers *is this grid worth
+computing against*, never *which grid is right*.
+
 **Still open: criterion 3** - zero confidence on an unresolved octave, which needs X0R-306's
-eval set - and the live-drummed half of criterion 6, which needs material that outlives a
-24-hour retention window.
+eval set, and now has a concrete reproducible case in the 3:2 split above. **Criterion 1's
+second clause and criterion 5's second clause** - the map is measured but nothing reads it, and
+`locked` is measured but nothing abstains on it. The attachment point is `grid_from_drums`,
+which already receives everything `fit` needs, and `BeatGrid.step_of` / `phase_of`, which every
+rhythmic figure goes through. **The live-drummed half of criterion 6**, which needs material
+that outlives a 24-hour retention window.
 
 **Out of scope.** Tempo *editing* by the user. Any timing comparison — that is X0R-1322.
 Beat tracking replaced wholesale with a different library; the failure here is in the

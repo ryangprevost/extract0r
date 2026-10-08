@@ -313,3 +313,20 @@ def test_an_unfitted_map_still_reports_a_lock():
 
 def test_lock_is_zero_when_there_is_no_grid():
     assert fit([], 0.0, 0.0, 10.0).lock == 0.0
+
+
+def test_lock_cannot_be_compared_across_tempo_hypotheses():
+    """The misuse this number invites, pinned so nobody ships it.
+
+    A denser lattice fits everything better, so the faster hypothesis scores higher whether or
+    not it is right. Measured on one real reference, the same drums scored 0.02 at 129.2 BPM
+    and 0.84 at 193.8 - two estimators disagreeing by exactly 3:2, and not evidence for either.
+    """
+    rng = np.random.default_rng(1500)
+    # Times with no relationship to either grid, so neither hypothesis deserves to win.
+    anchors = sorted(rng.uniform(0.0, 20.0, 150).tolist())
+
+    slow = fit(anchors, 129.2, 0.0, 20.0)
+    fast = fit(anchors, 129.2 * 1.5, 0.0, 20.0)
+
+    assert fast.lock >= slow.lock

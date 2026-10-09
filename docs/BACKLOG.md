@@ -24,7 +24,7 @@ another card, ❌ not started.
 | [EPIC-10](#epic-10--mixdown--export) | Mixdown & export | 13 | 2 |
 | [EPIC-11](#epic-11--per-instrument-matching) | Per-instrument matching | 60 | 2 |
 | [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
-| [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 41 | 4 |
+| [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 55 | 4 |
 | [EPIC-14](#epic-14--speed-and-the-feel-of-using-it) | Speed and usability | ~15 | 3 · *placeholder* |
 | [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 22 | 3 · *from Ryan, 5 of 9 done* |
 
@@ -1794,7 +1794,9 @@ feature; it ships, it replaces your recording with a new one, and this is not it
 
 **Not in this epic, reasons on the proposal:** a genre label (§3 — genre has no acoustic
 referent, and the precedent is this project's refusal to measure saturation), guitar or vocal
-re-performance (§4 — synthesis cannot reach an amplified guitar), re-sequencing or tempo
+re-performance (§4 — synthesis cannot reach an amplified guitar; **stage 4B is not this**,
+because playing a guitar part's *notes* on a synth never attempts the imitation that
+non-goal is about), re-sequencing or tempo
 change (§1(c) — measuring where the reference's kick sits is a measurement, moving the user's
 kick there is composition), and shipping recorded samples (the licensing position in
 `kit.py`).
@@ -1807,6 +1809,7 @@ kick there is composition), and shipping recorded samples (the licensing positio
 | 3 | Re-produce: the processing half | 8 | `TODO`. X0R-1306 holds the measured headroom. |
 | **3B** | **Compare drum to drum** | **11** | **sprint 2** |
 | 4 | Re-perform: drums only | 6 | `TODO`. Ungated as of X0R-414, re-scoped. |
+| **4B** | **Play the notes on something else** | **14** | `TODO`, added 2026-10-09 from Ryan. Transcribe a part, play it on a synth voice or an uploaded sample, land it in the master. Needs X0R-503 for the MIDI itself and **X0R-306 to say whether the notes are trustworthy at all.** |
 | 5 | Re-perform: bass only | 6 | `TODO`, gated on X0R-306 passing. |
 | **6** | **Note-level comparison** (the Melodyne ask) | **15** | `TODO`. 5 of it buildable today; see below. |
 
@@ -2344,6 +2347,113 @@ only card in this epic that places a drum where the user did not play one, and i
 files read against **one** grid or it measures the ruler rather than the music. Adding a
 measured hit the user accepts one at a time is a nudge; doing it in bulk is composing his
 song for him, and that is stage (c), which is out.
+
+---
+
+### Stage 4B — play the notes on something else · 14 · `TODO`
+
+Added 2026-10-09 from Ryan, stated three times across one session and refined each time
+until it stopped colliding with anything:
+
+> 1. extract the essence of the notes in midi format
+> 2. allow for replacing that midi with another instrument to play it (offer some standard
+>    suggestions like synth samples, drums, etc, but also allow for samples to be uploaded
+>    for the replacement
+> 3. Make the replacement previewable and ultimately generate the wav of it to be included
+>    in the overall new master
+
+**This is not the thing the epic's non-goals exclude, and the difference is worth stating
+because an earlier reading of it got this wrong.** "Guitar patches" is a non-goal because
+*synthesis cannot reach an amplified guitar* - it would sound worse than the recording it
+replaced. Taking a guitar part's **notes** and playing them on a synth is a different
+request: nothing is pretending to be a guitar, and the comparison that non-goal loses is
+never attempted. Re-sequencing and tempo change are also absent from the ask above; the
+notes land where they were played.
+
+**What already exists, which is most of the shape.** `drums/kit.py` is a working reference
+implementation of a patch as *parameters rather than recordings* - three kits, a `Voice`
+dataclass of eight numbers a reviewer can read and disagree with. `pipeline.py` already
+carries `drum_kit` from the master request through hit detection to a synthesised layer in
+the rendered file, so **step 3 ships today for drums**. X0R-503 already covers step 1's
+output format. What is missing is the pitched equivalent of `Voice`, a way to accept a
+sample as a voice, and the wiring that lets a user choose per stem.
+
+**The one real unknown, and it gates the value rather than the build.** X0R-405's own
+criterion - *a clean DI bass line transcribes with >= 90% note accuracy* - is still
+unmeasured, waiting on X0R-306's eval set. Every card below renders whatever the
+transcription produces, faithfully. If the notes are wrong the output is wrong, and no
+amount of patch quality recovers it. **X0R-306 needs a ground-truth note list that Ryan can
+produce himself**: `storage/<track>/notes/<stem>.csv` as `onset_s,offset_s,midi`, and the
+benchmark README says a DI part played to a click gives it exactly. That is the cheapest
+thing in this stage and it should happen first.
+
+---
+
+### X0R-1325 · A pitched voice, the way a kit is a voice · 3 · `TODO`
+**As a** person with a transcribed part **I want** to hear it played by a synth **so that**
+I can hear my song's shape in another style without re-recording it.
+
+**Acceptance criteria**
+- A `PitchedVoice` in the shape of `drums/kit.Voice`: a readable set of synthesis
+  parameters, not a sample library, for the reason `kit.py` already argues - no licence,
+  nothing shipped that belongs to someone else, and a reviewer can disagree with it.
+- Three starting voices, chosen because they are what synthesis is *good* at rather than
+  what it is asked for most: a supersaw lead, a sub/FM bass, and a soft electric-piano
+  pad.
+- Renders a `NoteEvent` list to audio at the clip's sample rate, with note length and
+  velocity honoured.
+- Polyphony is stated and enforced, and what happens past it is stated too.
+- **Not** a guitar voice. §4's non-goal stands and this card does not reopen it.
+
+---
+
+### X0R-1326 · Bring your own sample as a voice · 5 · `TODO`
+**As a** person with a sample I like **I want** to upload it and have my part played on it
+**so that** the palette is not limited to what ships.
+
+**Acceptance criteria**
+- Upload lands behind the **same rights attestation as a reference track** (X0R-202). A
+  sample is someone's recording; this project has never taken one without a claim, and
+  `kit.py`'s whole argument for synthesis is that it refuses to ship other people's audio.
+  A user's own upload is the one case that was always allowed.
+- One-shot mode (fixed pitch, retriggered per note) and pitched mode (repitched per note),
+  with the mode chosen rather than guessed.
+- The repitch range is capped and the cap is stated on screen: a sample stretched two
+  octaves is a different instrument and sounds like a mistake.
+- Uploaded samples are **gitignored and local**, under the same rule as `profiles/` and
+  `storage/` - they are the user's audio and they do not leave the machine.
+- Retention: the sweep treats them as it treats a track, or it deliberately does not, and
+  the card says which.
+
+---
+
+### X0R-1327 · Choose a voice per stem, hear it, keep it · 3 · `TODO`
+**As a** person building a version **I want** to pick what plays each part and hear it
+immediately **so that** I can tell whether the idea works before rendering anything.
+
+**Acceptance criteria**
+- Per stem on the pr0ducer page: play it as recorded, or play its notes on a chosen voice.
+- Preview is immediate and local to that stem - the whole master does not re-render to
+  audition one part.
+- The transcription's measured accuracy, or the plain fact that it has not been measured,
+  is on screen next to the choice. A part rendered from notes is only as good as the
+  notes, and the user is the one who can hear whether it held.
+- Choosing a voice never destroys the recorded stem; it is a layer or a substitution the
+  user can undo, the X0R-1405 rule.
+
+---
+
+### X0R-1328 · The replaced part lands in the master · 3 · `TODO`
+**As a** person who likes what they heard **I want** it in the exported file **so that** the
+preview was not a toy.
+
+**Acceptance criteria**
+- A chosen voice renders into the mixdown through the existing path - `MasterRequest` ->
+  `pipeline` -> render - alongside `drum_kit` rather than beside it in a second mechanism.
+- Per-stem WAV of the replaced part is exportable on its own, at the depth X0R-1414 added,
+  because the likeliest next step is a DAW.
+- The export states which stems were played from notes rather than recorded. A listener
+  comparing two exports should not have to guess which one is the performance.
 
 ---
 

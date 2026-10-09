@@ -41,6 +41,7 @@ import logging
 from pathlib import Path
 
 from app.domain.notes import StemKind
+from app.services.drums.separate import STEM_NAMES
 from app.services.registry import TrackRecord, TrackRegistry
 from app.services.separation.base import SeparatedStem, SeparationResult
 from app.services.storage import StoredTrack
@@ -113,7 +114,19 @@ def adopt_one(directory: Path) -> TrackRecord | None:
         side_dir = directory / "drum_stems" / side
         if not side_dir.is_dir():
             continue
-        drums = {p.stem: str(p) for p in side_dir.rglob("*.wav")}
+        # Translated, not taken from the filename. DrumSep was trained and published in
+        # Spanish and writes bombo/redoblante/platillos; everything downstream of
+        # `separate.py` speaks kick/snare/cymbals because that module translates at the
+        # boundary. Adoption reads the files directly and so has to do the same.
+        #
+        # This was shipped keying straight off `p.stem`, and the failure was almost
+        # invisible: **toms is the same word in both languages**, so an adopted track came
+        # back with exactly one drum and the panel said "1 drum measured - toms". Three of
+        # the four silently vanished on every restart, and the one that survived made it
+        # look like the pass had merely found little.
+        drums = {
+            STEM_NAMES.get(p.stem, p.stem): str(p) for p in side_dir.rglob("*.wav")
+        }
         if drums:
             drum_stems[side] = drums
 

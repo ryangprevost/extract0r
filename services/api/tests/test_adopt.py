@@ -45,7 +45,9 @@ def on_disk(tmp_path: Path) -> Path:
         write(d / "reference_stems" / "htdemucs_6s" / "reference" / f"{stem}.wav")
     write(d / "reference.mp3")
     for side in ("source", "reference"):
-        for drum in ("kick", "snare", "cymbals", "toms"):
+        # The names DrumSep actually writes. The fixture used the English ones, which is
+        # why it could not catch the bug below.
+        for drum in ("bombo", "redoblante", "platillos", "toms"):
             write(d / "drum_stems" / side / "49469ca8" / "drums" / f"{drum}.wav")
     return tmp_path
 
@@ -179,3 +181,29 @@ def test_adopting_does_not_open_the_audio(on_disk):
     route that needs a rate or a duration reads the file itself."""
     record = adopt_one(on_disk / TRACK_ID)
     assert all(s.sample_rate == 0 and s.duration_s == 0.0 for s in record.separation.stems)
+
+
+def test_drum_names_are_translated_out_of_spanish(on_disk):
+    """DrumSep writes bombo/redoblante/platillos; everything downstream speaks English.
+
+    Adoption read the filenames straight, and the failure was almost invisible, because
+    **toms is the same word in both languages**: an adopted track came back with exactly one
+    drum and the panel reported "1 drum measured - toms". Three of the four vanished on every
+    restart and the survivor made it look like the pass had simply found little.
+
+    Caught on Ryan's own record, with all eight files present and correct on disk.
+    """
+    record = adopt_one(on_disk / TRACK_ID)
+
+    for side in ("source", "reference"):
+        assert set(record.drum_stems[side]) == {"kick", "snare", "cymbals", "toms"}, side
+        assert "bombo" not in record.drum_stems[side]
+
+
+def test_every_adopted_drum_path_still_points_at_its_file(on_disk):
+    """Translating the key must not lose the path it was translated from."""
+    record = adopt_one(on_disk / TRACK_ID)
+
+    for side, drums in record.drum_stems.items():
+        for drum, path in drums.items():
+            assert Path(path).exists(), f"{side}/{drum}"

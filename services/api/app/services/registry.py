@@ -55,6 +55,20 @@ class TrackRegistry:
         with self._lock:
             return self._records.get(track_id)
 
+    def all(self) -> list[TrackRecord]:
+        """Every track currently known, newest first.
+
+        Needed because X0R-1423 recovers a track into this registry on boot and **nothing
+        could reach it from the page** - `state.trackId` is written in exactly one place,
+        the upload handler, so a reload left 500 MB of finished separations addressable only
+        by someone who knew the id and had curl. That is the same complaint X0R-1423 was
+        written about, one layer up: the audio survived and the pointer to it did not.
+        """
+        with self._lock:
+            return sorted(
+                self._records.values(), key=lambda r: r.uploaded_at, reverse=True
+            )
+
     def require(self, track_id: str) -> TrackRecord:
         record = self.get(track_id)
         if record is None:

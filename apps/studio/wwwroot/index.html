@@ -53,6 +53,13 @@
 
   <!-- ═══════════════════════════ shared: upload ═══════════════════════════ -->
   <section class="step" id="step-upload">
+    <!-- X0R-1424: tracks the server is still holding. Hidden unless there are any, so the
+         first-run screen is unchanged for somebody who has never uploaded anything. -->
+    <section class="resume" id="resume-panel" hidden>
+      <h2>Pick up where you left off</h2>
+      <p class="muted small" id="resume-note"></p>
+      <div id="resume-list"></div>
+    </section>
     <h1 id="upload-title">Move your mix toward a song you love.</h1>
     <p class="lede" id="upload-lede">
       Give it your song and a song you wish yours sounded like. Both get split into
@@ -829,6 +836,7 @@
 <script src="drums.js"></script>
 <script src="groove.js"></script>
 <script src="sections.js"></script>
+<script src="resume.js"></script>
 <script src="spectrum.js"></script>
 <script src="groups.js"></script>
 <script src="library.js"></script>

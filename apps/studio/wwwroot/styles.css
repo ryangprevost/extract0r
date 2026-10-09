@@ -1479,3 +1479,33 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 
 /* Why a bar chart is absent. Not an error - the figures beside it are still measured. */
 .groove-unresolved { border-left-color: var(--warn); }
+
+/* X0R-1424: tracks the server still holds, offered on the landing page. Deliberately
+   quiet - it sits above the upload form and must not compete with it, because uploading
+   something new is still the common case. */
+.resume {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 22px;
+  background: var(--panel);
+}
+.resume h2 {
+  font-size: 1rem;
+  margin: 0 0 4px;
+}
+.resume-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.resume-row:first-of-type {
+  border-top: 0;
+}
+.resume-row p {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+}

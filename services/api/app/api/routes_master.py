@@ -1290,6 +1290,43 @@ def _per_drum_capability(record, settings: Settings) -> dict:
     }
 
 
+@router.get("")
+def list_tracks(registry: TrackRegistry = Depends(get_registry)) -> dict:
+    """Every track the server is holding, so the page can offer them again.
+
+    X0R-1423 taught the server to read `storage/` back on boot, and the page still could
+    not reach any of it: `state.trackId` is written in exactly one place, the upload
+    handler, so a reload left finished separations addressable only by someone who knew
+    the id and had curl. The audio survived; the pointer to it did not, which is the
+    complaint that card was written about one layer down.
+
+    What each entry carries is what the page needs to decide whether resuming is worth
+    anything: which stems exist, whether a reference was split, and whether the per-drum
+    pass has run on each side. A row that cannot be resumed usefully should say so before
+    the user clicks it, not after.
+    """
+    out = []
+    for record in registry.all():
+        drums = record.drum_stems or {}
+        out.append(
+            {
+                "track_id": record.stored.track_id,
+                "name": record.stored.original_filename,
+                "uploaded_at": record.uploaded_at,
+                "adopted": bool(record.attestation.get("adopted")),
+                "stems": sorted(s.kind.value for s in record.separation.stems)
+                if record.separation
+                else [],
+                "reference_name": record.reference_name,
+                "reference_stems": sorted(
+                    k.value if hasattr(k, "value") else str(k) for k in record.reference_stems
+                ),
+                "drums": {side: sorted(found) for side, found in drums.items()},
+            }
+        )
+    return {"tracks": out}
+
+
 @router.post("/{track_id}/reference/drums", response_model=JobResponse)
 def compare_drums(
     track_id: str,

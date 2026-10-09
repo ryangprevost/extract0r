@@ -167,6 +167,20 @@ MIN_MEANINGFUL_WIDTH = 0.15
 #: rumble. Cuts are left alone: removing what is not there costs nothing.
 QUIET_BAND_DB = -30.0
 
+#: The loudest a suggestion is allowed to look when the band it acts on holds almost none of
+#: the instrument. Found on Ryan's own record: three of the kick's moves came back `strong` -
+#: the most urgent thing on the panel - while each one's own text said the band held **0.00%**
+#: of his kick and that lifting it "mostly lifts what leaked in from the other stems".
+#:
+#: Severity was read off the band gap alone, and an empty band produces an enormous gap
+#: precisely *because* it is empty: -43 dB against the reference's -32 is an 11 dB difference
+#: between two numbers that are both nearly silence. So the emptier the band, the louder the
+#: advice shouted, which is exactly backwards.
+#:
+#: The move is still offered - that decision is deliberate and argued where `empty` is set -
+#: but it no longer outranks a measurement with an instrument actually in it.
+QUIET_BAND_SEVERITY = "slight"
+
 #: How far a stem's fader may be moved. Was 9 dB, matching `stem_match`, and that is far
 #: too much: 9 dB up on the guitars against 4 dB down on the bass is a 13 dB swing between
 #: two instruments, which is not a correction, it is a different mix.
@@ -845,7 +859,14 @@ def compare(
                 f"{mine_db:.1f} dB of its own energy against the reference's "
                 f"{theirs_db:.1f} dB. Each measured against its own stem, so this is "
                 f"shape rather than level.{capped}",
-                severity=_severity(band_gap, SAME_BAND_DB, 2.5),
+                # Capped when the band is nearly empty: a gap between two near-silences is
+                # arithmetically large and musically nothing, and severity is what decides
+                # what the user reads first.
+                severity=(
+                    QUIET_BAND_SEVERITY
+                    if empty
+                    else _severity(band_gap, SAME_BAND_DB, 2.5)
+                ),
                 yours=mine_db,
                 reference=theirs_db,
                 measured=round(band_gap, 2),

@@ -31,7 +31,11 @@
   <div class="drawer-inner">
     <button class="nav-item" data-page="master">
       <span class="nav-icon">🎛️</span>
-      <span><strong>Mastering suite</strong><em>Split, compare instrument by instrument and drum by drum, export MP3</em></span>
+      <span><strong>Mastering suite</strong><em>Split, compare instrument by instrument, export MP3</em></span>
+    </button>
+    <button class="nav-item" data-page="produce">
+      <span class="nav-icon">🥁</span>
+      <span><strong>pr0ducer</strong><em>How that record was played — groove, and drum by drum</em></span>
     </button>
     <button class="nav-item" data-page="tab">
       <span class="nav-icon">🎸</span>
@@ -355,22 +359,6 @@
          weeks and no route ever called them, so none of it had ever been on a screen.
          Placed after the comparison because it is the one panel here with no controls in
          it at all - it reports, and says plainly that it reports. -->
-    <section class="compare-card groove-card" id="groove" hidden>
-      <div class="row-between">
-        <h4 class="sub" style="margin:0">What each record plays</h4>
-        <button class="primary small" id="groove-btn">Read the groove</button>
-      </div>
-      <p class="muted small" id="groove-intro">
-        Where the kick, the snare and the hats fall across the bar, how far from the grid
-        they sit, the swing, and whether the bass gets out of the kick's way.
-        <strong>Nothing here has a dial behind it</strong> — where a record's hats sit
-        against the beat is a fact about a performance, and moving yours there would be
-        composition rather than mastering.
-      </p>
-      <p class="muted small working" id="groove-working" hidden></p>
-      <p class="error" id="groove-error" hidden></p>
-      <div id="groove-body"></div>
-    </section>
 
     <section class="compare-card" id="instrument-compare" hidden>
       <div class="row-between">
@@ -744,6 +732,43 @@
         <p class="muted small" id="master-warnings"></p>
       </div>
     </div>
+  </section>
+
+  <!-- pr0ducer: EPIC-13, its own page rather than panels tucked inside the mastering
+       comparison. The split is not cosmetic - the mastering suite answers "what should I
+       change about my mix", and every finding there has a dial behind it. These answer
+       "what is that record actually doing", one level below the instrument: the groove is
+       explicitly dial-free, and the per-drum panel works on four instruments that the
+       stem list does not even contain.
+
+       It depends on the comparison having been run, and says so rather than hiding the
+       button - the kick it compares against only exists because the reference was split. -->
+  <section class="step" id="step-produce" hidden>
+    <h2 class="sub">What that record is actually doing</h2>
+    <p class="muted small" id="produce-lede">
+      One level below the instrument comparison. The mastering page tells you what to change
+      about your mix; this tells you how that record was played and how its kit is put
+      together &mdash; where every drum sits across the bar, and your kick against their kick
+      rather than your drums against their drums.
+    </p>
+    <p class="muted small" id="produce-needs" hidden></p>
+    <section class="compare-card groove-card" id="groove" hidden>
+      <div class="row-between">
+        <h4 class="sub" style="margin:0">What each record plays</h4>
+        <button class="primary small" id="groove-btn">Read the groove</button>
+      </div>
+      <p class="muted small" id="groove-intro">
+        Where the kick, the snare and the hats fall across the bar, how far from the grid
+        they sit, the swing, and whether the bass gets out of the kick's way.
+        <strong>Nothing here has a dial behind it</strong> — where a record's hats sit
+        against the beat is a fact about a performance, and moving yours there would be
+        composition rather than mastering.
+      </p>
+      <p class="muted small working" id="groove-working" hidden></p>
+      <p class="error" id="groove-error" hidden></p>
+      <div id="groove-body"></div>
+    </section>
+    <div id="produce-drums"></div>
   </section>
 
   <!-- ═══════════════════════════ page: tab ═══════════════════════════ -->

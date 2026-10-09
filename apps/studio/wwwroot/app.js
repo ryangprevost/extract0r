@@ -130,7 +130,7 @@ async function runJob(jobId, title, hint = "") {
 }
 
 const ALL_SECTIONS = [
-  "step-upload", "step-progress", "step-stems", "step-master",
+  "step-upload", "step-progress", "step-stems", "step-master", "step-produce",
   "step-timing", "step-tabs", "step-about", "step-legal",
 ];
 
@@ -146,6 +146,22 @@ const PAGES = {
           "your drums with theirs — and you get told what that song does differently, " +
           "one difference at a time, with a control for each.",
     loaded: ["step-stems", "step-master"],
+  },
+  //: EPIC-13, on its own page rather than as panels inside the mastering comparison.
+  //: The mastering suite answers *what should I change about my mix*, and everything on
+  //: it has a dial behind it; this answers *what is that record doing*, one level below
+  //: the instrument. The groove read has no dial by design, and the per-drum comparison
+  //: works on four instruments the stem list does not contain.
+  //:
+  //: `step-stems` is shared, as it is with the tab page - checking a stem by ear matters
+  //: here too, and the drum split is read off the drums stem.
+  produce: {
+    name: "pr0ducer",
+    title: "What that record is actually doing.",
+    lede: "Give it your song and a song you want to sound like. Once both are split, " +
+          "this reads how that record was played rather than how it was mixed — where " +
+          "each drum falls across the bar, and your kick against their kick.",
+    loaded: ["step-stems", "step-produce"],
   },
   tab: {
     name: "Tablature",
@@ -188,7 +204,31 @@ function goToPage(name) {
     ? page.loaded.filter((id) => id !== "step-tabs" || $("tabs").children.length)
     : ["step-upload"];
   showOnly(...sections);
+  if (name === "produce") renderProduceGate();
   if (typeof Sections !== "undefined") Sections.render();
+}
+
+/**
+ * Say what pr0ducer still needs, rather than showing dead buttons.
+ *
+ * Its panels read *both* records - your kick against their kick - so neither exists until
+ * the reference has been split. That dependency is real and worth stating plainly on the
+ * page; what it is not is a reason for these panels to live inside the mastering
+ * comparison, which is where they were buried before.
+ */
+function renderProduceGate() {
+  const note = $("produce-needs");
+  if (!note) return;
+  const missing = !state.trackId
+    ? "Upload your song and a reference to start."
+    : !state.referenceLoaded
+      ? "This needs a reference as well as your song — it compares the two records."
+      : !state.referenceSeparated
+        ? "The reference needs splitting before this can compare drum to drum. " +
+          "Run the comparison on the mastering page and come back."
+        : "";
+  note.textContent = missing;
+  note.hidden = !missing;
 }
 
 function openNav() {

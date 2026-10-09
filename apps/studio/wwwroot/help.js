@@ -240,16 +240,18 @@ const HELP_REFERENCE = [
   {
     heading: "Finding the drum-by-drum comparison",
     body: `
-      <p>It is inside the <b>Drums</b> card on the instrument comparison, as a second
-        expander called <b>Drum by drum</b>. It is not on a page of its own, and the
-        reason is that it has nowhere else to be: it compares your kick with that
-        record's kick, so it cannot exist until both songs have been split and
-        compared.</p>
+      <p>It has its own page: <b>pr0ducer</b>, in the menu, alongside the groove read.
+        It used to sit inside the <b>Drums</b> card on the instrument comparison, two
+        expanders deep, where it was shipped for a whole sprint without being found.</p>
+      <p>What is still true is the <i>dependency</i>: it compares your kick with that
+        record's kick, so it cannot say anything until both songs have been split and
+        compared. The pr0ducer page says so at the top when something is missing, rather
+        than showing a button that cannot work. That is a different thing from it having
+        to <i>live</i> inside the comparison, which is the conflation that buried it.</p>
       <p>The path, in full: upload your song &rarr; it is split &rarr; load the reference
-        and split that too &rarr; press <b>Compare instruments</b> &rarr; open
-        <b>Drums</b> &rarr; open <b>Drum by drum</b>. The comparison screen puts a link
-        at the top of itself once the option is available, so the last three steps are
-        one click.</p>
+        and split that too &rarr; press <b>Compare instruments</b> on the mastering page
+        &rarr; open <b>pr0ducer</b>. The comparison screen also puts a link at the top of
+        itself once the option is available, which jumps straight there.</p>
       <p>It costs an extra separation pass per side, which the button states before you
         press it, and the second song you aim at the same reference does not pay for the
         reference half again.</p>`,

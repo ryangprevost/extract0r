@@ -256,9 +256,9 @@ function renderPerDrumSignpost() {
 
   host.innerHTML =
     '<span class="signpost-icon" aria-hidden="true">●●●●</span>' +
-    "<span><strong>The drums can go one level further.</strong> Your kick against " +
-    "their kick, and the snare, cymbals and toms separately — because “the drums " +
-    "want more body” cannot say whether the kick needs sub or the snare is thin." +
+    "<span><strong>The drums can go one level further, over on pr0ducer.</strong> Your " +
+    "kick against their kick, and the snare, cymbals and toms separately — because “the " +
+    "drums want more body” cannot say whether the kick needs sub or the snare is thin." +
     "</span>";
 
   const go = document.createElement("button");
@@ -270,10 +270,18 @@ function renderPerDrumSignpost() {
   host.hidden = false;
 }
 
-/** Open both disclosures and put the panel on screen. The three steps, as one. */
+/**
+ * Open the disclosure and put the panel on screen. The steps, as one.
+ *
+ * Now also a page change, because the panel lives on pr0ducer rather than inside the Drums
+ * card. That is the point of the signpost rather than a complication for it: the thing it
+ * points at used to be two disclosures deep on *this* page, and is now one click away on
+ * its own.
+ */
 function openPerDrum() {
   const panel = document.querySelector(".per-drum");
   if (!panel) return;
+  if (typeof goToPage === "function" && state.page !== "produce") goToPage("produce");
   const card = panel.closest("details.instrument");
   if (card) card.open = true;
   panel.open = true;
@@ -332,9 +340,20 @@ function renderInstruments(data) {
     // a top-level `const` in a classic script lives in the script scope rather than on
     // `window` - so the property test was always false and the panel was never built.
     // Every harness passed, because a harness calls `PerDrum.panel()` by name.
+    // Built here, because this is where the drums comparison data arrives - and hosted on
+    // the pr0ducer page, which is the whole point of that page existing. An older comment
+    // here argued the panel "cannot exist outside the comparison that produced both": true
+    // of the *data* and never of the DOM, and conflating the two is what buried it two
+    // disclosures deep and cost X0R-1411.
     if (instrument.stem === "drums" && typeof PerDrum !== "undefined") {
       const panel = PerDrum.panel(instrument);
-      if (panel) card.appendChild(panel);
+      const silo = $("produce-drums");
+      if (panel && silo) {
+        silo.innerHTML = "";
+        silo.appendChild(panel);
+      } else if (panel) {
+        card.appendChild(panel);
+      }
     }
     host.appendChild(card);
   }

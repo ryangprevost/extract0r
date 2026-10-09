@@ -24,14 +24,18 @@
 const Sections = (() => {
   //: Every place worth jumping to, in the order they appear. A section absent from the
   //: page - or hidden, which is most of them before a run - simply does not get an entry.
+  //: pr0ducer's own sections are listed too. The bar is built from whichever of these is
+  //: actually on screen, and the two pages never show each other's, so one list serves
+  //: both rather than each page needing its own copy.
   const PLACES = [
     ["step-stems", "Stems"],
     ["step-master", "Reference"],
     ["mix-compare", "Your mix vs theirs"],
     ["ask-panel", "Say what you want"],
-    ["groove", "What each plays"],
     ["instrument-compare", "Instrument by instrument"],
     ["group-export", "Export"],
+    ["groove", "What each plays"],
+    ["produce-drums", "Drum by drum"],
   ];
 
   //: How far above a section to land, so its heading is not under the sticky bar itself.

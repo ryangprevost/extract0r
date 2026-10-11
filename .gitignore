@@ -58,6 +58,10 @@ profiles/
 # still covers it.
 samples/
 
+# Rendered demo audio. Reproducible from services/api/tools/make_poppunk_demo.py, so the
+# script is what is kept - megabytes of WAV in every clone is not.
+demo/
+
 # Downloaded ML model weights. Large, third-party, and reproducible from a URL — three
 # good reasons not to put them in a repository. `models/README.md` says where each one
 # comes from and under what licence, which is the part worth keeping in git.

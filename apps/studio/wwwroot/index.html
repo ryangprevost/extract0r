@@ -784,25 +784,9 @@
         played. <strong>Nothing is quantised or re-timed</strong>: the notes land where you
         played them.
       </p>
-      <div class="revoice-row">
-        <label>Part
-          <select id="revoice-stem">
-            <option value="bass">Bass</option>
-            <option value="guitar">Guitar</option>
-            <option value="piano">Piano</option>
-            <option value="vocals">Vocals</option>
-            <option value="other">The rest</option>
-          </select>
-        </label>
-        <label>Played on
-          <select id="revoice-voice"></select>
-        </label>
-        <button class="primary small" id="revoice-btn">Play it on that</button>
-        <label class="check">
-          <input type="checkbox" id="revoice-in-master" />
-          Use it in the master
-        </label>
-      </div>
+      <!-- X0R-1327: every part at once, because choosing one at a time and forgetting
+           the answer is auditioning an idea rather than building a version. -->
+      <div id="revoice-parts"></div>
       <p class="muted small" id="revoice-about"></p>
       <div class="revoice-row" id="sample-root-row" hidden>
         <label>This sample&rsquo;s own note
@@ -834,6 +818,7 @@
         </div>
         <p class="muted small" id="sample-list"></p>
       </details>
+      <p class="muted small" id="revoice-summary"></p>
       <p class="muted small working" id="revoice-working" hidden></p>
       <p class="error" id="revoice-error" hidden></p>
       <div id="revoice-result"></div>

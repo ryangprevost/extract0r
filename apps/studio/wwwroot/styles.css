@@ -1559,3 +1559,24 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   outline: 2px dashed var(--accent);
   outline-offset: -6px;
 }
+
+/* X0R-1327: one row per part, so a version is visible all at once rather than one
+   dropdown remembering nothing. */
+.part-row {
+  display: grid;
+  grid-template-columns: 7rem minmax(9rem, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.part-row:first-child {
+  border-top: 0;
+}
+.part-said {
+  grid-column: 1 / -1;
+}
+.part-row .revoice-audio {
+  grid-column: 1 / -1;
+  margin: 0;
+}

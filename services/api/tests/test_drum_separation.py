@@ -60,6 +60,7 @@ def _write(path: Path, strokes: list[tuple[float, float]], hz: float, seconds: f
 
 def test_every_stroke_carries_exactly_one_drum(tmp_path):
     """No threshold, no ambiguity, no flicker. A stroke in the kick file is a kick."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     stems = {
         "kick": _write(tmp_path / "kick.wav", [(0.5, 0.9), (1.0, 0.9), (1.5, 0.9)], 60),
         "snare": _write(tmp_path / "snare.wav", [(0.75, 0.8), (1.75, 0.8)], 220),
@@ -74,6 +75,7 @@ def test_every_stroke_carries_exactly_one_drum(tmp_path):
 def test_strokes_come_back_in_time_order(tmp_path):
     """Merged from several files, so ordering is this module's job rather than a given.
     `layer` walks them in order and a sample placed out of order lands on the wrong beat."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     stems = {
         "kick": _write(tmp_path / "kick.wav", [(0.5, 0.9), (1.5, 0.9)], 60),
         "snare": _write(tmp_path / "snare.wav", [(1.0, 0.8), (2.0, 0.8)], 220),
@@ -89,6 +91,7 @@ def test_a_kick_in_the_kick_file_is_never_called_a_snare(tmp_path):
     its energy reaches the snare's rattle band. The classifier had to decide; this does
     not, because the file it came from already answered.
     """
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     import soundfile as sf
 
     n = int(SR * 3.0)
@@ -117,6 +120,7 @@ def test_a_kick_in_the_kick_file_is_never_called_a_snare(tmp_path):
 def test_bleed_below_the_gate_is_not_a_stroke(tmp_path):
     """Separation is not surgery: a kick leaves a trace in the snare file, and an onset
     detector run over that trace finds strokes that are really the kick arriving late."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     loud = 0.9
     bleed = loud * 10 ** ((QUIET_STROKE_DB - 10) / 20)  # well under the gate
     stems = {
@@ -137,6 +141,7 @@ def test_the_gate_is_relative_to_each_drum_and_not_to_the_loudest(tmp_path):
     Gating across stems would silence an entire snare on a record the kick dominates,
     which on a club track is most of them.
     """
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     stems = {
         "kick": _write(tmp_path / "kick.wav", [(0.5, 0.95), (1.0, 0.95)], 60),
         "snare": _write(tmp_path / "snare.wav", [(0.75, 0.05), (1.25, 0.05)], 220),
@@ -150,6 +155,7 @@ def test_the_gate_is_relative_to_each_drum_and_not_to_the_loudest(tmp_path):
 def test_a_silent_stem_contributes_nothing(tmp_path):
     """A record with no toms yields a toms file that is residue. It must not become a
     drum part — this is the same trap as the -30 LU presence threshold elsewhere."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     import soundfile as sf
 
     path = tmp_path / "toms.wav"
@@ -158,6 +164,7 @@ def test_a_silent_stem_contributes_nothing(tmp_path):
 
 
 def test_an_unreadable_stem_costs_its_own_drum_and_nothing_else(tmp_path):
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     junk = tmp_path / "snare.wav"
     junk.write_bytes(b"not audio")
     stems = {

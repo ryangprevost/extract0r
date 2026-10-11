@@ -65,6 +65,7 @@ def test_an_unknown_track_is_a_404(client):
 
 
 def test_a_groove_comes_back_with_the_keys_the_page_reads(client, separated):
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     started = client.post(f"/api/v1/tracks/{separated}/groove")
     assert started.status_code == 202, started.text
     body = finish(client, started.json()["job_id"])
@@ -94,6 +95,7 @@ def test_a_figure_carries_its_own_sample_size(client, separated):
     A figure without its basis invites exactly the confidence it has not earned, which is
     why `Figure` keeps the two together and why the JSON must not drop one.
     """
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     started = client.post(f"/api/v1/tracks/{separated}/groove")
     result = finish(client, started.json()["job_id"])["result"]
     swing = result["yours"]["swing"]
@@ -102,6 +104,7 @@ def test_a_figure_carries_its_own_sample_size(client, separated):
 
 def test_an_unmeasurable_figure_says_so_rather_than_returning_zero(client, separated):
     """0.0 is a perfectly good swing deviation, so it cannot double as "no answer"."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     started = client.post(f"/api/v1/tracks/{separated}/groove")
     result = finish(client, started.json()["job_id"])["result"]
     for figure in (result["yours"]["swing"], result["yours"]["hat_offbeat_share"]):
@@ -111,6 +114,7 @@ def test_an_unmeasurable_figure_says_so_rather_than_returning_zero(client, separ
 
 
 def test_with_no_separated_reference_it_reads_one_side_and_says_which(client, separated):
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     started = client.post(f"/api/v1/tracks/{separated}/groove")
     result = finish(client, started.json()["job_id"])["result"]
     assert result["reference"] is None
@@ -124,6 +128,7 @@ def test_the_response_says_there_is_nothing_to_apply(client, separated):
     Experiment 2 measured that processing gets you tone and never groove, so this reports
     and offers nothing - and has to say so where somebody will read it.
     """
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     started = client.post(f"/api/v1/tracks/{separated}/groove")
     result = finish(client, started.json()["job_id"])["result"]
     assert "observations, not suggestions" in result["note"]
@@ -175,6 +180,7 @@ def test_the_page_uses_the_same_grid_confidence_floor():
 
 def test_grid_confidence_reaches_the_page_at_all(client, separated):
     """The gate above is unenforceable if the response does not carry the number."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     started = client.post(f"/api/v1/tracks/{separated}/groove")
     result = finish(client, started.json()["job_id"])["result"]
     assert isinstance(result["yours"]["grid_confidence"], float)
@@ -227,6 +233,7 @@ def test_metre_and_tempo_are_gated_separately():
 
 
 def test_the_response_says_whether_the_bar_was_read_or_assumed(client, separated):
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     started = client.post(f"/api/v1/tracks/{separated}/groove")
     mine = finish(client, started.json()["job_id"])["result"]["yours"]
     assert isinstance(mine["metre_confidence"], float)
@@ -254,6 +261,7 @@ def test_the_page_refuses_to_draw_bars_against_an_unresolved_metre():
 
 def test_the_lock_reaches_the_page(client, separated):
     """Criterion 5's second clause is unenforceable if the response does not carry it."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     started = client.post(f"/api/v1/tracks/{separated}/groove")
     result = finish(client, started.json()["job_id"])["result"]
 

@@ -120,6 +120,32 @@ Two causes, neither of them a broken build:
   `npm ci || npm install` - the same admission, made somewhere that does not abort. The
   cache lines are gone.
 
+#### And the Test job, which is where it had really been failing
+
+Once Lint and Web were fixed, Test failed on both Python versions - further than before, and
+on something older. **Fifty-eight tests import librosa transitively**, through `density.py`
+and `tuning.py`, which import it late inside a function. CI installs the non-ML requirements
+on purpose (ADR-0002), so those tests have failed on every push there has ever been.
+
+They were found by building a venv that matches CI exactly, because the local `.venv` turned
+out to have librosa and demucs in it - installed at some point and never in the requirements
+- so the suite passed locally and could not have told anyone. That venv now lives at
+`~/.x0r-ci-venv`, on a short path, because installing it inside the project tree hit the same
+Windows MAX_PATH failure the runbook already records for torch.
+
+**Marked per test, not per file.** Every one of those five files also has tests that pass
+without librosa - 8 of 29 in `test_character`, 21 of 41 in `test_drums_replace`, 12 of 20 in
+`test_groove_api`, 7 of 14 in `test_drum_separation`, 2 of 4 in `test_sidechain_render`.
+Marking whole modules would have turned CI green by quietly dropping real coverage, which is
+worse than leaving it red.
+
+`pytest.importorskip("librosa")` rather than `pytest.mark.ml`: the marker decides which *job*
+runs a test, and these should still run nightly and in a developer's ML venv. What they need
+is to skip when the dependency is absent, which importorskip says in one line at the point it
+matters.
+
+**Result in the CI replica: 1306 passed, 75 skipped, `ruff check app tests` clean.**
+
 **`ruff format` is deliberately not run.** It would reformat 119 of 186 files, and CI asks
 for `ruff check` rather than the formatter. A 119-file diff nobody requested is not a
 CI fix.

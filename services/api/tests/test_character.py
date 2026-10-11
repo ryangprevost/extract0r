@@ -92,6 +92,7 @@ def _clicks(interval_s: float, seconds: float = 12.0, jitter_s: float = 0.0, see
 
 def test_a_line_on_the_grid_reads_as_on_the_grid():
     """The floor of the measurement. Two cents of jitter must not come back as ten."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     measured = tuning.measure(_sung(2.0), SR)
     assert measured.sung is True
     assert measured.median_cents < 5.0, measured.median_cents
@@ -100,6 +101,7 @@ def test_a_line_on_the_grid_reads_as_on_the_grid():
 def test_a_looser_line_reads_as_looser():
     """The ordering is the whole product claim - "theirs is tighter than yours" - so it
     matters far more than either absolute number."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     tight = tuning.measure(_sung(2.0, seed=1), SR)
     loose = tuning.measure(_sung(18.0, seed=1), SR)
     assert tight.median_cents < loose.median_cents
@@ -108,6 +110,7 @@ def test_a_looser_line_reads_as_looser():
 def test_the_record_s_own_tuning_is_removed_before_anything_is_called_off_pitch():
     """Not a refinement. A record tuned 30 cents sharp is not a singer who is sharp, and
     without this step the measurement makes that exact mistake about a person."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     on_grid = _sung(2.0, seed=2)
     # The same performance, with the whole record shifted sharp.
     sharp = tuning.measure(_resampled(on_grid, 2 ** (30 / 1200)), SR)
@@ -128,6 +131,7 @@ def test_a_part_that_never_holds_a_pitch_is_refused_rather_than_called_flat():
     """The gate, and the one way this card could insult somebody. A rap is not out of
     tune. Measured on two real non-sung vocals at concentrations of 0.03 and 0.13,
     against 0.67 and 0.91 for sung lines - the threshold sits in that gap."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     measured = tuning.measure(_glide(), SR)
     assert measured.sung is False
     assert "rapped" in measured.declined or "spoken" in measured.declined
@@ -138,6 +142,7 @@ def test_the_gate_is_not_the_measurement_in_disguise():
     """Gating centredness on centredness would relabel every high reading as "not sung"
     and guarantee the metric never disagreed with itself. A line that is genuinely loose
     but genuinely sung has to come back sung."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     loose = tuning.measure(_sung(25.0, seed=3), SR)
     assert loose.sung is True, "25 cents of wobble is a singer, not a rapper"
     assert loose.median_cents > 10.0
@@ -148,11 +153,13 @@ def test_the_gate_clears_a_loose_singer():
     measured R = 0.26 and was told it was a rap, which is the card's named harm pointed
     the other way round. There is still a grey zone between roughly 20 and 30 cents that
     nothing available here resolves, and the gate errs toward answering inside it."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     loose = tuning.measure(_sung(22.0, seed=40), SR)
     assert loose.sung is True, "22 cents of scatter is a singer having a loose day"
 
 
 def test_a_near_empty_stem_abstains_on_the_sample_size():
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     silence = np.zeros((SR * 3, 2))
     measured = tuning.measure(silence, SR)
     assert measured.sung is False
@@ -185,11 +192,13 @@ def test_concentration_is_nearly_zero_when_pitch_is_spread_evenly():
 
 def test_the_median_interval_is_the_interval():
     """A quarter-second between clicks must read as about a quarter of a second."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     measured = density.measure(_clicks(0.25), SR)
     assert measured.median_interval_s == pytest.approx(0.25, abs=0.02)
 
 
 def test_a_busier_part_reads_as_busier():
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     busy = density.measure(_clicks(0.18, seed=1), SR)
     sparse = density.measure(_clicks(0.45, seed=1), SR)
     assert busy.median_interval_s < sparse.median_interval_s
@@ -200,12 +209,14 @@ def test_it_survives_the_onset_shift_that_wrecks_absolute_placement():
     """The reason this card is not blocked on X0R-1319 or X0R-412. A constant offset on
     every onset cancels in the difference between consecutive ones, so the figure is
     unmoved by the 15-31 ms backtrack that makes absolute note placement unusable."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     clean = density.measure(_clicks(0.25, seed=2), SR)
     jittered = density.measure(_clicks(0.25, seed=2, jitter_s=0.004), SR)
     assert jittered.median_interval_s == pytest.approx(clean.median_interval_s, abs=0.02)
 
 
 def test_a_part_that_barely_plays_abstains():
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     assert density.measure(_clicks(4.0), SR) is None
     assert density.measure(np.zeros((SR * 4, 2)), SR) is None
 
@@ -213,12 +224,14 @@ def test_a_part_that_barely_plays_abstains():
 def test_two_parts_at_the_same_density_produce_no_sentence():
     """Below the threshold there is nothing worth saying, and saying it anyway is how a
     screen fills with rows nobody reads."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     a = density.measure(_clicks(0.25, seed=4), SR)
     b = density.measure(_clicks(0.27, seed=5), SR)
     assert density.compare(a, b, "bass", False) == ""
 
 
 def test_a_real_difference_is_said_with_both_numbers_in_it():
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     mine = density.measure(_clicks(0.18, seed=6), SR)
     theirs = density.measure(_clicks(0.45, seed=7), SR)
     said = density.compare(mine, theirs, "bass", False)
@@ -230,6 +243,7 @@ def test_a_real_difference_is_said_with_both_numbers_in_it():
 def test_it_says_which_side_is_busier_the_right_way_round():
     """Easy to invert, and inverting it tells the user the opposite of the truth. A
     *longer* gap between your notes means theirs is the busier record."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     sparse_mine = density.measure(_clicks(0.50, seed=8), SR)
     busy_theirs = density.measure(_clicks(0.20, seed=9), SR)
     assert "more often" in density.compare(sparse_mine, busy_theirs, "bass", False)
@@ -240,12 +254,14 @@ def test_it_says_which_side_is_busier_the_right_way_round():
 
 
 def test_an_absent_side_says_nothing_rather_than_dividing_by_it():
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     one = density.measure(_clicks(0.25), SR)
     assert density.compare(one, None, "bass", False) == ""
     assert density.compare(None, one, "bass", False) == ""
 
 
 def test_the_verb_agrees_with_the_instrument():
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     mine = density.measure(_clicks(0.18, seed=12), SR)
     theirs = density.measure(_clicks(0.45, seed=13), SR)
     assert "drums play" in density.compare(mine, theirs, "drums", True)
@@ -264,6 +280,7 @@ def _as_moves(stem, mine, theirs, plural=False):
 def test_both_observations_arrive_with_no_control():
     """They reuse the shape `punch` already uses, so the page renders them with no work -
     and an empty `control` is what stops a dial appearing for something no dial does."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     from app.domain.notes import StemKind
 
     moves = _as_moves(StemKind.BASS, _clicks(0.18, seed=20), _clicks(0.45, seed=21))
@@ -286,6 +303,7 @@ def test_tuning_is_only_asked_of_a_stem_that_can_be_sung():
 
 
 def test_a_vocal_pair_reports_which_side_is_closer_to_the_grid():
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     from app.domain.notes import StemKind
 
     moves = _as_moves(StemKind.VOCALS, _sung(16.0, seed=24), _sung(2.0, seed=25))
@@ -297,6 +315,7 @@ def test_a_vocal_pair_reports_which_side_is_closer_to_the_grid():
 def test_the_tuning_finding_carries_its_three_caveats():
     """Each one is a way the number gets over-read: as a verdict on the singer, as an
     absolute, or as something a dial will fix."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     from app.domain.notes import StemKind
 
     moves = _as_moves(StemKind.VOCALS, _sung(16.0, seed=26), _sung(2.0, seed=27))
@@ -309,6 +328,7 @@ def test_the_tuning_finding_carries_its_three_caveats():
 def test_a_rapped_side_says_why_there_is_no_comparison_rather_than_vanishing():
     """The user chose that reference and deserves to know why a row they expected is
     missing - and the sentence has to be about the recording, not about the person."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     from app.domain.notes import StemKind
 
     moves = _as_moves(StemKind.VOCALS, _sung(4.0, seed=28), _glide())
@@ -353,6 +373,7 @@ def test_the_tuning_headline_agrees_with_its_subject():
     """"The reference's vocals sits closer to the grid" - caught by reading the
     generated text rather than by any assertion, which is the argument for generating
     the demo through the real code instead of writing it by hand."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     from app.domain.notes import StemKind
     from app.services.mastering.character import observations
 

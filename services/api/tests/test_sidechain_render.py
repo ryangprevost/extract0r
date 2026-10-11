@@ -78,6 +78,7 @@ def test_a_duck_at_rest_is_lost_in_the_noise_a_real_one_is_not(stems, tmp_path):
     the floor, and the test would have failed for a reason that has nothing to do with
     this feature.
     """
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     floor = _difference(render(stems, tmp_path, 0.0, "a"), render(stems, tmp_path, 0.0, "b"))
     real = _difference(render(stems, tmp_path, 0.0, "flat"), render(stems, tmp_path, 4.0, "duck"))
 
@@ -98,6 +99,7 @@ def notes_for(result, stem: StemKind) -> str:
 def test_the_report_says_what_it_did_on_the_bass_row(stems, tmp_path):
     """A user who took the dial has to see in the export that it ran - and on the bass,
     because the kick only supplied the timing. The decision was the bass's."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     result = render(stems, tmp_path, 4.0, "noted")
     assert "ducked 4.0 dB" in notes_for(result, StemKind.BASS)
     assert "ducked" not in notes_for(result, StemKind.DRUMS)

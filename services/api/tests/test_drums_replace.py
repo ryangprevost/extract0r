@@ -103,6 +103,7 @@ def score(hits, truth, drum, window=0.04):
 
 @pytest.mark.parametrize("drum", ["kick", "snare", "hihat"])
 def test_every_drum_is_found(beat, drum):
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     audio, truth = beat
     recall, _ = score(find_hits(audio, SR), truth, drum)
     assert recall >= 0.9, f"only found {recall:.0%} of the {drum}s"
@@ -112,6 +113,7 @@ def test_every_drum_is_found(beat, drum):
 def test_nothing_is_invented(beat, drum):
     """A trigger on a drum that is not there is worse than a missed one: it puts a hit
     into the mix that the drummer never played."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     audio, truth = beat
     _, false = score(find_hits(audio, SR), truth, drum)
     assert false <= 0.1, f"{false:.0%} of {drum} claims were wrong"
@@ -119,6 +121,7 @@ def test_nothing_is_invented(beat, drum):
 
 def test_a_kick_under_a_hat_is_still_a_kick(beat):
     """The case the old classifier could not see. Every kick here is under a hat."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     audio, truth = beat
     counts = count_by_kind(find_hits(audio, SR))
     expected = Counter(label for _, label in truth)
@@ -127,17 +130,20 @@ def test_a_kick_under_a_hat_is_still_a_kick(beat):
 
 
 def test_one_stroke_can_be_two_drums(beat):
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     audio, _ = beat
     assert any(len(hit.kinds) > 1 for hit in find_hits(audio, SR))
 
 
 def test_silence_has_no_drums_in_it():
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     assert find_hits(np.zeros((SR * 3, 2)), SR) == []
 
 
 def test_a_bass_line_is_not_a_drum_track():
     """Sustained low notes are what bleeds into a separated drums stem, and what a
     level-based detector calls kicks."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     t = np.arange(int(SR * 6)) / SR
     bass = 0.4 * np.sin(2 * np.pi * 60 * t)
     hits = find_hits(np.stack([bass, bass], axis=1), SR)
@@ -146,6 +152,7 @@ def test_a_bass_line_is_not_a_drum_track():
 
 def test_hits_carry_how_hard_they_were_struck(beat):
     """Ghost notes have to stay ghost notes when a sample is laid over them."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     audio, _ = beat
     strengths = [h.strength for h in find_hits(audio, SR)]
     assert all(s >= 0 for s in strengths)
@@ -198,6 +205,7 @@ def test_a_kick_is_low_and_a_hat_is_not():
 
 
 def test_no_blend_changes_nothing(beat):
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     audio, _ = beat
     assert np.array_equal(layer(audio, SR, find_hits(audio, SR), blend=0.0), audio)
 
@@ -209,6 +217,7 @@ def test_no_hits_changes_nothing(beat):
 
 def test_layering_adds_to_what_is_there(beat):
     """It reinforces rather than replaces - the original stem is still underneath."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     audio, _ = beat
     hits = find_hits(audio, SR)
     out = layer(audio, SR, hits, kit="tight", drums=("kick", "snare"), blend=0.6)
@@ -218,6 +227,7 @@ def test_layering_adds_to_what_is_there(beat):
 
 
 def test_more_blend_is_more_sample(beat):
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     audio, _ = beat
     hits = find_hits(audio, SR)
     quiet = layer(audio, SR, hits, blend=0.2)
@@ -226,6 +236,7 @@ def test_more_blend_is_more_sample(beat):
 
 
 def test_choosing_drums_selects_what_gets_triggered(beat):
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     audio, _ = beat
     hits = find_hits(audio, SR)
     kick_only = layer(audio, SR, hits, drums=("kick",), blend=0.8)
@@ -234,6 +245,7 @@ def test_choosing_drums_selects_what_gets_triggered(beat):
 
 
 def test_an_unknown_kit_falls_back_rather_than_failing(beat):
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     audio, _ = beat
     out = layer(audio, SR, find_hits(audio, SR), kit="does-not-exist", blend=0.5)
     assert np.isfinite(out).all()
@@ -346,6 +358,7 @@ def test_an_electronic_kick_does_not_trigger_a_snare():
     quiet moment before it to rise *from*, so the detector does not see it. That is a
     property of measuring a rise and not something this test is about.
     """
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     track = np.zeros((int(SR * 4.0), 2))
     hit = electronic_kick()
     starts = [0.5, 1.0, 1.5, 2.0]
@@ -365,6 +378,7 @@ def test_an_electronic_kick_does_not_trigger_a_snare():
 def test_a_real_snare_survives_the_new_rule():
     """The other half. A rule that silenced the false snares by silencing all of them
     would pass the test above and be useless."""
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     track = np.zeros((int(SR * 4.0), 2))
     snare = snare_sound()
     for beat_index in range(4):
@@ -391,6 +405,7 @@ def test_a_snare_over_a_kick_is_still_a_snare():
     both — five of the reference's hits carry kick and snare together, with the rattle
     genuinely ahead — and asserting it here would be testing the fixture, not the rule.
     """
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     track = np.zeros((int(SR * 4.0), 2))
     kick, snare = kick_sound(), snare_sound()
     for beat_index in range(4):
@@ -446,6 +461,7 @@ def test_no_stroke_ever_gets_both_a_kick_and_a_snare_laid_over_it():
     This is the one that would have caught the original report. Whatever the classifier
     decides, the thing the listener hears must never be both samples on one stroke.
     """
+    pytest.importorskip("librosa")  # needs a real pitch tracker; see X0R-105
     from app.services.drums.kit import replaceable
 
     track = np.zeros((int(SR * 4.0), 2))

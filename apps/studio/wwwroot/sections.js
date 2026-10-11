@@ -24,6 +24,10 @@
 const Sections = (() => {
   //: Every place worth jumping to, in the order they appear. A section absent from the
   //: page - or hidden, which is most of them before a run - simply does not get an entry.
+  //: Otto is absent on purpose: it is a fixed shelf in the corner rather than a section of
+  //: the page, so "jump to it" is meaningless and a nav entry that scrolls nowhere is worse
+  //: than no entry.
+  //:
   //: pr0ducer's own sections are listed too. The bar is built from whichever of these is
   //: actually on screen, and the two pages never show each other's, so one list serves
   //: both rather than each page needing its own copy.
@@ -31,7 +35,6 @@ const Sections = (() => {
     ["step-stems", "Stems"],
     ["step-master", "Reference"],
     ["mix-compare", "Your mix vs theirs"],
-    ["ask-panel", "Say what you want"],
     ["instrument-compare", "Instrument by instrument"],
     ["group-export", "Export"],
     ["groove", "What each plays"],

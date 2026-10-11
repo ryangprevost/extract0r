@@ -327,34 +327,6 @@
       <button class="link" id="findings-toggle" hidden>Show everything that matches</button>
     </section>
 
-    <!-- Say what you want in words. The parser is on the server; this is the surface.
-         Placed above the instrument comparison on purpose: a sentence is the cheap way
-         in, and the comparison underneath is where the measurements behind every reply
-         come from. -->
-    <div id="ask-home"></div>
-    <section class="compare-card ask-card" id="ask-panel" hidden>
-      <div class="row-between">
-        <h4 class="sub" style="margin:0">Say what you want</h4>
-        <span class="muted small">moves the real controls</span>
-      </div>
-      <div class="ask-log" id="ask-log" hidden></div>
-      <form class="ask-form" id="ask-form">
-        <input
-          type="text"
-          id="ask-input"
-          maxlength="400"
-          autocomplete="off"
-          placeholder="a little bassier&#8230;"
-          aria-label="Say what you want changed"
-        />
-        <button class="primary small" type="submit">Ask</button>
-      </form>
-      <p class="muted tiny" id="ask-help">
-        It reads a vocabulary rather than English, so it will say when it has not
-        understood rather than quietly doing nothing.
-      </p>
-    </section>
-
     <!-- EPIC-13 stage 1. The measurements behind this have existed and been tested for
          weeks and no route ever called them, so none of it had ever been on a screen.
          Placed after the comparison because it is the one panel here with no controls in
@@ -904,8 +876,31 @@
 <!-- X0R-1412. The chat moves real faders, so it is docked rather than turned into a
      help widget: same panel, same state, moved between the page and a fixed shelf. -->
 <button class="ask-launch" id="ask-launch" hidden aria-expanded="false"
-        aria-controls="ask-panel">Say what you want</button>
-<div class="ask-dock" id="ask-dock" hidden></div>
+        aria-controls="ask-panel">Ask Otto</button>
+<div class="ask-dock" id="ask-dock" hidden>
+    <section class="compare-card ask-card" id="ask-panel" hidden>
+      <div class="row-between">
+        <h4 class="sub" style="margin:0">Otto</h4>
+        <span class="muted small">tell him what you want; he moves the real controls</span>
+      </div>
+      <div class="ask-log" id="ask-log" hidden></div>
+      <form class="ask-form" id="ask-form">
+        <input
+          type="text"
+          id="ask-input"
+          maxlength="400"
+          autocomplete="off"
+          placeholder="a little bassier&#8230;"
+          aria-label="Tell Otto what you want changed"
+        />
+        <button class="primary small" type="submit">Ask</button>
+      </form>
+      <p class="muted tiny" id="ask-help">
+        It reads a vocabulary rather than English, so it will say when it has not
+        understood rather than quietly doing nothing.
+      </p>
+    </section>
+</div>
 
 <script src="waiting.js"></script>
 <script src="monitor.js"></script>

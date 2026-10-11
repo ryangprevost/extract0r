@@ -1389,11 +1389,18 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .ask-dock > .ask-card { margin: 0; border-radius: var(--radius); }
 .ask-dock .ask-log { max-height: 34vh; }
 
-/* Below the layout's own breakpoint there is no docking: a fixed panel over 375 px
-   is the whole screen, so the launcher scrolls to the panel where it sits. */
+/* Narrow screens get the same shelf as a bottom sheet. The old rule hid the dock here
+   and the launcher scrolled to an in-page copy of the panel instead; there is no in-page
+   copy any more, so hiding the shelf would leave the launcher opening nothing. */
 @media (max-width: 720px) {
-  .ask-dock { display: none; }
   .ask-launch { right: 12px; bottom: 12px; }
+  .ask-dock {
+    right: 0; left: 0; bottom: 52px;
+    width: auto;
+    max-height: 70vh;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  .ask-dock > .ask-card { border-radius: var(--radius) var(--radius) 0 0; }
 }
 
 /* The WAV depth note, quiet until a WAV is actually being written. */

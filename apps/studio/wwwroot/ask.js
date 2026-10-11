@@ -218,51 +218,41 @@ function offerRemaster() {
   // so below the layout's own breakpoint the launcher scrolls to the panel where it sits
   // instead - which is the same destination by the honest route.
 
-  const NARROW = 720;
-
   function docked() {
-    const dock = $("ask-dock");
-    return dock && !dock.hidden;
+    const shelf = $("ask-dock");
+    return shelf && !shelf.hidden;
   }
 
+  /**
+   * Open or close the shelf.
+   *
+   * **The panel no longer moves.** It used to live in the page and be *relocated* into
+   * this shelf on demand - moved rather than copied, so there was only ever one
+   * transcript and one set of listeners. Ryan asked for the page section to go and the
+   * panel to stay in the corner, which removes the relocation and with it the only reason
+   * `#ask-home` existed. One home, one panel, nothing to keep in sync.
+   *
+   * Narrow screens get the same shelf as a bottom sheet rather than no shelf at all. The
+   * old fallback scrolled to the in-page copy, and there is no in-page copy now.
+   */
   function dock(open) {
-    const panel = $("ask-panel");
     const shelf = $("ask-dock");
-    const home = $("ask-home");
+    const panel = $("ask-panel");
     const launch = $("ask-launch");
-    if (!panel || !shelf || !home) return;
+    if (!shelf || !panel) return;
 
-    if (open) {
-      shelf.appendChild(panel);
-      shelf.hidden = false;
-    } else {
-      home.after(panel);
-      shelf.hidden = true;
-    }
+    shelf.hidden = !open;
+    panel.hidden = !open;
     if (launch) {
       launch.setAttribute("aria-expanded", open ? "true" : "false");
-      launch.textContent = open ? "Close" : "Say what you want";
+      launch.textContent = open ? "Close" : "Ask Otto";
     }
   }
 
-  /** The launcher: dock on a wide screen, scroll to it on a narrow one. */
   function toggle() {
-    if (window.innerWidth <= NARROW) {
-      dock(false);
-      const panel = $("ask-panel");
-      panel.hidden = false;
-      panel.scrollIntoView({ block: "center" });
-      $("ask-input")?.focus();
-      return;
-    }
     const open = !docked();
     dock(open);
     if (open) $("ask-input")?.focus();
-  }
-
-  /** A window narrowed while docked would leave the panel covering everything. */
-  function onResize() {
-    if (window.innerWidth <= NARROW && docked()) dock(false);
   }
 
   // --- wiring ----------------------------------------------------------------------
@@ -281,16 +271,17 @@ function offerRemaster() {
   function show() {
     const panel = $("ask-panel");
     if (!panel) return;
-    panel.hidden = false;
+    // The launcher appears; the shelf stays shut until it is pressed. A chat that opens
+    // itself over the work is the thing people close without reading.
     const launch = $("ask-launch");
     if (launch) launch.hidden = false;
     if (!$("ask-log").children.length) {
       say(
         line(
           "note",
-          "Say what you want and it moves the real controls — the faders slide, you " +
-            "hear it straight away, and every reply says what the reference comparison " +
-            "makes of what you asked for.",
+          "Hello — I'm Otto. Tell me what you want and I move the real controls: the " +
+            "faders slide, you hear it straight away, and every reply says what the " +
+            "reference comparison makes of what you asked for.",
         ),
       );
       say(chips(EXAMPLES));
@@ -313,7 +304,6 @@ function offerRemaster() {
     if (launch && !launch.dataset.wired) {
       launch.dataset.wired = "yes";
       launch.addEventListener("click", toggle);
-      window.addEventListener("resize", onResize);
     }
     api("/tracks/ask/vocabulary")
       .then((vocabulary) => {

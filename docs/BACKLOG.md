@@ -24,7 +24,7 @@ another card, ❌ not started.
 | [EPIC-10](#epic-10--mixdown--export) | Mixdown & export | 13 | 2 |
 | [EPIC-11](#epic-11--per-instrument-matching) | Per-instrument matching | 60 | 2 |
 | [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
-| [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 55 | 4 |
+| [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 58 | 4 |
 | [EPIC-14](#epic-14--speed-and-the-feel-of-using-it) | Speed and usability | ~15 | 3 · *placeholder* |
 | [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 22 | 3 · *from Ryan, 5 of 9 done* |
 
@@ -1809,7 +1809,7 @@ kick there is composition), and shipping recorded samples (the licensing positio
 | 3 | Re-produce: the processing half | 8 | `TODO`. X0R-1306 holds the measured headroom. |
 | **3B** | **Compare drum to drum** | **11** | **sprint 2** |
 | 4 | Re-perform: drums only | 6 | `TODO`. Ungated as of X0R-414, re-scoped. |
-| **4B** | **Play the notes on something else** | **14** | `TODO`, added 2026-10-09 from Ryan. Transcribe a part, play it on a synth voice or an uploaded sample, land it in the master. Needs X0R-503 for the MIDI itself and **X0R-306 to say whether the notes are trustworthy at all.** |
+| **4B** | **Play the notes on something else** | **17** | `TODO`, added 2026-10-09 from Ryan. Transcribe a part, play it on a synth voice or an uploaded sample, land it in the master. Needs X0R-503 for the MIDI itself and **X0R-306 to say whether the notes are trustworthy at all.** |
 | 5 | Re-perform: bass only | 6 | `TODO`, gated on X0R-306 passing. |
 | **6** | **Note-level comparison** (the Melodyne ask) | **15** | `TODO`. 5 of it buildable today; see below. |
 
@@ -2378,7 +2378,49 @@ the rendered file, so **step 3 ships today for drums**. X0R-503 already covers s
 output format. What is missing is the pitched equivalent of `Voice`, a way to accept a
 sample as a voice, and the wiring that lets a user choose per stem.
 
-**The one real unknown, and it gates the value rather than the build.** X0R-405's own
+#### 2026-10-10: the unknown is measured, and the answer changes the shape of the stage
+
+X0R-405's criterion has been unmeasurable since it shipped because no track carries a
+ground-truth note list. **A synthesiser is a note list that can be heard**, so X0R-1325's
+voices doubled as the eval: render a known part, transcribe the render, score it. Synthetic,
+so a ceiling rather than a forecast - no amplifier, no room, no overlapping timbres beyond
+what was written.
+
+Monophonic, through the real pipeline (demucs `htdemucs_6s`, then pYIN):
+
+| | P | R | F1 | cents |
+|---|---:|---:|---:|---:|
+| bass alone, the ceiling | 1.000 | 1.000 | **1.000** | 0.0 |
+| full mix, no separation | 0.875 | 0.875 | 0.875 | 150.0 |
+| **separated bass** | 1.000 | 1.000 | **1.000** | 0.0 |
+
+**Separation costs nothing and earns its place**: it recovers the ceiling exactly, and
+skipping it drops F1 to 0.875 with 150 cents of error. X0R-405's *">= 90% on a clean DI
+bass"* is met.
+
+Polyphonic, which is what Ryan's use case needs (basic-pitch, not pYIN):
+
+| | P | R | F1 | cents |
+|---|---:|---:|---:|---:|
+| chords alone, the ceiling | 1.000 | 1.000 | **1.000** | 58.3 |
+| separated guitar stem | 0.174 | 0.167 | 0.170 | 200.0 |
+| separated other stem | 0.378 | 0.708 | 0.493 | 164.7 |
+| **guitar + other summed** | 0.462 | **1.000** | 0.632 | 58.3 |
+
+Read the last row, not the guitar one. A supersaw is not a guitar, so demucs filed most of
+it under *other* - scoring `guitar.wav` alone measures an almost-empty file and says nothing
+about separation. Summing the two stems asks the fair question: what survives wherever the
+separator put it.
+
+**And the shape of that answer is the finding.** Recall is **1.000** - not one note is lost -
+and cents error returns to the clean ceiling, so the notes it finds are pitched correctly.
+What separation adds is **spurious notes**: 52 detected where 24 were played. For
+re-voicing, that is much the better failure. A lost note cannot be recovered by anything
+downstream; an invented one is filterable by confidence, by length, by overlap. **Stage 4B
+is viable, and it needs a note-filter stage that was not in the original scope** - X0R-1329
+below.
+
+**The remaining unknown, and it gates the value rather than the build.** X0R-405's own
 criterion - *a clean DI bass line transcribes with >= 90% note accuracy* - is still
 unmeasured, waiting on X0R-306's eval set. Every card below renders whatever the
 transcription produces, faithfully. If the notes are wrong the output is wrong, and no
@@ -2389,7 +2431,30 @@ thing in this stage and it should happen first.
 
 ---
 
-### X0R-1325 · A pitched voice, the way a kit is a voice · 3 · `TODO`
+### X0R-1329 · Throw away the notes separation invented · 3 · `TODO`
+**As a** person re-voicing a part **I want** the hallucinated notes gone **so that** what I
+hear is what was played.
+
+Added 2026-10-10 from the measurement above, which found the failure mode is not what the
+stage assumed. Separation loses nothing - recall 1.000 - and invents plenty: precision
+0.462, 52 notes where 24 were played. Played back on a recorded instrument nobody notices;
+played back on a supersaw every invented note is an audible wrong note.
+
+**Acceptance criteria**
+- A filter over a `NoteEvent` list, before any voice renders it: confidence floor, minimum
+  length, and a rule for notes wholly inside another of the same pitch.
+- Each threshold's effect on precision and recall is **measured on the synthetic set above
+  and written down**, because trading recall for precision is the whole job and a threshold
+  chosen by ear is a threshold nobody can argue with.
+- Recall stays above 0.95. A filter that fixed precision by dropping real notes would make
+  the part wrong in the one way that cannot be undone further down.
+- Off by default on the tab path. Tab is a transcription of what was played and its users
+  have been reading these notes for months; this is for re-voicing, where the cost of a
+  wrong note is different.
+
+---
+
+### X0R-1325 · A pitched voice, the way a kit is a voice · 3 · `DONE` 2026-10-10
 **As a** person with a transcribed part **I want** to hear it played by a synth **so that**
 I can hear my song's shape in another style without re-recording it.
 

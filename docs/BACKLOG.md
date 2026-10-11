@@ -700,10 +700,38 @@ bleed.
 
 ---
 
-### X0R-503 · MIDI export · 2 · `TODO`
+### X0R-503 · MIDI export · 2 · `DONE` 2026-10-10
 **Acceptance criteria**
-- One `.mid` per stem, plus a combined multi-track file with named tracks.
-- Drums land on channel 10 with GM keys.
+- One `.mid` per stem, plus a combined multi-track file with named tracks. ✅ `write_midi`
+  takes a dict of named parts and writes format 1 - a conductor track plus one named track
+  each, which is what a DAW expects when it offers to split them onto channels.
+- Drums land on channel 10 with GM keys. ✅ and the GM key matters more than the channel:
+  a separated kick transcribes to whatever its fundamental happened to be, which is a kick
+  in no sampler anywhere, so every note in a drum part collapses to one key.
+
+**It was two points next to MusicXML and it is now the seam of stage 4B.** That stage's
+measurement found the notes are *right* - recall 1.000 through separation, pitch accuracy
+at the clean ceiling - while this application will not re-sequence them or change their
+tempo, because moving a user's kick to where a reference's kick sits is composition. A MIDI
+file is where those two facts meet: the app hands over notes it can stand behind, and the
+arrangement happens in a DAW where it is the user's work. That is a better answer than the
+re-sequencer this project has twice argued it should not build.
+
+**No dependency.** A MIDI file is bytes this module packs itself, so it sits in
+`app/domain/` under the X0R-102 rule and keeps `mido` out of a project that would import it
+for one function. `mido` is used in *one test*, deliberately: a format test that only ever
+reads its own writer's output will pass a file no DAW can open.
+
+**Deliberately not written:** a tempo curve. `TimingEstimate` carries one number, X0R-1319
+measured that number wrong on live material, and a tempo map exists but is not what this
+takes. A curve nobody has validated, written into a file that looks authoritative in a DAW,
+is worse than one honest number and a user who sets their own grid.
+
+**Found while testing it:** the first version of these tests scanned for bytes matching
+`0x8_` or `0x9_` to find note events. That is unsound - `_varlen` sets the high bit on
+continuation bytes, so any delta time over 127 emits something like `0x81` and reads as a
+note-off. The tests now walk delta times properly. Two of them had been passing for the
+wrong reason and two were failing for it.
 
 ---
 

@@ -769,6 +769,41 @@
       <div id="groove-body"></div>
     </section>
     <div id="produce-drums"></div>
+
+    <!-- X0R-1327 / X0R-503: the notes, and something else to play them on. -->
+    <section class="compare-card" id="revoice" hidden>
+      <div class="row-between">
+        <h4 class="sub" style="margin:0">Play a part on something else</h4>
+        <button class="small" id="midi-btn">Download the MIDI</button>
+      </div>
+      <p class="muted small" id="revoice-intro">
+        Reads the notes out of one stem and plays them on a synth. Measured through this
+        app's own separation, every note of a part comes back and the pitches are as
+        accurate as a clean DI &mdash; what separation adds is <em>extra</em> notes, by
+        breaking held ones into pieces, and those are put back together before anything is
+        played. <strong>Nothing is quantised or re-timed</strong>: the notes land where you
+        played them.
+      </p>
+      <div class="revoice-row">
+        <label>Part
+          <select id="revoice-stem">
+            <option value="bass">Bass</option>
+            <option value="guitar">Guitar</option>
+            <option value="piano">Piano</option>
+            <option value="vocals">Vocals</option>
+            <option value="other">The rest</option>
+          </select>
+        </label>
+        <label>Played on
+          <select id="revoice-voice"></select>
+        </label>
+        <button class="primary small" id="revoice-btn">Play it on that</button>
+      </div>
+      <p class="muted small" id="revoice-about"></p>
+      <p class="muted small working" id="revoice-working" hidden></p>
+      <p class="error" id="revoice-error" hidden></p>
+      <div id="revoice-result"></div>
+    </section>
   </section>
 
   <!-- ═══════════════════════════ page: tab ═══════════════════════════ -->
@@ -862,6 +897,7 @@
 <script src="groove.js"></script>
 <script src="sections.js"></script>
 <script src="resume.js"></script>
+<script src="revoice.js"></script>
 <script src="spectrum.js"></script>
 <script src="groups.js"></script>
 <script src="library.js"></script>

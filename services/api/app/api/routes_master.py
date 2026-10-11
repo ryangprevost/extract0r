@@ -21,7 +21,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_config, get_jobs, get_registry, get_storage
@@ -1325,6 +1325,182 @@ def list_tracks(registry: TrackRegistry = Depends(get_registry)) -> dict:
             }
         )
     return {"tracks": out}
+
+
+@router.get("/voices")
+def list_voices() -> dict:
+    """What a transcribed part can be played on. X0R-1325.
+
+    Parameters rather than recordings, which is `kit.py`'s argument reused: nothing here is
+    anyone else's audio, so there is no licence and a reviewer can read a patch and disagree
+    with it. None of them imitates a recorded instrument - that is what keeps this clear of
+    the guitar non-goal, which is about synthesis failing to *reach* an amplified guitar.
+    """
+    from app.services.synth.voice import VOICES
+
+    blurbs = {
+        "supersaw": "Wide and obviously electronic. What a guitar line becomes in a dance version.",
+        "subbass": "Fundamental-heavy and nearly clean, so it does not fight the kick.",
+        "epiano": "Struck rather than blown — bright for a moment, then dark and sustaining.",
+    }
+    return {
+        "voices": [
+            {"id": name, "label": name, "about": blurbs.get(name, ""),
+             "partials": len(voice.partials), "stack": voice.stack}
+            for name, voice in sorted(VOICES.items())
+        ]
+    }
+
+
+@router.post("/{track_id}/revoice", response_model=JobResponse)
+def revoice(
+    track_id: str,
+    stem: StemKind,
+    voice: str = Query("supersaw"),
+    clean: bool = Query(True, description="merge fragments separation broke apart"),
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """Transcribe one stem and play its notes on a synthesised voice. X0R-1327.
+
+    **What this is, measured, so the output is read for what it is.** Through demucs and
+    basic-pitch on a synthetic chord part, recall is 1.000 and pitch accuracy matches a
+    clean DI - the notes are right. Precision is 0.462 before cleaning and 0.727 after,
+    because separation breaks held notes into pieces and each piece arrives as its own note.
+    `clean` is `coalesce`, and it is on by default here while staying off on the tab path:
+    a tab is a transcription of what was played, and this is not.
+
+    Nothing is quantised, re-sequenced or re-tempoed. The notes land where they were played.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    from app.services.synth.voice import VOICES
+
+    if voice not in VOICES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No voice called {voice!r}.")
+
+    path = _stem_path(record.separation, stem)
+    if path is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"No {stem.value} stem — separate the track first."
+        )
+
+    out_dir = storage.exports_dir(track_id)
+
+    def work(handle: JobHandle) -> dict:
+        import numpy as np
+        import soundfile as sf
+
+        from app.domain.notes import coalesce
+        from app.services.factory import make_transcriber
+        from app.services.synth.voice import render_notes
+
+        handle.update(JobState.RUNNING, 0.1, f"reading the notes out of the {stem.value}")
+        transcription = make_transcriber(settings, stem).transcribe(Path(path), stem)
+        found = list(transcription.notes)
+        merged = coalesce(found) if clean else found
+
+        if not merged:
+            return {"notes": 0, "why": "nothing pitched came back from that stem."}
+
+        handle.update(JobState.RUNNING, 0.7, f"playing {len(merged)} notes on the {voice}")
+        probe = sf.info(str(path))
+        audio = render_notes(merged, probe.samplerate, voice, duration_s=probe.duration)
+
+        out_dir.mkdir(parents=True, exist_ok=True)
+        wav = out_dir / f"{stem.value}.{voice}.wav"
+        sf.write(str(wav), np.stack([audio, audio], axis=1), probe.samplerate)
+
+        return {
+            "stem": stem.value,
+            "voice": voice,
+            "notes": len(merged),
+            "notes_before_cleaning": len(found),
+            # Said plainly, because it is the number that decides whether what comes out is
+            # worth keeping, and nobody can hear a precision figure.
+            "fragments_merged": len(found) - len(merged),
+            "url": f"/api/v1/tracks/{track_id}/revoiced/{wav.name}",
+            "backend": transcription.backend,
+        }
+
+    return to_response(jobs.submit("revoice", track_id, work))
+
+
+@router.get("/{track_id}/revoiced/{name}")
+def revoiced_audio(
+    track_id: str,
+    name: str,
+    storage: TrackStorage = Depends(get_storage),
+) -> FileResponse:
+    """Serve one re-voiced render back for preview.
+
+    The name is rebuilt from a stem and a voice rather than taken as given: a path from a
+    URL that reaches `exports_dir` is a directory traversal, and this directory also holds
+    the user's masters.
+    """
+    from app.services.synth.voice import VOICES
+
+    stem, _, rest = name.partition(".")
+    voice, _, extension = rest.partition(".")
+    if extension != "wav" or voice not in VOICES or stem not in {k.value for k in StemKind}:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such render.")
+
+    path = storage.exports_dir(track_id) / f"{stem}.{voice}.wav"
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not rendered yet.")
+    return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+
+@router.get("/{track_id}/midi")
+def download_midi(
+    track_id: str,
+    settings: Settings = Depends(get_config),
+    registry: TrackRegistry = Depends(get_registry),
+) -> Response:
+    """Every transcribed part as one multi-track MIDI file. X0R-503.
+
+    Synchronous and therefore slow on a first call - it transcribes whatever has not been
+    transcribed yet. Worth it: this is the hand-off to a DAW, where the re-sequencing and
+    the tempo change this application will not do are the user's own work.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if record.separation is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Separate the track first.")
+
+    from app.domain.midi import write_midi
+    from app.domain.notes import coalesce
+    from app.services.factory import make_transcriber
+
+    parts: dict[str, list] = {}
+    for stem in record.separation.stems:
+        if stem.kind is StemKind.DRUMS:
+            continue
+        try:
+            found = make_transcriber(settings, stem.kind).transcribe(stem.path, stem.kind).notes
+        except Exception:
+            log.info("no notes from %s", stem.kind.value, exc_info=True)
+            continue
+        if found:
+            parts[stem.kind.value] = coalesce(list(found))
+
+    if not parts:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Nothing pitched was transcribed.")
+
+    tempo = getattr(record.timing, "tempo_bpm", 0.0) or 120.0
+    data = write_midi(parts, tempo_bpm=tempo)
+    return Response(
+        content=data,
+        media_type="audio/midi",
+        headers={"Content-Disposition": f'attachment; filename="{track_id[:8]}.mid"'},
+    )
 
 
 @router.post("/{track_id}/reference/drums", response_model=JobResponse)

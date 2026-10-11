@@ -2543,19 +2543,32 @@ I can hear my song's shape in another style without re-recording it.
 
 ---
 
-### X0R-1327 · Choose a voice per stem, hear it, keep it · 3 · `TODO`
+### X0R-1327 · Choose a voice per stem, hear it, keep it · 3 · `PARTIAL` 2026-10-10
 **As a** person building a version **I want** to pick what plays each part and hear it
 immediately **so that** I can tell whether the idea works before rendering anything.
 
 **Acceptance criteria**
 - Per stem on the pr0ducer page: play it as recorded, or play its notes on a chosen voice.
-- Preview is immediate and local to that stem - the whole master does not re-render to
-  audition one part.
-- The transcription's measured accuracy, or the plain fact that it has not been measured,
-  is on screen next to the choice. A part rendered from notes is only as good as the
-  notes, and the user is the one who can hear whether it held.
-- Choosing a voice never destroys the recorded stem; it is a layer or a substitution the
-  user can undo, the X0R-1405 rule.
+  ✅ `POST /tracks/{id}/revoice`, a picker on the page, and the render served back for
+  preview.
+- Preview is immediate and local to that stem. ✅ **5 seconds** end to end on a 15 s bass
+  part, verified in the browser - the audio element plays the result.
+- The transcription's measured accuracy, or the plain fact that it has not been measured, is
+  on screen next to the choice. ✅ said as a count rather than a score: the panel reports
+  **how many fragments it merged**, because nobody can hear a precision figure but "14 pieces
+  put back together" is something a person can weigh when a part sounds wrong.
+- Choosing a voice never destroys the recorded stem. ✅ it renders a separate file; nothing
+  in the mixer is touched.
+
+**Still open, which is why this is `PARTIAL`:** the voice is chosen for *one* stem at a time
+from a dropdown rather than per stem on the stem list, and the choice is not remembered. That
+is the difference between auditioning an idea and building a version, and X0R-1328 - landing
+it in the master - needs the remembered form.
+
+**Found by running it:** the preview `src` was built as `API + result.url`, and the server
+already returns a path starting `/api/v1`. The result was `/api/v1/api/v1/...`, a 404, and an
+audio element that silently never loaded - no error, no sound, nothing in the console. Caught
+by fetching both spellings and comparing status codes rather than by looking at the page.
 
 ---
 

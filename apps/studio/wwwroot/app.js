@@ -752,6 +752,7 @@ The tail length comes from the reference when the comparison can measure it.">re
   // The groove read needs stems and nothing else. A reference makes it a comparison
   // rather than a precondition - your own groove is worth seeing on its own.
   if (typeof Groove !== "undefined") Groove.show();
+  if (typeof Revoice !== "undefined") Revoice.show();
   // Sections appear at several different moments; the nav just re-reads which are
   // on screen rather than being told by each of them.
   if (typeof Sections !== "undefined") Sections.render();

@@ -348,3 +348,247 @@ def test_re_played_drums_need_no_tip():
         {"drums": (np.zeros(round(len(tone()) * move.scale)), "punchy kit")},
     )
     assert summarise(move, account)["tip"] == ""
+
+
+# --- what makes it sound like a dance record ---------------------------------------------
+
+from app.services.synth.retempo import (  # noqa: E402
+    PUMP_DB,
+    beat_grid,
+    four_on_the_floor,
+    pump,
+    pump_envelope,
+)
+
+
+def level_db(signal: np.ndarray, reference: np.ndarray, at: int) -> float:
+    a = float(np.sqrt((signal[at : at + 300] ** 2).mean()))
+    b = float(np.sqrt((reference[at : at + 300] ** 2).mean()))
+    return 20 * np.log10(a / b)
+
+
+def test_the_grid_starts_on_the_song_s_own_first_beat():
+    """So an added kick lands on the drummer's downbeats, not on a grid of its own."""
+    beats = beat_grid(0.1, 128.0, 4.0)
+    assert beats[0] == pytest.approx(0.1)
+    assert np.diff(beats) == pytest.approx(60 / 128)
+
+
+def test_the_pump_stays_down_and_then_swells():
+    """The dip *is* the sound. The first version reused the mastering duck, which recovers
+    with a time constant a quarter of its release, and an "8 dB" pump read -1.9 dB 60 ms
+    after the beat - a correction meant to be felt, used as an effect meant to be heard."""
+    bpm = 128.0
+    beats = beat_grid(0.1, bpm, 4.0)
+    steady = tone(4.0)
+    pumped = pump(steady, SR, beats, bpm)
+    beat = 60 / bpm
+
+    just_after = int((beats[2] + 0.05 * beat) * SR)
+    third = int((beats[2] + 0.3 * beat) * SR)
+    late = int((beats[2] + 0.9 * beat) * SR)
+
+    assert level_db(pumped, steady, just_after) < -PUMP_DB + 1.0
+    assert level_db(pumped, steady, third) < -3.0
+    assert level_db(pumped, steady, late) == pytest.approx(0.0, abs=0.2)
+
+
+def test_the_pump_has_recovered_before_the_next_beat():
+    """A release longer than the beat never recovers and just makes everything quieter."""
+    bpm = 174.0
+    beats = beat_grid(0.0, bpm, 3.0)
+    gain = pump_envelope(beats, int(3.0 * SR), SR, bpm)
+    just_before = int(beats[3] * SR) - int(0.01 * SR)
+    assert gain[just_before] == pytest.approx(1.0, abs=0.01)
+
+
+def test_no_depth_is_no_pump():
+    assert np.array_equal(pump(tone(), SR, beat_grid(0, 128, 2), 128, depth_db=0), tone())
+
+
+def test_four_on_the_floor_is_a_kick_on_every_beat():
+    bpm = 128.0
+    beats = beat_grid(0.05, bpm, 4.0)
+    layer = four_on_the_floor(beats, bpm, SR, int(4 * SR)).mean(axis=1)
+
+    for beat in beats[:-1]:
+        at = int(beat * SR)
+        on = np.max(np.abs(layer[at : at + int(0.03 * SR)]))
+        assert on > 0.3, f"no kick at {beat:.3f}"
+
+
+def test_four_on_the_floor_is_labelled_as_added_not_as_the_band():
+    """Added, not moved: re-sequencing the drummer is still out. The account has to say this
+    part is not from the recording, so nobody mistakes it for their band."""
+    bpm = 128.0
+    move = plan(POP_PUNK, bpm, 4.0)
+    beats = beat_grid(0.0, bpm, 4.0 * move.scale)
+    _, account = bounce(
+        {"bass": tone(4.0)}, SR, move.scale,
+        {"bass": (np.zeros(round(len(tone(4.0)) * move.scale)), "808")},
+        beats=beats, bpm=bpm, floor_kick=True,
+    )
+    added = [p for p in account if p.how == "added"]
+    assert added and "not from your recording" in added[0].detail
+
+    said = summarise(move, account)
+    assert any("Added" in line for line in said["lines"])
+
+
+@needs_stretcher
+def test_the_pump_spares_the_drums():
+    """Ducking the kick to itself is silence on every beat - the opposite of the effect."""
+    bpm = 128.0
+    beats = beat_grid(0.0, bpm, 2.0)
+    drums = tone(2.0, hz=60)
+    _, account = bounce(
+        {"drums": drums, "bass": tone(2.0)}, SR, 1.0, {},
+        beats=beats, bpm=bpm, pump_db=PUMP_DB,
+    )
+    pumped = next(p for p in account if p.how == "pumped")
+    assert "bass" in pumped.detail and "drums" not in pumped.detail
+
+
+# --- the dance kit -----------------------------------------------------------------------
+
+from app.services.drums.kit import KITS, render_voice  # noqa: E402
+
+
+def band_db(audio: np.ndarray, lo: float, hi: float) -> float:
+    spectrum = np.abs(np.fft.rfft(audio)) ** 2
+    freqs = np.fft.rfftfreq(audio.size, 1 / SR)
+    return 10 * np.log10(spectrum[(freqs >= lo) & (freqs < hi)].sum() / spectrum.sum())
+
+
+def test_the_dance_kick_carries_more_sub_than_a_rock_kick():
+    """Tuned against the same measurement as the other kits, to a deliberately different
+    target. A real rock kick has -2.25 dB in 20-60 Hz; the first dance kick measured -3.78,
+    short of even that."""
+    edm = band_db(render_voice(KITS["edm"]["kick"], SR), 20, 60)
+    rock = band_db(render_voice(KITS["punchy"]["kick"], SR), 20, 60)
+    assert edm > rock
+
+
+def test_the_clap_is_several_hands_not_one():
+    """Counted as sudden rises in energy, which is what a burst *is*.
+
+    The first version of this test counted local maxima of a smoothed envelope, and broke
+    the moment the clap was band-limited: narrower-band noise has many small peaks inside
+    each burst. The sound had not changed - 1 ms RMS frames still jump about 18 dB at 0, 11,
+    22 and 33 ms - the measure had.
+    """
+    clap = render_voice(KITS["edm"]["snare"], SR)[: int(0.05 * SR)]
+    frame = int(0.001 * SR)
+    rms = np.array(
+        [np.sqrt((clap[i : i + frame] ** 2).mean()) for i in range(0, len(clap) - frame, frame)]
+    )
+    level = 20 * np.log10(rms / rms.max() + 1e-9)
+    jumps = [i for i in range(1, len(level)) if level[i] - level[i - 1] > 10]
+    onsets = [j for k, j in enumerate(jumps) if k == 0 or j - jumps[k - 1] > 5]
+    # The first burst starts at the very top of the file, before any frame to rise from.
+    assert len(onsets) + 1 >= 4
+
+
+def test_the_clap_sounds_like_a_clap_and_not_hiss():
+    """Highpassed white noise alone measured a centroid of 11.5 kHz. A clap lives around
+    1-3 kHz, which only a band-limit reaches."""
+    clap = render_voice(KITS["edm"]["snare"], SR)
+    spectrum = np.abs(np.fft.rfft(clap))
+    freqs = np.fft.rfftfreq(clap.size, 1 / SR)
+    centroid = float((spectrum * freqs).sum() / spectrum.sum())
+    assert 1000 < centroid < 4500
+
+
+# --- where the beats really are ----------------------------------------------------------
+
+from app.services.synth.retempo import _kick_onsets, find_beats  # noqa: E402
+
+
+def kick_pattern(bpm: float, seconds: float, first: float = 0.0) -> np.ndarray:
+    """A kick on every beat, from the dance kit, starting at `first`."""
+    out = np.zeros(int(seconds * SR))
+    hit = render_voice(KITS["edm"]["kick"], SR)
+    for t in np.arange(first, seconds - 0.5, 60.0 / bpm):
+        at = int(round(t * SR))
+        out[at : at + hit.size] += hit[: max(0, min(hit.size, out.size - at))]
+    return out
+
+
+def test_the_envelope_reports_the_rate_it_is_really_sampled_at():
+    """The bug that made two methods agree on a wrong tempo. 44100 // 1000 is 44, which is
+    1002.27 Hz; converting at 1000 stretched every time by 0.227% and read a 170 BPM song
+    as 169.61. Agreement between methods that share an input is not corroboration."""
+    _, rate = _kick_onsets(np.zeros(SR * 2), SR)
+    assert rate == pytest.approx(SR / (SR // 1000))
+    assert rate != 1000
+
+
+@pytest.mark.parametrize("bpm", [128.0, 140.0, 170.0, 174.0])
+def test_the_tempo_comes_from_the_kick_not_the_estimate(bpm: float):
+    """Seeded with an estimate 0.9% out - what the whole-mix estimator gave the pop punk demo
+    - and it has to find the real tempo anyway."""
+    found, _ = find_beats(kick_pattern(bpm, 12.0), SR, bpm * 0.991)
+    assert found == pytest.approx(bpm, abs=0.1)
+
+
+def test_the_first_beat_is_found_where_the_kick_is():
+    """The grid used to start 166 ms into a 469 ms beat. A kick laid on that flams."""
+    _, first = find_beats(kick_pattern(128.0, 10.0, first=0.2), SR, 127.0)
+    beat = 60.0 / 128.0
+    assert min(abs(first - 0.2) % beat, beat - abs(first - 0.2) % beat) < 0.008
+
+
+def test_no_kick_falls_back_rather_than_inventing_one():
+    assert find_beats(np.zeros(SR * 5), SR, 128.0) == (128.0, 0.0)
+
+
+def test_a_first_beat_just_before_zero_still_gets_its_beat():
+    """A kick found at -0.5 ms wrapped to nearly a beat later and lost the song's opening."""
+    period = 60.0 / 170.0
+    beats = beat_grid(period - 0.0005, 170.0, 3.0)
+    assert beats[0] == pytest.approx(0.0, abs=1e-6)
+
+
+# --- X0R-412: where a hit really starts -----------------------------------------------------
+
+from app.services.synth.retempo import ONSET_LOOKBACK_S, refine_hit_times  # noqa: E402
+
+
+def struck(at_s: float, seconds: float = 1.0) -> np.ndarray:
+    """One kick, starting exactly at `at_s`, in silence."""
+    out = np.zeros(int(seconds * SR))
+    kick = render_voice(KITS["punchy"]["kick"], SR, seed=0)
+    start = int(round(at_s * SR))
+    out[start : start + kick.size] = kick[: out.size - start]
+    return out
+
+
+def test_a_late_detection_is_pulled_back_to_the_stroke():
+    """Detectors report a hit when it is loud, which is after it starts. Re-struck hits
+    placed at the detector's time land late and flam against anything added on the grid."""
+    audio = struck(0.5)
+    refined = refine_hit_times(audio, SR, [Hit(time_s=0.511, kinds=["kick"])])
+    assert abs(refined[0].time_s - 0.5) < 0.002
+
+
+def test_an_early_detection_is_pushed_forward_to_the_stroke():
+    audio = struck(0.5)
+    refined = refine_hit_times(audio, SR, [Hit(time_s=0.489, kinds=["kick"])])
+    assert abs(refined[0].time_s - 0.5) < 0.002
+
+
+def test_a_hit_inside_a_ringing_sound_keeps_the_detected_time():
+    """If nothing in the window is quiet, there is no start to find. Walking back to the edge
+    of the window and calling that the stroke is what once moved a kick 30 ms early."""
+    t = np.arange(SR) / SR
+    audio = 0.5 * np.sin(2 * np.pi * 110 * t)
+    refined = refine_hit_times(audio, SR, [Hit(time_s=0.5, kinds=["kick"])])
+    assert refined[0].time_s == 0.5
+
+
+def test_refining_keeps_what_the_hit_was():
+    audio = struck(0.5)
+    hit = Hit(time_s=0.51, kinds=["kick", "hihat"], strength=0.7, rises={"kick": 9.0})
+    refined = refine_hit_times(audio, SR, [hit])[0]
+    assert (refined.kinds, refined.strength, refined.rises) == (hit.kinds, hit.strength, hit.rises)
+    assert refined.time_s > hit.time_s - ONSET_LOOKBACK_S

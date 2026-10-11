@@ -208,13 +208,24 @@ def rebuild_drums(
 
 
 def stretcher_available() -> str:
-    """Which stretcher this machine will use, said out loud so the result can be judged."""
+    """Which stretcher this machine will use, said out loud so the result can be judged.
+
+    Empty when there is none. Both live in the ML extras, and an install without them used
+    to find that out halfway through a bounce, as a `ModuleNotFoundError` in the job log -
+    the route now asks first and says which parts to re-play instead.
+    """
     try:
         import python_stretch  # noqa: F401
 
         return "signalsmith"
     except ImportError:
+        pass
+    try:
+        import librosa  # noqa: F401
+
         return "librosa"
+    except ImportError:
+        return ""
 
 
 def stretch(audio: np.ndarray, sample_rate: int, scale: float) -> np.ndarray:
@@ -263,7 +274,11 @@ def stretch(audio: np.ndarray, sample_rate: int, scale: float) -> np.ndarray:
 #: as having been rendered at a *different* tempo. Renders are named by stem and voice, not
 #: by tempo, so a bass played at 90 and then a target of 128 would otherwise be picked up
 #: and summed - a version at two tempos at once, which is the worst failure available here.
-LENGTH_TOLERANCE = 0.02
+#:
+#: Tight, because every render is made by this code to an exact length. It was 2%, and a
+#: render made before the kick-locked tempo (scaled by 168.5 rather than 170, 0.9% short)
+#: slipped under that and would have been summed against parts that drift away from it.
+LENGTH_TOLERANCE = 0.002
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +306,10 @@ def bounce(
     sample_rate: int,
     scale: float,
     replays: dict[str, tuple[np.ndarray, str]],
+    beats: np.ndarray | None = None,
+    bpm: float = 0.0,
+    pump_db: float = 0.0,
+    floor_kick: bool = False,
 ) -> tuple[np.ndarray, list[Part]]:
     """Every part of the song at the new tempo, summed. Returns the audio and the account.
 
@@ -334,8 +353,23 @@ def bounce(
             part = stretch(audio, sample_rate, scale)
             account.append(Part(stem, "stretched", f"with {engine}"))
 
+        # The pump goes on everything except the drums: ducking the kick to itself is
+        # silence on every beat, which is the opposite of the effect.
+        if pump_db > 0 and beats is not None and bpm > 0 and stem != "drums":
+            part = pump(part, sample_rate, beats, bpm, pump_db)
+
         take = min(len(part), length)
         mix[:take] += part[:take]
+
+    if pump_db > 0 and beats is not None and bpm > 0:
+        pumped = [p.stem for p in account if p.stem != "drums"]
+        if pumped:
+            account.append(Part("pump", "pumped", ", ".join(pumped)))
+
+    if floor_kick and beats is not None and bpm > 0:
+        mix += four_on_the_floor(beats, bpm, sample_rate, length)
+        account.append(Part("four on the floor", "added",
+                            "a kick on every beat and hats between — not from your recording"))
 
     # Down to -1 dBFS if the sum went over. Not a limiter - this is a sketch of a version,
     # and the mastering page is where loudness is decided. It only stops the file clipping.
@@ -367,6 +401,8 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
     """
     replayed = [p.stem for p in account if p.how == "re-played"]
     stretched = [p.stem for p in account if p.how == "stretched"]
+    added = [p for p in account if p.how == "added"]
+    pumped = [p for p in account if p.how == "pumped"]
 
     if move is None or abs(move.scale - 1.0) < 1e-6:
         headline = "Same tempo — every part as you chose it."
@@ -383,6 +419,10 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
         )
     if stretched:
         lines.append(f"Stretched to fit: {', '.join(stretched)}.")
+    for part in pumped:
+        lines.append(f"Pumping on every beat, like a dance record: {part.detail}.")
+    for part in added:
+        lines.append(f"Added: {part.detail}.")
 
     tip = ""
     soft = [s for s in stretched if s in PERCUSSIVE]
@@ -393,3 +433,320 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
         )
 
     return {"headline": headline, "lines": lines, "tip": tip}
+
+
+# --- what makes a tempo change sound like a dance record --------------------------------
+#
+# A pop punk song at 128 BPM is not yet an EDM track. Ryan, hearing the first version: the
+# MIDI "is a great start but I want to see it subbing in samples for synths and other
+# instruments to create an actual remix". Two things are missing that no amount of re-voicing
+# supplies, and they are the two a listener identifies the genre by inside a bar:
+#
+# * **The pump.** Every non-drum part ducks on every beat and swells back - a sidechain
+#   compressor keyed to the kick. `mastering/sidechain.py` already has the shape (X0R-1308);
+#   here it is used deeper, as an effect rather than a correction, with its release tied to
+#   the tempo so it has recovered by the next beat.
+# * **Four on the floor.** A kick on every beat, offbeat hats between. A pop punk drummer's
+#   pattern re-struck on a dance kit is still a pop punk pattern.
+#
+# The second one is **added, not moved**, and that distinction is the line this project kept
+# when Ryan reopened tempo. Re-sequencing - moving the drummer's hits to where a dance record
+# puts them - is still out. Laying a new part *alongside* the drummer leaves every hit he
+# played exactly where he played it, which is what a remixer adding a kick does. The account
+# says "added" and says it is not from the recording, so nobody mistakes it for their band.
+
+#: How deep the pump goes. Mastering ducks a bass by 3 dB at most so it is felt and not heard;
+#: a dance pump is *meant* to be heard. 8 dB is where it reads as the effect rather than as
+#: a bass that got quieter, without the parts vanishing between beats.
+PUMP_DB = 8.0
+
+#: How much of the beat the swell back up takes. The rest of the beat sits at full level.
+PUMP_RELEASE_BEATS = 0.75
+
+
+def beat_grid(first_beat_s: float, bpm: float, duration_s: float) -> np.ndarray:
+    """Every beat at the new tempo, starting from where the song's first beat now falls.
+
+    A first beat a hair *before* zero - a kick found at -0.5 ms - wraps to almost a whole
+    beat later under a plain modulo, and the song's opening beat gets no added kick. So a
+    start within 20 ms of a full period is treated as the beat at zero.
+    """
+    if bpm <= 0 or duration_s <= 0:
+        return np.array([])
+    period = 60.0 / bpm
+    start = first_beat_s % period
+    if start > period - 0.02:
+        start -= period
+    beats = np.arange(start, duration_s, period)
+    return np.clip(beats[beats >= -0.02], 0.0, None)
+
+
+def pump_envelope(beats: np.ndarray, length: int, sample_rate: int, bpm: float,
+                  depth_db: float = PUMP_DB) -> np.ndarray:
+    """A gain curve that drops on every beat, *stays down*, then swells back.
+
+    **Not `sidechain.gain_envelope`, which this first reused.** That curve recovers with a
+    time constant of a quarter of its release, so it is nearly back up before the ear
+    catches the dip - exactly right for the mastering correction it was written for, where
+    the duck is meant to be felt rather than heard. Measured as a pump, an "8 dB" duck read
+    **-1.9 dB** 60 ms after the beat. A dance pump is the opposite brief: the dip *is* the
+    sound. So the recovery here is a smoothstep - flat at the bottom, rising through the
+    middle of the beat, flat at the top - which is the breathing shape.
+    """
+    gain = np.ones(length)
+    if length == 0 or depth_db <= 0 or bpm <= 0:
+        return gain
+    floor = 10.0 ** (-depth_db / 20.0)
+    attack = max(1, int(0.005 * sample_rate))
+    release = max(2, int(PUMP_RELEASE_BEATS * 60.0 / bpm * sample_rate))
+    x = np.linspace(0.0, 1.0, release)
+    rise = floor + (1.0 - floor) * (3 * x**2 - 2 * x**3)
+    shape = np.concatenate([np.linspace(1.0, floor, attack, endpoint=False), rise])
+
+    for beat in np.atleast_1d(beats):
+        at = int(round(beat * sample_rate))
+        if at >= length:
+            continue
+        head = max(0, at)
+        piece = shape[max(0, -at): max(0, -at) + (length - head)]
+        window = gain[head: head + piece.size]
+        np.minimum(window, piece, out=window)
+    return gain
+
+
+def pump(audio: np.ndarray, sample_rate: int, beats: np.ndarray, bpm: float,
+         depth_db: float = PUMP_DB) -> np.ndarray:
+    """Duck a part on every beat and let it swell back. The sound of a dance record."""
+    audio = np.asarray(audio, dtype=np.float64)
+    gain = pump_envelope(beats, len(audio), sample_rate, bpm, depth_db)
+    return audio * (gain[:, None] if audio.ndim > 1 else gain)
+
+
+def four_on_the_floor(beats: np.ndarray, bpm: float, sample_rate: int, length: int,
+                      kit: str = "edm") -> np.ndarray:
+    """A kick on every beat and a hat on every offbeat - the house groove - as stereo audio.
+
+    No clap. The drummer's own backbeat, re-struck on the dance kit, already lands on 2 and
+    4 as a clap; adding another would double it and bury the one thing left of the band's
+    groove.
+    """
+    out = np.zeros((length, 2))
+    voices = KITS.get(kit) or KITS["edm"]
+    kick = render_voice(voices["kick"], sample_rate, seed=11)
+    hat = render_voice(voices["hihat"], sample_rate, seed=12)
+    half = 30.0 / bpm
+
+    def lay(sample: np.ndarray, time_s: float, gain: float) -> None:
+        at = int(round(time_s * sample_rate))
+        if at < 0 or at >= length:
+            return
+        end = min(length, at + sample.size)
+        out[at:end, 0] += sample[: end - at] * gain
+        out[at:end, 1] += sample[: end - at] * gain
+
+    for beat in beats:
+        lay(kick, beat, 0.95)
+        lay(hat, beat + half, 0.38)
+    return out
+
+
+# --- where the beats really are ----------------------------------------------------------
+#
+# The four-on-the-floor and the pump have to agree with the re-played drummer on both rate
+# and phase, or the added kick flams against his and the pump ducks the wrong half of the
+# beat. Found by measuring the first "Make it EDM" version rather than by listening:
+#
+# * **Phase.** The beat grid started from `TimingEstimate.first_beat_s`, which put it 166 ms
+#   into a 469 ms beat on the pop punk demo - over a third of a beat late.
+# * **Rate.** The whole-mix estimate read 168.5 BPM for a song built at exactly 170. Re-played
+#   parts follow the real performance scaled by 168.5/128, so they land at 129.1 - while a
+#   grid laid at exactly 60/128 runs at 128, and the two slide apart across the song. That is
+#   also why the analyser kept reading the "128" versions as 129.2, which had been put down
+#   to its resolution. It was not resolution.
+#
+# The existing drum tools did not rescue it on this material: the hit classifier labelled 14
+# of about 40 kicks and snares and missed beat one, the drum-anchored grid then fell to the
+# half-time 85 BPM, and a tempo map started from the first stroke started on an offbeat
+# hi-hat - which would have put an added kick on every "and".
+#
+# So this searches instead of estimating. **Beats are where the kicks are**: sweep tempo
+# near the estimate and phase across one beat, and take the comb that lands on the most
+# low-frequency onset energy. Deterministic, scipy only, and it measures the estimate's own
+# error rather than inheriting it.
+
+#: How far either side of the estimate to search. Wide enough for a whole-mix estimate's
+#: usual error - the pop punk demo was 0.9% out - and narrow enough to stay in the
+#: estimate's octave, which is a separate question with its own one-tap fix.
+TEMPO_SEARCH = 0.04
+
+
+def _kick_onsets(
+    drums: np.ndarray, sample_rate: int, target_rate: int = 1000
+) -> tuple[np.ndarray, float]:
+    """Low-band onset strength - rises in energy under 200 Hz, which is a kick - and the
+    rate it is actually sampled at.
+
+    200 Hz, chosen by sweeping. At 150 a kick whose pitch starts above the band - the dance
+    kit's dives from 170 Hz - was found 19 ms late, which is where an added kick flams. At
+    200 it is 6.9 ms and a recorded kick stays at 0.2; wider bands help the dance kick a
+    little more and let in more of the bass.
+
+    **The rate is returned rather than assumed, and that is a fix.** The envelope is
+    decimated by a whole number of samples, and `44100 // 1000` is 44, which is 1002.27 Hz,
+    not 1000. The first version converted indices to seconds at 1000 Hz, stretching every
+    time by 0.227% - so a song built at exactly 170 BPM measured 169.61, and two independent
+    methods agreed on that wrong number because they shared the same clock. Agreement
+    between methods that share an input is not corroboration.
+    """
+    from scipy.signal import butter, sosfiltfilt
+
+    mono = drums.mean(axis=1) if drums.ndim > 1 else drums
+    low = sosfiltfilt(butter(4, 200.0 / (sample_rate / 2), output="sos"), mono)
+    step = max(1, sample_rate // target_rate)
+    width = max(1, int(0.008 * sample_rate))
+    energy = np.convolve(np.abs(low), np.ones(width) / width, "same")[::step]
+    return np.maximum(np.diff(energy, prepend=energy[0]), 0.0), sample_rate / step
+
+
+def find_beats(drums: np.ndarray, sample_rate: int, estimate_bpm: float) -> tuple[float, float]:
+    """The tempo and the first beat, as the kick drum says they are. (bpm, first_beat_s).
+
+    Falls back to the estimate and zero when there is nothing to lock to - a drumless song
+    should get the grid it was going to get, not an error.
+    """
+    if estimate_bpm <= 0:
+        return estimate_bpm, 0.0
+    onset, rate = _kick_onsets(drums, sample_rate)
+    if onset.size < rate or not onset.any():
+        return estimate_bpm, 0.0
+
+    n = onset.size
+    best = (0.0, estimate_bpm, 0.0)
+    for bpm in np.arange(estimate_bpm * (1 - TEMPO_SEARCH), estimate_bpm * (1 + TEMPO_SEARCH),
+                         0.05):
+        period = 60.0 / bpm * rate
+        phases = np.arange(0.0, period, 2.0)
+        ticks = np.arange(0.0, n - 1, period)
+        positions = (phases[:, None] + ticks[None, :]).astype(int)
+        positions = np.clip(positions, 0, n - 1)
+        scores = onset[positions].sum(axis=1) / ticks.size
+        k = int(np.argmax(scores))
+        if scores[k] > best[0]:
+            best = (float(scores[k]), float(bpm), float(phases[k] / rate))
+
+    # The search gets the phase exactly and the rate to within a step's worth of a flat
+    # score surface - 169.58 for a song built at 170 on the pop punk demo, which is 0.25%
+    # and still drifts about 30 ms by the end of a song. So the search seeds a least-squares
+    # fit on the kick peaks themselves, each assigned to its nearest sixteenth: time against
+    # grid index is a straight line, and its slope is the tempo.
+    _, bpm, first = best
+    period = 60.0 / bpm
+    peaks = _peaks(onset, rate)
+    if peaks.size >= 4:
+        step = period / 4.0
+        index = np.round((peaks - first) / step)
+        near = np.abs(peaks - (first + index * step)) < step / 2
+        if near.sum() >= 4:
+            slope, intercept = np.polyfit(index[near], peaks[near], 1)
+            fitted = 60.0 / (slope * 4.0)
+            if abs(fitted / bpm - 1.0) < TEMPO_SEARCH:
+                bpm = fitted
+                first = intercept % (slope * 4.0)
+
+        # Back from where each kick's onset *peaks* to where it *began*. The peak is the
+        # steepest rise in low-band energy, which comes after the hit starts - by 3 ms for a
+        # kick whose pitch starts under 150 Hz and by about 20 ms for one that sweeps down
+        # into the band from above, as the dance kit's does. 20 ms is where an added kick
+        # starts to flam against the one it is meant to sit on. The median, so one odd kick
+        # cannot move the grid.
+        lead = np.median([_rise(onset, int(round(t * rate))) for t in peaks]) / rate
+        first = (first - lead) % (60.0 / bpm)
+    return round(float(bpm), 2), float(first)
+
+
+def _rise(onset: np.ndarray, peak: int) -> int:
+    """How many samples before `peak` its rise began: back to 10% of the peak height."""
+    floor = 0.1 * onset[peak]
+    j = peak
+    while j > 0 and onset[j - 1] > floor and onset[j - 1] <= onset[j]:
+        j -= 1
+    return peak - j
+
+
+def _peaks(onset: np.ndarray, rate: float) -> np.ndarray:
+    """Times of clear kick onsets: one per kick, as near as the envelope allows.
+
+    Tuned against kicks at known tempi from 120 to 180 BPM. The first settings - 30% of the
+    peak, 60 ms apart - found 3.7 peaks per kick, because a kick's pitch sweep moves through
+    the low band and the onset envelope bumps more than once on the way, and those extra
+    points pulled the tempo fit 0.5 BPM out. At 60% and 90 ms it is 1.17 per kick and 0.054
+    BPM worst case. 90 ms can drop one of a punk double kick; the fit only needs enough
+    points, not all of them.
+    """
+    threshold = 0.6 * float(onset.max())
+    gap = int(0.09 * rate)
+    out: list[int] = []
+    for i in range(1, onset.size - 1):
+        if onset[i] >= threshold and onset[i] >= onset[i - 1] and onset[i] > onset[i + 1]:
+            if not out or i - out[-1] >= gap:
+                out.append(i)
+            elif onset[i] > onset[out[-1]]:
+                out[-1] = i
+    return np.asarray(out, dtype=float) / rate
+
+
+# --- where each hit really starts ---------------------------------------------------------
+#
+# X0R-412, which had been open since the transcription epic, turned out to sit underneath the
+# four-on-the-floor. `find_hits` detects a kick a median **10.5 ms late** - measured against
+# kicks at known times, range 8 to 13 ms - even with librosa's backtracking on, because its
+# onset envelope is framed at 256 samples and backtracking only walks back to a frame. That
+# was harmless while a hit time only labelled a stroke. Once re-emission *places a sample* at
+# it, the whole re-struck drum part lands 10 ms late, 14 ms after scaling to 128 - against an
+# added kick on the true beat, which is a flam.
+
+#: Search this far before a detected hit for where it really starts, and this far after.
+#: The look-ahead was 10 ms, on the assumption that detection is always late. It usually is,
+#: and on the pop punk demo one kick was detected 11 ms *early* - so the real kick sat just
+#: outside the window, the search grabbed the tail of something earlier, and moved the hit
+#: the full 30 ms the wrong way.
+ONSET_LOOKBACK_S = 0.030
+ONSET_LOOKAHEAD_S = 0.025
+
+
+def refine_hit_times(samples: np.ndarray, sample_rate: int, hits: list[Hit]) -> list[Hit]:
+    """Each hit moved back to where its sound actually begins, to about a millisecond.
+
+    Around every detected time, find the loudest point of the drum and walk back to where it
+    first rose above a tenth of that. A stroke is a sharp rise out of near-silence, so the
+    start of the rise is where the drummer hit it - and it is the only time that should place
+    a sample.
+    """
+    mono = samples.mean(axis=1) if samples.ndim > 1 else np.asarray(samples, dtype=np.float64)
+    width = max(1, int(0.001 * sample_rate))
+    envelope = np.convolve(np.abs(mono), np.ones(width) / width, "same")
+    back = int(ONSET_LOOKBACK_S * sample_rate)
+    ahead = int(ONSET_LOOKAHEAD_S * sample_rate)
+
+    out = []
+    for hit in hits:
+        centre = int(round(hit.time_s * sample_rate))
+        lo, hi = max(0, centre - back), min(envelope.size, centre + ahead)
+        if hi - lo < 4:
+            out.append(hit)
+            continue
+        window = envelope[lo:hi]
+        peak = int(np.argmax(window))
+        floor = 0.1 * window[peak]
+        start = peak
+        while start > 0 and window[start - 1] > floor:
+            start -= 1
+        # A walk that ran all the way to the edge of the window never found the quiet before
+        # a stroke - something was already sounding - so it found nothing, and the detector's
+        # own time is the better guess. This is what turned one kick into a 54 ms flam.
+        if start == 0 and lo > 0:
+            out.append(hit)
+            continue
+        out.append(Hit(time_s=(lo + start) / sample_rate, kinds=list(hit.kinds),
+                       strength=hit.strength, rises=dict(hit.rises)))
+    return out

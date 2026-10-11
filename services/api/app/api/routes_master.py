@@ -1344,9 +1344,13 @@ def list_voices() -> dict:
     from app.services.synth.voice import VOICES
 
     blurbs = {
-        "supersaw": "Wide and obviously electronic. What a guitar line becomes in a dance version.",
+        "supersaw": "Wide and obviously electronic — a big lead for a drop.",
         "subbass": "Fundamental-heavy and nearly clean, so it does not fight the kick.",
         "epiano": "Struck rather than blown — bright for a moment, then dark and sustaining.",
+        "pluck": "Bright and short, closing fast — what strummed guitars usually become in "
+        "a dance version.",
+        "pad": "Slow in, wide and held — chords turned into a wash under the drop.",
+        "808": "A falling, gritty sub — the bass of most modern dance and hip hop.",
     }
     return {
         "voices": [
@@ -1548,10 +1552,29 @@ def _tempo_of(track_id: str, registry: TrackRegistry) -> float:
     """
     record = registry.require(track_id)
     if record.timing is None:
+        from dataclasses import replace
+
         from app.services.analysis.timing import TimingAnalyser
 
         try:
-            registry.set_timing(track_id, TimingAnalyser().analyse(record.stored.path))
+            timing = TimingAnalyser().analyse(record.stored.path)
+            # Then lock it to the kick drum when there is one. The whole-mix estimate read
+            # a 170 BPM song as 168.5, and re-played parts follow the real performance - so
+            # a part scaled by the estimate lands at 129.1 when 128 was asked for, and an
+            # added four-on-the-floor at exactly 128 slides away from it across the song.
+            # `find_beats` searches near the estimate for the comb that lands on the most
+            # kick energy and measured that song at 170.01, first beat 3 ms.
+            drums = _stem_path(record.separation, StemKind.DRUMS) if record.separation else None
+            if drums is not None and Path(drums).exists():
+                import soundfile as sf
+
+                from app.services.synth.retempo import find_beats
+
+                audio, rate = sf.read(str(drums), dtype="float64", always_2d=True)
+                bpm, first = find_beats(audio, rate, timing.tempo_bpm)
+                if bpm > 0:
+                    timing = replace(timing, tempo_bpm=bpm, first_beat_s=first)
+            registry.set_timing(track_id, timing)
             record = registry.require(track_id)
         except Exception:
             log.info("could not read a tempo for %s", track_id, exc_info=True)
@@ -1715,7 +1738,12 @@ def revoice(
 
             handle.update(JobState.RUNNING, 0.2, "finding every stroke in the drums")
             samples, rate = sf.read(str(path), dtype="float64", always_2d=True)
-            hits = find_hits(samples.mean(axis=1), rate)
+            # Refined to where each stroke really begins before anything is placed on it.
+            # `find_hits` lands a median 10.5 ms late, which was harmless while a hit only
+            # labelled a stroke and is a flam once a sample is triggered there. X0R-412.
+            from app.services.synth.retempo import refine_hit_times
+
+            hits = refine_hit_times(samples, rate, find_hits(samples.mean(axis=1), rate))
             if not hits:
                 return {"notes": 0, "why": "no drum strokes came back from that stem."}
 
@@ -1845,6 +1873,11 @@ class BounceRequest(BaseModel):
     target_bpm: float | None = None
     #: Which parts were re-played and on what, as {stem: voice-or-kit-or-sample}.
     parts: dict[str, str] = Field(default_factory=dict)
+    #: Duck every non-drum part on every beat - the sound a listener knows a dance record by.
+    pump: bool = False
+    #: Lay a kick on every beat and hats between, *alongside* the drummer rather than instead
+    #: of him. Added, not moved: re-sequencing his hits is still out.
+    four_on_the_floor: bool = False
 
 
 @router.post("/{track_id}/bounce", response_model=JobResponse)
@@ -1907,6 +1940,17 @@ def bounce_version(
             "Play these parts first, so there is something to put in the version: "
             + ", ".join(missing) + ".",
         )
+    from app.services.synth.retempo import stretcher_available
+
+    unplayed = [stem for stem in stems if stem not in renders]
+    if abs(scale - 1.0) > 1e-6 and unplayed and not stretcher_available():
+        # Asked before the job starts, not discovered inside it. Anything not re-played has
+        # to be stretched, and both stretchers come with the ML extras.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This install has no time-stretcher, so every part has to be re-played to change "
+            "the tempo. Still to re-play: " + ", ".join(unplayed) + ".",
+        )
 
     def work(handle: JobHandle) -> dict:
         import soundfile as sf
@@ -1933,8 +1977,24 @@ def bounce_version(
             if stretching
             else "summing the parts",
         )
+        # Where the beats fall at the new tempo, for the pump and the four-on-the-floor.
+        # The song's own first beat, scaled - so the added kick lands on the drummer's
+        # downbeats rather than on a grid of its own that happens to share a tempo.
+        beats = None
+        target = body.target_bpm or (getattr(record.timing, "tempo_bpm", 0.0) or 0.0)
+        if (body.pump or body.four_on_the_floor) and target:
+            from app.services.synth.retempo import beat_grid
+
+            first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+            longest = max(len(a) for a in audio.values()) / rate
+            beats = beat_grid(first * scale, target, longest * scale)
         try:
-            mix, account = bounce(audio, rate, scale, replays)
+            mix, account = bounce(
+                audio, rate, scale, replays,
+                beats=beats, bpm=target,
+                pump_db=8.0 if body.pump else 0.0,
+                floor_kick=body.four_on_the_floor,
+            )
         except StaleRender as exc:
             return {"ok": False, "why": str(exc), "stem": exc.stem}
 

@@ -47,7 +47,17 @@ class Voice:
     noise_level: float = 0.0
     noise_decay: float = 20.0
     noise_highpass: float = 0.0
+    #: An upper edge for the noise, zero for none. Highpassed white noise keeps everything up
+    #: to Nyquist, so the first `edm` clap measured an energy centroid of 11.5 kHz - which is
+    #: hiss, not a clap. A real clap lives around 1-3 kHz, and only a band-limit gets it there.
+    noise_lowpass: float = 0.0
     body_level: float = 1.0
+    #: How many times the noise is re-struck before its tail, and how far apart. One is an
+    #: ordinary snare. Three or four, ten-odd milliseconds apart, is a *clap* - several
+    #: hands not quite together - which is the sound a dance record puts on 2 and 4 and the
+    #: one thing this engine could not make before the `edm` kit needed it.
+    bursts: int = 1
+    burst_gap_s: float = 0.011
 
 
 #: Three kits, chosen to be obviously different rather than subtly so - the point of
@@ -61,6 +71,24 @@ class Voice:
 #: 0.1 dB of a real kick down there, and differ where they should - in length, in how
 #: fast the body dies, and in how much click is on the front.
 KITS: dict[str, dict[str, Voice]] = {
+    #: A dance kit, for pr0ducer's EDM versions. A 909-shaped kick, a clap rather than a
+    #: snare, and a tight closed hat. Synthesised like the other three, so it ships nobody's
+    #: recordings.
+    #:
+    #: The kick was tuned against the same measurement as the others and to a different
+    #: target, on purpose. A real rock kick puts -2.25 dB of its energy in 20-60 Hz; a dance
+    #: kick is felt in a room more than heard and should carry *more* sub than that. The
+    #: first version measured -3.78 - short of even the rock figure. A parameter sweep put
+    #: it at -1.54 dB in 20-60 and -6.23 in 60-120: the pitch dives fast from 170 Hz to 46
+    #: and then holds there, so the energy lives in the sub rather than in the sweep.
+    "edm": {
+        "kick": Voice(0.48, 170.0, 46.0, 55.0, 4.5, noise_level=0.12, noise_decay=650.0),
+        "snare": Voice(0.24, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=16.0,
+                       noise_highpass=900.0, noise_lowpass=3500.0, body_level=0.0,
+                       bursts=4),
+        "hihat": Voice(0.045, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=120.0,
+                       noise_highpass=8500.0, body_level=0.0),
+    },
     "tight": {
         "kick": Voice(0.32, 95.0, 38.0, 25.0, 7.0, noise_level=0.16, noise_decay=500.0),
         "snare": Voice(0.16, 200.0, 190.0, 40.0, 34.0, noise_level=0.8, noise_decay=30.0,
@@ -124,13 +152,31 @@ def render_voice(voice: Voice, sample_rate: int, seed: int = 0) -> np.ndarray:
 
     if voice.noise_level > 0:
         rng = np.random.default_rng(seed)
-        noise = rng.normal(0, 1, n) * np.exp(-voice.noise_decay * t)
+        envelope = np.exp(-voice.noise_decay * t)
+        if voice.bursts > 1:
+            # Each early burst is short and sharp; the last one carries the tail. Summed
+            # rather than replaced, so the clap's body is the overlap of all of them.
+            gap = voice.burst_gap_s
+            envelope = np.zeros(n)
+            for k in range(voice.bursts):
+                start = k * gap
+                shifted = np.clip(t - start, 0, None)
+                decay = voice.noise_decay if k == voice.bursts - 1 else 220.0
+                envelope += np.where(t >= start, np.exp(-decay * shifted), 0.0)
+        noise = rng.normal(0, 1, n) * envelope
         if voice.noise_highpass > 0:
             from scipy.signal import butter, sosfilt
 
             nyquist = sample_rate / 2
             sos = butter(
                 4, min(voice.noise_highpass / nyquist, 0.99), btype="high", output="sos"
+            )
+            noise = sosfilt(sos, noise)
+        if voice.noise_lowpass > 0:
+            from scipy.signal import butter, sosfilt
+
+            sos = butter(
+                4, min(voice.noise_lowpass / (sample_rate / 2), 0.99), btype="low", output="sos"
             )
             noise = sosfilt(sos, noise)
         out += voice.noise_level * noise

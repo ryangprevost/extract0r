@@ -57,7 +57,9 @@ def finish(client, job_id: str, timeout_s: float = 240.0) -> dict:
 def test_the_voices_are_listed_with_something_to_choose_between(client):
     body = client.get("/api/v1/tracks/voices").json()
 
-    assert {v["id"] for v in body["voices"]} == {"supersaw", "subbass", "epiano"}
+    assert {v["id"] for v in body["voices"]} == {
+        "supersaw", "subbass", "epiano", "pluck", "pad", "808"
+    }
     assert all(v["about"] for v in body["voices"]), "a picker needs more than three nouns"
 
 
@@ -222,3 +224,117 @@ def test_a_part_played_at_a_new_tempo_says_what_it_did(client, separated):
         pytest.skip("no strokes in the fixture")
     assert "rather than stretched" in result["moved"]
     assert result["duration_s"] > 0
+
+
+# --- hardening: saying the tempo, bouncing the version, fetching it back ---------------------
+
+
+def test_the_person_who_can_hear_the_song_gets_the_last_word_on_its_tempo(client, separated):
+    said = client.put(f"/api/v1/tracks/{separated}/tempo?bpm=85")
+    assert said.status_code == 200, said.text
+    assert said.json() == {"tempo_bpm": 85.0, "set_by": "you"}
+
+    read = client.get(f"/api/v1/tracks/{separated}/tempo").json()
+    assert read["tempo_bpm"] == 85.0
+    assert read["confidence"] == 1.0
+
+
+@pytest.mark.parametrize("bpm", [0, 20, 300, 1000])
+def test_a_tempo_nobody_plays_at_is_refused(client, separated, bpm):
+    assert client.put(f"/api/v1/tracks/{separated}/tempo?bpm={bpm}").status_code == 422
+
+
+def test_correcting_an_unknown_track_is_a_404(client):
+    assert client.put("/api/v1/tracks/" + "e" * 32 + "/tempo?bpm=120").status_code == 404
+
+
+def test_a_version_of_an_unknown_track_is_a_404(client):
+    assert client.post("/api/v1/tracks/" + "e" * 32 + "/bounce", json={}).status_code == 404
+
+
+def test_a_version_before_separating_says_which_step_is_missing(client, track):
+    response = client.post(f"/api/v1/tracks/{track}/bounce", json={})
+    assert response.status_code == 409
+    assert "Separate" in response.json()["detail"]
+
+
+def test_a_version_names_the_parts_that_have_not_been_played_yet(client, separated):
+    response = client.post(
+        f"/api/v1/tracks/{separated}/bounce", json={"parts": {"bass": "808", "drums": "edm"}}
+    )
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "bass" in detail and "drums" in detail
+
+
+def test_a_version_too_far_from_the_song_is_refused_before_any_work(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    response = client.post(f"/api/v1/tracks/{separated}/bounce", json={"target_bpm": 30})
+    assert response.status_code == 400
+    assert "120 to 30" in response.json()["detail"]
+
+
+def test_a_version_at_the_same_tempo_is_a_mixdown_that_can_be_fetched(client, separated):
+    started = client.post(f"/api/v1/tracks/{separated}/bounce", json={})
+    body = finish(client, started.json()["job_id"])
+    assert body["state"] == "succeeded", body
+    result = body["result"]
+    assert result["ok"] is True
+    assert result["wav"].endswith("version.same.wav")
+    assert "not a master" in result["note"]
+
+    wav = client.get(result["wav"])
+    assert wav.status_code == 200
+    assert wav.headers["content-type"] == "audio/wav"
+    mp3 = client.get(result["mp3"])
+    assert mp3.status_code == 200
+    assert mp3.headers["content-type"] == "audio/mpeg"
+
+
+def test_an_added_kick_is_owned_up_to_in_the_version(client, separated):
+    """Four on the floor is added, not the band - and the account has to say so, or a
+    listener hears a kick their drummer never played and is told it was theirs.
+
+    At the song's own tempo, so nothing needs stretching and this runs without the ML extras."""
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    started = client.post(
+        f"/api/v1/tracks/{separated}/bounce",
+        json={"target_bpm": 120, "pump": True, "four_on_the_floor": True},
+    )
+    body = finish(client, started.json()["job_id"])
+    assert body["state"] == "succeeded", body
+    result = body["result"]
+    assert result["wav"].endswith("version.120.wav")
+    added = [p for p in result["parts"] if p["how"] == "added"]
+    assert added and "not from your recording" in added[0]["detail"]
+    assert any(p["how"] == "pumped" for p in result["parts"])
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["version.128.flac", "version.1.wav", "version.1280.wav", "drums.edm.wav", "..%2Fsecret.wav"],
+)
+def test_the_version_url_refuses_anything_that_is_not_a_version(client, separated, name):
+    assert client.get(f"/api/v1/tracks/{separated}/version/{name}").status_code == 404
+
+
+def test_a_version_that_was_never_bounced_is_a_404(client, separated):
+    response = client.get(f"/api/v1/tracks/{separated}/version/version.174.wav")
+    assert response.status_code == 404
+    assert "Not bounced" in response.json()["detail"]
+
+
+def test_without_a_stretcher_a_new_tempo_says_which_parts_to_re_play(
+    client, separated, monkeypatch
+):
+    """Found by these tests: on an install without the ML extras, a bounce at a new tempo
+    died inside the job with `No module named 'librosa'`. Now it is refused before it starts,
+    with the parts that would have needed stretching named."""
+    import app.services.synth.retempo as retempo
+
+    monkeypatch.setattr(retempo, "stretcher_available", lambda: "")
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    response = client.post(f"/api/v1/tracks/{separated}/bounce", json={"target_bpm": 128})
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "re-played" in detail and "vocals" in detail

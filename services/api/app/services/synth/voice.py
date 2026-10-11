@@ -95,6 +95,15 @@ class PitchedVoice:
     #: say so. A voice that changes the note it was asked to play is broken however good
     #: it sounds, and `test_synth.py` now asserts against it.
     sub_level: float = 0.0
+    #: Soft saturation, 0 for none. `tanh` on the summed note: grit on an 808, glue on a
+    #: supersaw. Odd harmonics only, so the fundamental stays the loudest thing in the note
+    #: and the voice still plays the pitch it was asked for - see `test_synth`.
+    drive: float = 0.0
+    #: Semitones the note starts above its pitch and falls from over `pitch_drop_s`. The
+    #: thing that makes an 808 sound like an 808 rather than a sine: the attack is sharp
+    #: because the pitch is moving.
+    pitch_drop: float = 0.0
+    pitch_drop_s: float = 0.04
 
 
 def _saw(count: int, rolloff: float = 1.0) -> tuple[float, ...]:
@@ -127,6 +136,46 @@ VOICES: dict[str, PitchedVoice] = {
         release_s=0.06,
         brightness_decay=2.2,
         sub_level=0.18,
+    ),
+    #: The sound EDM chord parts and riffs are mostly made of: bright on the attack and
+    #: closing fast, so each note is a pluck rather than a hold. A guitar's power chords in
+    #: eighths become this in a dance version more often than anything else.
+    "pluck": PitchedVoice(
+        partials=_saw(18),
+        attack_s=0.002,
+        decay_s=0.16,
+        sustain=0.0,
+        release_s=0.06,
+        stack=3,
+        detune_cents=8.0,
+        brightness_decay=10.0,
+        drive=0.15,
+    ),
+    #: Slow in, wide and held: what a chord becomes under a drop. Chords played on this from
+    #: a strummed part keep their voicing, because every note of the chord is its own note.
+    "pad": PitchedVoice(
+        partials=_saw(12, rolloff=1.35),
+        attack_s=0.35,
+        decay_s=0.6,
+        sustain=0.85,
+        release_s=0.7,
+        stack=4,
+        detune_cents=13.0,
+        brightness_decay=0.25,
+    ),
+    #: An 808: a near-sine with a falling start and some grit, so it is felt as much as
+    #: heard and still cuts on a laptop speaker. The sub-octave stays off - an 808's weight
+    #: *is* its fundamental, and `subbass` already showed what a loud sub-octave does to a
+    #: pitch tracker.
+    "808": PitchedVoice(
+        partials=(1.0, 0.12, 0.05),
+        attack_s=0.003,
+        decay_s=0.9,
+        sustain=0.55,
+        release_s=0.12,
+        drive=0.45,
+        pitch_drop=7.0,
+        pitch_drop_s=0.035,
     ),
     #: Struck rather than blown: fast in, bright for a moment, then dark and sustaining.
     #: `brightness_decay` is doing most of the work here.
@@ -189,6 +238,13 @@ def render_note(
         if voice.stack > 1
         else np.zeros(1)
     )
+    # A falling start, as a multiplier on every partial. 1.0 throughout when there is no
+    # drop, so the ordinary path is unchanged - the phase is still a plain 2*pi*f*t.
+    glide = (
+        2.0 ** (voice.pitch_drop * np.exp(-t / max(voice.pitch_drop_s, 1e-4)) / 12.0)
+        if voice.pitch_drop
+        else None
+    )
     for cents in spread:
         f0 = fundamental * (2.0 ** (cents / 1200.0))
         for n, level in enumerate(voice.partials, start=1):
@@ -202,14 +258,25 @@ def render_note(
                 if voice.brightness_decay > 0 and n > 1
                 else 1.0
             )
-            out += level * fade * np.sin(2.0 * np.pi * freq * t)
+            phase = (
+                2.0 * np.pi * freq * t
+                if glide is None
+                else 2.0 * np.pi * np.cumsum(freq * glide) / sample_rate
+            )
+            out += level * fade * np.sin(phase)
     out /= max(voice.stack, 1)
 
     if voice.sub_level > 0 and fundamental / 2.0 < nyquist:
         out += voice.sub_level * np.sin(2.0 * np.pi * (fundamental / 2.0) * t)
 
     peak = float(np.max(np.abs(out))) or 1.0
-    return out / peak * envelope
+    out = out / peak
+    if voice.drive > 0:
+        # Normalised back to full scale afterwards, so `drive` changes the colour and not
+        # the level - otherwise more drive would read as "louder" and be chosen for that.
+        out = np.tanh(out * (1.0 + 4.0 * voice.drive))
+        out /= float(np.max(np.abs(out))) or 1.0
+    return out * envelope
 
 
 def render_notes(

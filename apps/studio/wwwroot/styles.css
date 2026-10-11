@@ -1612,3 +1612,13 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-left: 3px solid var(--accent);
 }
+
+/* The one-press remix. Above the tempo, because for most people it is where they start. */
+.preset-box {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  margin: 0 0 14px; padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.dance-row { margin-top: 14px; }

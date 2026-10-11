@@ -174,7 +174,8 @@ HTDemucs on the MVSEP leaderboard. Worth knowing and **not worth acting on yet**
 | C | Re-emit any re-voiced part at the target tempo | 2 | **done** — X0R-1332 |
 | D | Measure the three stretchers on a real vocal at 0.753 | 2 | **done** — Signalsmith, see §3 |
 | E | Stretch the parts that are kept as audio | 5 | **done** — `retempo.stretch` and the bounce |
-| F | Say which parts moved and which were re-emitted | 1 | the Suno argument, kept honest |
+| F | Say which parts moved and which were re-emitted | 1 | **done** — the bounce's counted summary, X0R-1333 |
+| G | A remix palette: EDM kit, 808 / pluck / pad, the pump, four on the floor, one button | 5 | **done** — X0R-1334, added at Ryan's request mid-sprint |
 
 B and C together are a demo: a pop punk record whose drums and bass arrive at 128 BPM with
 no smearing at all, because neither was stretched. That is most of the way to the use case

@@ -686,6 +686,18 @@ says it cannot be subtracted as a constant. This card is therefore a **blocker**
 dependency, for the pitched half of X0R-1322. See
 [PR0DUCER.md §10.4(b)](proposals/PR0DUCER.md).
 
+**Partly met for drums, 2026-10-11, by the EDM remix (X0R-1334).** Re-struck drums at a
+new tempo are placed at the detector's times, and an added four-on-the-floor sits on an exact
+grid - so detector latency became an audible flam rather than a statistic. `find_hits` reads a
+clean synthesised kick **+10.5 ms late**. `retempo.refine_hit_times` looks 30 ms back and 25 ms
+forward on a 1 ms envelope for the 10%-of-peak rise, and keeps the detector's time when the
+walk reaches the window edge (something already sounding). Measured: **+0.45 ms median, -0.71
+to +0.48 range** on clean kicks; on the separated demo stem, added kick against drummer's kick
+went 12.5 ms median / 16.6 worst → **0.3 / 0.6**. The first version had a 10 ms look-ahead and
+moved one early-detected kick 30 ms the wrong way (54 ms flam) - the tests now hold both
+directions and the edge case. **Pitched notes are untouched**, so this card stays open for
+X0R-1322.
+
 **Acceptance criteria**
 - A way to get hit times without backtracking, alongside the triggering-oriented ones.
 - The two documented against each other, with the measured difference, so the choice is
@@ -2602,6 +2614,50 @@ off**, not by being near it.
   fixture repeats notes only on bar lines so it cannot speak to 0.4. ✅
 - Not yet wired into any caller - the tab path must keep its notes, and the re-voicing path
   does not exist until X0R-1327. ⏳
+
+---
+
+### X0R-1334 · Make it EDM: a remix, not a MIDI file · 5 · `DONE` 2026-10-11
+**As a** person with a pop punk song **I want** one button that turns it into a dance version
+**so that** I hear a remix - different instruments, the pump, a kick on every beat - and not
+just my band slowed down.
+
+Asked for in so many words: *"subbing in samples for synths and other instruments to create
+an actual remix."* Before this the parts could be re-played at 128 but on the same palette,
+so the result sounded like the band at the wrong tempo.
+
+**Acceptance criteria**
+- **An EDM palette**, built from this project's own synthesis: an `edm` kit (a kick whose
+  energy share in 20-60 Hz is -1.54 dB against `punchy`'s -2.21 and a real rock kick's -2.25; a four-hand clap with its centroid at 2.8 kHz,
+  not hiss at 11.5), and `808`, `pluck` and `pad` voices. ✅
+- **The pump**: every non-drum part ducked 8 dB on each beat and swelled back by 70% of it,
+  with its own smoothstep envelope (the mastering sidechain's was 1.9 dB deep at 60 ms -
+  inaudible as a pump). Measured on the bounce, on against off: -6.0 dB at the beat. ✅
+- **Four on the floor, owned up to.** Added alongside the drummer, never moved: the version's
+  account lists it as *added - not from your recording*. ✅
+- **One button**, *Make it EDM*: 128 BPM, drums on `edm`, bass on `808`, guitar on `pluck`,
+  keys and other on `pad`, pump and four-on-the-floor on. ✅
+- **The added kick lands on the drummer's kick.** See below. ✅
+
+**The grid had to be found on the kick.** The first remix had the added kick 166 ms out of
+phase and drifting: the whole-mix estimate read 170 BPM as 168.5, re-played parts follow the
+real performance, so they landed at 129.1 against a kick at exactly 128. `find_beats` now
+searches ±4% around the estimate for the comb that lands on the most kick energy (200 Hz
+lowpass), fits the tempo by least squares on the kick peaks, and backtracks the first beat to
+where the kick rises. Read on synthetic kicks at 128 / 140 / 170 / 174 within 0.06 BPM; the
+remix measured 127.98.
+
+**A clock bug worth remembering.** The onset envelope was decimated by `44100 // 1000 = 44`
+and then treated as 1000 Hz when it was 1002.27 - so the tempo came out 169.61, *and a
+second method agreed*, because it read the same envelope. Agreement between two methods
+sharing an input is not corroboration.
+
+Then X0R-412's drum half (re-struck hits were placed 10.5 ms late): kick against added kick
+went 166 ms → 12.5 → **0.3 ms median, 0.6 worst**.
+
+**Hardening, found by the route tests written for this card:** on an install without the ML
+extras, a bounce at a new tempo died inside the job with `No module named 'librosa'`. It is
+now refused before it starts, naming the parts that would need stretching.
 
 ---
 

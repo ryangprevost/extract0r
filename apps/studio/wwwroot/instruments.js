@@ -188,7 +188,23 @@ async function loadInstrumentComparison() {
  */
 async function pollJobQuietly(jobId, onProgress) {
   for (;;) {
-    const job = await api("/jobs/" + jobId);
+    let job;
+    try {
+      job = await api("/jobs/" + jobId);
+    } catch (error) {
+      // Jobs live in the server's memory, so a server that restarts mid-job forgets it and
+      // every later poll answers "Unknown job." - which told nobody anything. It happens
+      // more than it should: the desktop app stopped this server mid-separation three times
+      // in one session. Said plainly instead, with the thing to do about it. Finished files
+      // on disk survive a restart (X0R-1423), so pressing again is usually cheap.
+      if (/unknown job/i.test(error.message || "")) {
+        throw new Error(
+          "The server restarted while this was running, so it lost track of it. " +
+            "Press the button again - anything already finished is still on disk.",
+        );
+      }
+      throw error;
+    }
     // The server has been sending a stage name and a measured fraction on every one of
     // these polls since the job existed, and this function used to drop both on the
     // floor. Handing them to a caller is the whole of the loading indicator.

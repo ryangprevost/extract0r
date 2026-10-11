@@ -44,7 +44,7 @@ const Revoice = (() => {
   ];
 
   //: The three kits, which is what the drums row offers instead of voices.
-  const KITS = ["tight", "roomy", "punchy"];
+  const KITS = ["edm", "tight", "roomy", "punchy"];
 
   //: The tempo this version is being built at, and the one it started from.
   let sourceBpm = 0;
@@ -480,7 +480,12 @@ const Revoice = (() => {
       const started = await api(`/tracks/${state.trackId}/bounce`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target_bpm: targetBpm, parts: replayed }),
+        body: JSON.stringify({
+          target_bpm: targetBpm,
+          parts: replayed,
+          pump: !!$("opt-pump")?.checked,
+          four_on_the_floor: !!$("opt-floor")?.checked,
+        }),
       });
       const result = (await pollJobQuietly(started.job_id, wait.stage)) || {};
 
@@ -533,6 +538,47 @@ const Revoice = (() => {
     }
   }
 
+  // --- one press to a remix ----------------------------------------------------------
+
+  //: What "make it EDM" chooses for each part. Every choice lands in its row afterwards, so
+  //: the preset teaches rather than hides: somebody can see that the guitars became a pluck
+  //: and change it to a pad. Vocals stay as recorded - stretched, because a voice is the
+  //: one part nobody wants replaced by a synth playing its notes.
+  const EDM = {
+    tempo: 128,
+    parts: { drums: "edm", bass: "808", guitar: "pluck", piano: "pad", other: "pad" },
+  };
+
+  /**
+   * Choose, render and bounce in one go.
+   *
+   * Parts with nothing pitched in them come back empty and are simply stretched instead -
+   * a song with no piano should not fail because the preset asked for a piano pad.
+   */
+  async function makeItEdm() {
+    const button = $("preset-edm");
+    button.disabled = true;
+    const was = button.textContent;
+    try {
+      setTempo(EDM.tempo);
+      for (const [stem, voice] of Object.entries(EDM.parts)) {
+        parts.set(stem, { voice });
+      }
+      render();
+      for (const stem of Object.keys(EDM.parts)) {
+        button.textContent = `Playing the ${stem}…`;
+        await run(stem);
+      }
+      $("opt-pump").checked = true;
+      $("opt-floor").checked = true;
+      button.textContent = "Putting it together…";
+      await makeVersion();
+    } finally {
+      button.disabled = false;
+      button.textContent = was;
+    }
+  }
+
   /** What the master render should substitute, for whoever builds that request. */
   function chosen() {
     const out = {};
@@ -560,6 +606,7 @@ const Revoice = (() => {
     );
     $("tempo-clear")?.addEventListener("click", () => setTempo(null));
     $("bounce-btn")?.addEventListener("click", makeVersion);
+    $("preset-edm")?.addEventListener("click", makeItEdm);
     for (const chip of document.querySelectorAll("#tempo-fix .chip")) {
       chip.addEventListener("click", () => correctTempo(parseFloat(chip.dataset.times)));
     }

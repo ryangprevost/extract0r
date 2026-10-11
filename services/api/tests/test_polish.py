@@ -217,7 +217,14 @@ def test_holding_back_actually_buys_dynamic_range():
 
     assert eased_report.max_reduction_db < hot_report.max_reduction_db
     assert eased_report.active_fraction < hot_report.active_fraction
-    assert crest_db(eased, SR) > crest_db(hot, SR)
+
+    # Crest is gain-invariant: scaling moves peak and RMS by the same decibels, so these
+    # two are mathematically equal and the *input* crest cannot show what easing off
+    # bought. This line used to assert `>` between them, which passed on Windows and
+    # failed on Linux by four parts in a quadrillion - 15.661865385153035 against
+    # ...039 - because the two platforms order the same float operations differently.
+    # The claim it was reaching for is the two assertions above, measured on the output.
+    assert crest_db(eased, SR) == pytest.approx(crest_db(hot, SR), rel=1e-9)
 
 
 def test_the_limiter_reports_doing_nothing_when_it_does_nothing():

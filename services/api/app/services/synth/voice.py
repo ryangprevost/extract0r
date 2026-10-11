@@ -37,7 +37,7 @@ before fourteen points are spent on top of it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 

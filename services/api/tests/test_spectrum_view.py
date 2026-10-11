@@ -181,7 +181,7 @@ def test_the_panel_draws_only_the_band_the_tool_matches_on():
     """
     from app.services.mastering.instrument import BANDS
 
-    assert HIGH_HZ == max(high for _, _, high in BANDS)
+    assert max(high for _, _, high in BANDS) == HIGH_HZ
     hz = axis()
     assert hz.min() == pytest.approx(LOW_HZ)
     assert hz.max() == pytest.approx(HIGH_HZ)

@@ -89,7 +89,10 @@ def test_libsndfile_still_cannot_read_aac(tone_m4a: Path):
     """The premise of the PyAV backend. If this ever fails, the fallback is redundant."""
     import soundfile as sf
 
-    with pytest.raises(Exception):
+    # The specific error, not any error. `pytest.raises(Exception)` also passes when the
+    # fixture never wrote a file and `sf.info` raises FileNotFoundError - the test stays
+    # green while proving nothing about AAC.
+    with pytest.raises(sf.LibsndfileError):
         sf.info(str(tone_m4a))
 
 

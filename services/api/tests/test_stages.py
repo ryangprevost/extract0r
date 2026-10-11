@@ -120,4 +120,4 @@ def test_the_separation_estimate_runs_over_rather_than_under():
     """Deliberately the slow end of the measured spread, because the separation screen
     has no overrun message behind it the way the comparison does."""
     fastest = 145.7 / 180.0
-    assert SECONDS_PER_SECOND_OF_SEPARATION > fastest
+    assert fastest < SECONDS_PER_SECOND_OF_SEPARATION

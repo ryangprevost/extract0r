@@ -115,7 +115,10 @@ def test_this_is_not_a_minimum_length_filter():
 
 def test_the_longer_side_supplies_velocity_and_confidence():
     merged = coalesce(
-        [n(0.0, 0.9, 60, velocity=100, confidence=0.8), n(0.95, 1.0, 60, velocity=20, confidence=0.3)]
+        [
+            n(0.0, 0.9, 60, velocity=100, confidence=0.8),
+            n(0.95, 1.0, 60, velocity=20, confidence=0.3),
+        ]
     )
 
     assert merged[0].velocity == 100

@@ -17,6 +17,7 @@ reported one anyway would be inventing numbers, which is worse than a gap in the
 from __future__ import annotations
 
 import json
+
 import numpy as np
 import pytest
 
@@ -25,11 +26,8 @@ from app.services.mastering.dsp import DEFAULT_HOP, DEFAULT_N_FFT, average_spect
 from app.services.mastering.instrument import (
     BANDS,
     MAX_BAND_DB,
-    TONE_BUDGET_DB,
-    tone_curve,
-    tone_filter_gains,
-    within_budget,
     MAX_LEVEL_DB,
+    TONE_BUDGET_DB,
     WIDTH_LIMITS,
     InstrumentProfile,
     StemShape,
@@ -39,6 +37,9 @@ from app.services.mastering.instrument import (
     compare,
     profile,
     shape_tone,
+    tone_curve,
+    tone_filter_gains,
+    within_budget,
 )
 
 SR = 44100
@@ -119,7 +120,8 @@ def test_a_band_request_moves_that_band_and_not_the_others(band: str):
     before = _levels(audio)
 
     for wanted in (3.0, -3.0):
-        moved = _relative_move(before, _levels(shape_tone(audio, SR, {band: wanted}, spectrum)), band)
+        shaped = _levels(shape_tone(audio, SR, {band: wanted}, spectrum))
+        moved = _relative_move(before, shaped, band)
         assert moved * wanted > 0, "moved the wrong way"
         assert 0.45 <= moved / wanted <= 1.05, f"asked {wanted}, moved {moved:.2f}"
 

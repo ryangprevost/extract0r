@@ -477,7 +477,10 @@ def run(
         if request.revoice.get(setting.stem.value) and voiced and Path(voiced).exists():
             replacement = read_audio(Path(voiced))
             if replacement.sample_rate != sample_rate:
-                report(0.12, f"the {setting.stem.value} render is at the wrong rate; kept as recorded")
+                report(
+                    0.12,
+                    f"the {setting.stem.value} render is at the wrong rate; kept as recorded",
+                )
             else:
                 report(
                     0.12,

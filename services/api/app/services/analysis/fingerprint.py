@@ -622,7 +622,9 @@ class DuckMeasurement:
     kicks_total: int
 
 
-def envelope_db(samples: np.ndarray, sample_rate: int, hop: int = 128) -> tuple[np.ndarray, np.ndarray]:
+def envelope_db(
+    samples: np.ndarray, sample_rate: int, hop: int = 128
+) -> tuple[np.ndarray, np.ndarray]:
     """Short-frame RMS in dB, and the time of each frame.
 
     Hop 128 — about 2.9 ms at 44.1 kHz. A sidechain's release is tens of milliseconds, so

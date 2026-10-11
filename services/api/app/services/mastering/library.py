@@ -275,7 +275,6 @@ def rank(
     candidate that is close in tone and far in loudness and width is the most useful of
     all, and scoring it down for that would be backwards.
     """
-    from app.services.mastering.width import BAND_NAMES
 
     wide = ("mid", "upper mid", "presence", "top")
     tight = ("sub", "low", "low mid")

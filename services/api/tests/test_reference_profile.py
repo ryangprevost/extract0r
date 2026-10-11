@@ -35,7 +35,6 @@ from app.services.mastering.dsp import (
 from app.services.mastering.profile import (
     CURVE_POINTS,
     FORMAT_VERSION,
-    ReferenceProfile,
     capture,
     find,
     listing,

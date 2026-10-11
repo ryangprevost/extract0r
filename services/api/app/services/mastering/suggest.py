@@ -26,7 +26,6 @@ from app.services.mastering.loudness_meter import integrated_loudness
 from app.services.mastering.polish import (
     DEFAULT_BASS_HZ,
     DEFAULT_WARMTH_HZ,
-    MAX_AIR_DB,
     MAX_BASS_DB,
     MAX_WARMTH_DB,
     MAX_WIDTH,

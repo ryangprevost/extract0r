@@ -187,7 +187,9 @@ def coalesce(
         if not joins:
             out.append(note)
             continue
-        longer = previous if previous.end_s - previous.start_s >= note.end_s - note.start_s else note
+        held = previous.end_s - previous.start_s
+        piece_length = note.end_s - note.start_s
+        longer = previous if held >= piece_length else note
         out[-1] = NoteEvent(
             start_s=previous.start_s,
             end_s=max(previous.end_s, note.end_s),

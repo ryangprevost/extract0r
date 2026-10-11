@@ -140,7 +140,10 @@ def test_polyphony_is_capped_rather_than_piling_up():
     stack = [NoteEvent(0.0, 1.0, 40 + i * 3) for i in range(MAX_POLYPHONY + 6)]
     few = [NoteEvent(0.0, 1.0, 40 + i * 3) for i in range(MAX_POLYPHONY)]
 
-    both = [np.sqrt((render_notes(n, SR, "epiano", duration_s=1.5) ** 2).mean()) for n in (few, stack)]
+    both = [
+        np.sqrt((render_notes(n, SR, "epiano", duration_s=1.5) ** 2).mean())
+        for n in (few, stack)
+    ]
     assert both[1] == pytest.approx(both[0], rel=0.15)
 
 

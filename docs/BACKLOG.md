@@ -87,7 +87,7 @@ onsets, which is analysis rather than a domain type.
 
 ---
 
-### X0R-105 · CI pipeline · 3 · `PARTIAL`
+### X0R-105 · CI pipeline · 3 · `PARTIAL` · **was red on every run until 2026-10-11**
 **As a** maintainer **I want** every push checked **so that** main stays releasable.
 
 **Acceptance criteria**
@@ -96,8 +96,38 @@ onsets, which is analysis rather than a domain type.
 - Coverage on `app/domain/` gated at >= 85%. ✅ written
 - Nightly `ml-smoke` job installs the real backends and runs the `ml`-marked tests. ✅ written
 
-Written but **never executed** — the project has no git remote, so nothing has run this
-workflow. Treat `.github/workflows/ci.yml` as unverified until the first push.
+#### 2026-10-11: it has run 38 times, and it had never once been green
+
+The note here said the workflow was unverified because the project had no remote. **There
+is one now, and CI has been running against every push - failing on all of them.** Nobody
+was looking, which is the same shape as X0R-102's unenforced rule and X0R-1319's metre
+confidence: a thing that reports into a place no one reads.
+
+Two causes, neither of them a broken build:
+
+* **Lint, on both Python versions.** 25 `ruff check` errors. Mostly style - unused
+  imports, import order, eight long lines - but two were real: `clarity.py` annotated
+  `source: 'Path'` and `reference: 'Path'` and **never imported `Path`**. It does not crash
+  only because `from __future__ import annotations` stops annotations being evaluated, so
+  `typing.get_type_hints()` on that module would fail and the quotes were redundant
+  anyway. One test also asserted `pytest.raises(Exception)` around `sf.info`, which passes
+  just as happily when the fixture never wrote a file - green while proving nothing about
+  AAC. Now `ruff check app tests` passes clean.
+* **Web, at `actions/setup-node@v4`.** It sets `cache: npm` with
+  `cache-dependency-path: apps/web/package-lock.json`, and **no lockfile has ever been
+  committed**. `setup-node` fails the job outright when that path matches nothing, so the
+  job died before installing a single package. The install step underneath already says
+  `npm ci || npm install` - the same admission, made somewhere that does not abort. The
+  cache lines are gone.
+
+**`ruff format` is deliberately not run.** It would reformat 119 of 186 files, and CI asks
+for `ruff check` rather than the formatter. A 119-file diff nobody requested is not a
+CI fix.
+
+**A question for Ryan rather than a decision taken here:** `apps/web` is a Next.js app that
+nothing in the dev scripts starts any more - the shipped front end is `apps/studio`. CI has
+been building it this whole time. Either it is still wanted, in which case it needs a
+lockfile, or it is not, in which case the Web job and the directory should go together.
 
 ---
 

@@ -71,11 +71,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `cache: npm`. It needs `cache-dependency-path` to match a real file, and this
+      # repository has no `apps/web/package-lock.json` - `setup-node` then fails the job
+      # outright, before installing anything. That is why every Web run has been red: not
+      # a build error, a cache configuration pointing at a file that was never committed.
+      # The install step below already says `npm ci || npm install`, which is the same
+      # admission made in a place that does not abort.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
 
       - name: Install
         run: npm ci || npm install

@@ -42,16 +42,15 @@ from pathlib import Path
 import numpy as np
 
 from app.services.mastering.dsp import (
-    DEFAULT_HOP,
     DEFAULT_N_FFT,
     MatchSettings,
     average_spectrum,
     peak_db,
     smooth_log_frequency,
+    stereo_width,
     true_peak_db,
 )
 from app.services.mastering.loudness_meter import integrated_loudness
-from app.services.mastering.dsp import stereo_width
 from app.services.mastering.width import mono_loss_db, width_profile
 
 log = logging.getLogger(__name__)

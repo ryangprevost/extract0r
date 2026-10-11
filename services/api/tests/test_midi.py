@@ -123,7 +123,9 @@ def test_a_separated_drum_collapses_to_its_gm_key():
     """A kick stem transcribes to whatever its fundamental happened to be, and that pitch is
     not a kick in any sampler. Every note in the part becomes one GM key."""
     notes = [NoteEvent(start_s=i * 0.5, end_s=i * 0.5 + 0.1, pitch=30 + i) for i in range(5)]
-    data = write_midi({"kick": notes}, drum_tracks=["kick"], drum_keys={"kick": GM_DRUM_KEYS["kick"]})
+    data = write_midi(
+        {"kick": notes}, drum_tracks=["kick"], drum_keys={"kick": GM_DRUM_KEYS["kick"]}
+    )
 
     found = events(chunks(data)[FIRST_PART][1])
     assert {d1 for status, d1, _ in found if status & 0xF0 == 0x90} == {36}

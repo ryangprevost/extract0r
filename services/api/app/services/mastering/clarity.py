@@ -29,6 +29,7 @@ costs minutes. Congestion needs stems, and those we always have for the source.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -365,7 +366,10 @@ def findings(
                         "area": f"clarity:{band.name}-empty",
                         "severity": "slight",
                         "delta_db": round(float(short), 2),
-                        "headline": f"Only {_holders_phrase(band.holders, 2)} reach into {_band_word(band.name)}",
+                        "headline": (
+                            f"Only {_holders_phrase(band.holders, 2)} reach into "
+                            f"{_band_word(band.name)}"
+                        ),
                         "detail": (
                             f"{band.crowding:.1f} instruments are present above "
                             f"{band.low_hz:.0f} Hz where your reference has "
@@ -383,8 +387,8 @@ def findings(
 
 
 def compare(
-    source: 'Path',
-    reference: 'Path',
+    source: Path,
+    reference: Path,
     source_stems: dict | None = None,
     reference_stems: dict | None = None,
 ) -> list[dict]:

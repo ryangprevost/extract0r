@@ -2431,7 +2431,7 @@ thing in this stage and it should happen first.
 
 ---
 
-### X0R-1329 · Throw away the notes separation invented · 3 · `TODO`
+### X0R-1329 · Put back the notes separation broke apart · 3 · `DONE` 2026-10-10
 **As a** person re-voicing a part **I want** the hallucinated notes gone **so that** what I
 hear is what was played.
 
@@ -2440,17 +2440,40 @@ stage assumed. Separation loses nothing - recall 1.000 - and invents plenty: pre
 0.462, 52 notes where 24 were played. Played back on a recorded instrument nobody notices;
 played back on a supersaw every invented note is an audible wrong note.
 
+**This card was specified wrong and the measurement rewrote it.** It asked for a
+confidence floor and a minimum length. Both were measured and both are useless or harmful:
+
+| filter | result |
+|---|---|
+| confidence >= 0.6 | **worthless.** Invented notes scored a *higher* median confidence than real ones - 0.710 against 0.668 - so the floor dropped 12.5% of real notes and removed none of the invented |
+| length >= 0.2 s | precision 0.600 to 0.704, but **recall down to 0.792** - below this card's own bar |
+
+Looking at what the invented notes actually were settled it: **all sixteen sat at unison
+with a real note already sounding.** Not hallucinations, not harmonics - one held note that
+basic-pitch broke into pieces. A piece of a real note is genuinely confident, which is
+exactly why no threshold could see it. So the repair is to put the pieces back.
+
+**And merging needed a second condition the first version did not have.** Gap alone is not
+safe: a part that repeats a chord across two bars puts two real onsets of the same pitch a
+few tens of milliseconds apart, and recall fell to 0.917 merging only overlaps, 0.875 at a
+0.2 s gap. `coalesce`'s docstring asserted merging could not lose an onset until the sweep
+said otherwise. A fragment is identified by being **short relative to the note it broke
+off**, not by being near it.
+
+| | precision | recall | F1 |
+|---|---:|---:|---:|
+| unfiltered | 0.462 | 1.000 | 0.632 |
+| coalesced | **0.727** | **1.000** | **0.842** |
+
 **Acceptance criteria**
-- A filter over a `NoteEvent` list, before any voice renders it: confidence floor, minimum
-  length, and a rule for notes wholly inside another of the same pitch.
-- Each threshold's effect on precision and recall is **measured on the synthetic set above
-  and written down**, because trading recall for precision is the whole job and a threshold
-  chosen by ear is a threshold nobody can argue with.
-- Recall stays above 0.95. A filter that fixed precision by dropping real notes would make
-  the part wrong in the one way that cannot be undone further down.
-- Off by default on the tab path. Tab is a transcription of what was played and its users
-  have been reading these notes for months; this is for re-voicing, where the cost of a
-  wrong note is different.
+- `app/domain/notes.coalesce`, pure stdlib so it stays inside the X0R-102 rule. ✅
+- Thresholds swept and the figures written down, here and in the docstring. ✅
+- Recall stays above 0.95. ✅ **1.000**, at every gap in the sweep.
+- The gap default stops at 0.2 s rather than the 0.4 s that scores better: 0.2 s is under an
+  eighth note at 120 BPM so it cannot hold a repeat a listener would call separate, and the
+  fixture repeats notes only on bar lines so it cannot speak to 0.4. ✅
+- Not yet wired into any caller - the tab path must keep its notes, and the re-voicing path
+  does not exist until X0R-1327. ⏳
 
 ---
 

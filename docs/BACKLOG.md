@@ -2445,7 +2445,7 @@ gate that works. Until then this card is blocked on audio, not on code.
 
 ---
 
-### X0R-1311 · Pattern observation, never pattern replacement · 2 · `TODO`
+### X0R-1331 · Pattern observation, never pattern replacement · 2 · `TODO`
 Report the grid positions where the reference's kick lands and the source's does not, and
 offer to *add* a synthesised hit there — low blend, opt-in per position, count shown.
 
@@ -3679,7 +3679,7 @@ in this document.
 
 ---
 
-### X0R-1413 · The kick auditioned as the reference's snare · 3 · `TODO` · **defect**
+### X0R-1413 · The kick auditioned as the reference's snare · 3 · `DONE` 2026-10-06 · **defect**
 
 Ryan: *"the kick picked up the snare of the reference track instead of the actual kick"*.
 
@@ -3780,7 +3780,7 @@ of one track.
 
 ---
 
-### X0R-1414 · Let the export's bit depth be chosen · 2 · `TODO`
+### X0R-1414 · Let the export's bit depth be chosen · 2 · `DONE` 2026-10-06
 
 Ryan: *"is it possible to pick different bit encodings? 16, 32, etc to upscale the quality of
 the mastered mp3?"*
@@ -3824,7 +3824,7 @@ fixed at 16-bit, so it is now a question about the WAV alone.
 
 ---
 
-### X0R-1412 · Dock the chat panel to the side · 2 · `TODO`
+### X0R-1412 · Dock the chat panel to the side · 2 · `DONE` 2026-10-06
 
 Ryan: *"The chat bot should be on the side of the page accessible as you scroll. like an
 online help chat on amazon"*.
@@ -3897,7 +3897,7 @@ one of nine correctly offers both.
 
 ---
 
-### X0R-1417 · A fixed section nav, and sections that close · 3 · `TODO`
+### X0R-1417 · A fixed section nav, and sections that close · 3 · `DONE` 2026-10-07
 
 Ryan: *"Add a fixed header to the top that takes you directly to each section. have each
 section be collapsible by way of a button"*.
@@ -3913,7 +3913,7 @@ two navigation systems.
 
 ---
 
-### X0R-1418 · A Remaster button in the chat · 1 · `TODO`
+### X0R-1418 · A Remaster button in the chat · 1 · `DONE` 2026-10-06
 
 Ryan: *"have the chat bot have a shortcut button to 'Remaster' once its reached a good
 point"*.
@@ -3931,6 +3931,46 @@ double-click guard and everything else on that path in one place, and scrolls it
 first so a render that takes tens of seconds starts where the user is looking. Verified:
 one button however many changes are made, and a listener on the real button confirms it is
 the one that fires.
+
+---
+
+### X0R-1424 · The page cannot reach a track the server is holding · 2 · `DONE` 2026-10-09
+
+**Written after the fact**, which is why it is out of numerical order here: the work shipped
+under this id and the card was never filed. Recording it rather than leaving a commit
+pointing at nothing.
+
+X0R-1423 taught the API to read `storage/` back on boot, and the page still could not reach
+any of it. `state.trackId` is written in exactly one place - the upload handler - so a reload,
+or the API restarting under a live page, left finished separations addressable only by someone
+who knew the id and had curl. Ryan hit it with 534 MB on disk: both six-stem separations and
+one side of the per-drum split, all recovered server-side, none of it reachable from the
+screen.
+
+That is X0R-1423's own complaint one layer up. Its governing line is that a tool is allowed
+not to remember, but not *"to write a person's audio to disk, lose the only pointer to it,
+and then delete it."* The server remembered; the pointer was still lost from where the user
+was sitting.
+
+**Acceptance criteria**
+- `GET /tracks` lists what the registry holds, with enough per row to tell whether resuming
+  is worth anything - which stems exist, whether the reference was split, whether the
+  per-drum pass has run on each side. ✅
+- The landing page offers them above the upload form, and says nothing at all when there are
+  none. ✅
+- Resuming walks **the same calls in the same order** the upload handler does -
+  `buildMixer`, `afterReferenceUpload`, `loadInstrumentComparison` - rather than a shortcut,
+  because a second route to the main screen would drift from the first. ✅
+- An adopted row says so, and says what it lost: its measurements are intact, what it was
+  aimed at is not. ✅
+
+**Still not EPIC-07.** Nothing new is persisted - no session, no account, no database. It
+lists what is already in memory because it was already on disk. The directory layout is
+still the whole of the record.
+
+**It uncovered two defects on its first run**, both recorded on their own cards: the Spanish
+drum names in `adopt.py` (every adopted track came back with one drum) and the severity
+inversion on near-empty bands.
 
 ---
 
@@ -4103,7 +4143,7 @@ place - they are Ryan's folder, and deleting files from it is his call, not a cl
 
 ---
 
-### X0R-1419 · One profile per instrument, and a profile made of profiles · 5 · `TODO`
+### X0R-1419 · One profile per instrument, and a profile made of profiles · 5 · `DONE` 2026-10-06
 
 Ryan: *"have the ability to apply different saved profiles to different instruments. ex:
 guitars for pop punk, drums from dance, and then the ability to save that overall combined

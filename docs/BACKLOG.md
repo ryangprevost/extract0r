@@ -2572,17 +2572,44 @@ by fetching both spellings and comparing status codes rather than by looking at 
 
 ---
 
-### X0R-1328 · The replaced part lands in the master · 3 · `TODO`
+### X0R-1328 · The replaced part lands in the master · 3 · `PARTIAL` 2026-10-11
 **As a** person who likes what they heard **I want** it in the exported file **so that** the
 preview was not a toy.
 
 **Acceptance criteria**
-- A chosen voice renders into the mixdown through the existing path - `MasterRequest` ->
-  `pipeline` -> render - alongside `drum_kit` rather than beside it in a second mechanism.
-- Per-stem WAV of the replaced part is exportable on its own, at the depth X0R-1414 added,
-  because the likeliest next step is a DAW.
-- The export states which stems were played from notes rather than recorded. A listener
-  comparing two exports should not have to guess which one is the performance.
+- A chosen voice renders into the mixdown through the existing path. ✅ `MasterRequest.revoice`
+  -> `pipeline` -> render, beside `drum_kit` rather than in a second mechanism.
+- Per-stem WAV of the replaced part is exportable on its own. ✅ that *is* the render, served
+  at `/tracks/{id}/revoiced/{name}`.
+- The export states which stems were played from notes rather than recorded. ❌ not yet - the
+  ID3 tags and the report do not mention it, and a listener comparing two exports should not
+  have to guess which one is the performance.
+- Nothing is on the page for it yet: the master screen has no control to include a re-voiced
+  part, so this is reachable only through the API. ❌
+
+**A substitution, not a layer, and that is the single difference from `drum_kit`.** A kit
+reinforces a drum that is still there - `blend` exists so the original stays underneath.
+Re-voicing is asked for when the recording is the thing you want gone: a pop-punk guitar part
+played on a supersaw is not a pop-punk guitar with a supersaw on top of it. Nothing is
+destroyed either way, because the stem on disk is untouched and dropping the entry brings it
+back.
+
+#### The whole of this card was one ordering question
+
+`_apply_as_correction` builds the output as `original + (processed - untouched)`, so that
+separation's own error cancels when nothing changed. `untouched` therefore has to hold the
+**recorded** stem - the difference then carries *the synth minus the guitar*, and the guitar
+is cancelled out of the original.
+
+**The first version substituted before that line.** Both sums then contain the synth, the
+difference is zero, and the render comes back as the untouched original: the recorded part
+still playing, no synth anywhere, no error and nothing in the log. The comment above it
+asserted the opposite reasoning confidently and in detail.
+
+Caught by reading `_apply_as_correction` rather than by running anything, and then pinned:
+`test_revoice_render.py` fails on exactly two assertions with the old ordering - *the synth
+is not there* and *the recording is not gone* - and passes on six with the current one.
+Verified by putting the bug back.
 
 ---
 

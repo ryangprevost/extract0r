@@ -238,6 +238,10 @@ class MasterJobRequest(BaseModel):
     #: summing the stems, which keeps separation artefacts out of whatever was not
     #: changed. Off reproduces the old behaviour.
     preserve_source: bool = True
+    #: Stems to play on a synthesised voice instead of as recorded, as {stem: voice}.
+    #: X0R-1328. Each named stem must already have been rendered by `/revoice`; one that
+    #: has not is left as recorded rather than silenced.
+    revoice: dict[str, str] = Field(default_factory=dict)
     #: Kit name, or null to leave the drums alone.
     drum_kit: str | None = None
     drum_targets: list[str] = Field(default_factory=lambda: ["kick", "snare"])
@@ -1796,6 +1800,15 @@ def start_master(
         match_stem_width=body.match_stem_width,
         vocal_presence=presence,
         vocal_duck_db=body.vocal_duck_db,
+        revoice=dict(body.revoice),
+        # Where `/revoice` put each render. Resolved here rather than in the pipeline so
+        # that a render deleted by retention since it was made is simply absent, and the
+        # part comes back as recorded instead of as silence.
+        revoiced_audio={
+            stem: path
+            for stem, voice in body.revoice.items()
+            if (path := storage.exports_dir(track_id) / f"{stem}.{voice}.wav").exists()
+        },
         drum_kit=body.drum_kit,
         drum_targets=tuple(body.drum_targets),
         drum_blend=body.drum_blend,

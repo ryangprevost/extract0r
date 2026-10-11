@@ -172,6 +172,19 @@ class MasterRequest:
     #: ID3 fields for the exported MP3, so the file itself records what it came from and
     #: what it was matched against.
     tags: dict[str, str] = field(default_factory=dict)
+    #: Stems whose notes should be played by a synthesised voice instead of heard as
+    #: recorded, keyed by stem name. X0R-1328.
+    #:
+    #: **A substitution, not a layer, and that is the one difference from `drum_kit`.** A
+    #: kit reinforces a drum that is still there - `blend` exists precisely so the original
+    #: stays underneath. Re-voicing is asked for when the recording is what you want gone:
+    #: a pop-punk guitar part played on a supersaw is not a pop-punk guitar with a supersaw
+    #: on top of it. Nothing is destroyed either way; the stem on disk is untouched and
+    #: dropping the entry brings it back.
+    revoice: dict[str, str] = field(default_factory=dict)
+    #: Where the rendered parts already are, keyed the same way, so a render never pays for
+    #: transcription. Written by the revoice route.
+    revoiced_audio: dict[str, Path] = field(default_factory=dict)
     #: Name of a kit to lay over the drums, or None to leave them as recorded.
     drum_kit: str | None = None
     #: Which drums to trigger, and how far to lean on the samples against the originals.
@@ -449,6 +462,32 @@ def run(
             else:
                 length = min(len(untouched), len(raw))
                 untouched[:length] += raw[:length]
+
+        # **After** `preserve_source` has taken the recording, and the order is the whole
+        # correctness of this feature.
+        #
+        # `_apply_as_correction` builds the output as `original + (processed - untouched)`.
+        # `untouched` has to hold the *recorded* stem, so that the difference carries
+        # "the synth, minus the guitar" and the guitar is cancelled out of the original.
+        # Substituting before that line makes both sums contain the synth, the difference
+        # becomes zero, and the render comes back as the untouched original - the recorded
+        # guitar still playing and no synth anywhere. The first version of this did exactly
+        # that, with a comment asserting the opposite.
+        voiced = request.revoiced_audio.get(setting.stem.value)
+        if request.revoice.get(setting.stem.value) and voiced and Path(voiced).exists():
+            replacement = read_audio(Path(voiced))
+            if replacement.sample_rate != sample_rate:
+                report(0.12, f"the {setting.stem.value} render is at the wrong rate; kept as recorded")
+            else:
+                report(
+                    0.12,
+                    f"playing the {setting.stem.value} on the "
+                    f"{request.revoice[setting.stem.value]}",
+                )
+                swapped = np.zeros_like(np.asarray(samples, dtype=np.float64))
+                take = min(len(swapped), len(replacement.samples))
+                swapped[:take] = np.asarray(replacement.samples, dtype=np.float64)[:take]
+                samples = swapped
 
         # The user's own moves come first: matching should refine an intent, not erase
         # it. Their fader is kept out of `samples` and applied at the mix bus, so it

@@ -1907,9 +1907,26 @@ feature; it ships, it replaces your recording with a new one, and this is not it
 referent, and the precedent is this project's refusal to measure saturation), guitar or vocal
 re-performance (§4 — synthesis cannot reach an amplified guitar; **stage 4B is not this**,
 because playing a guitar part's *notes* on a synth never attempts the imitation that
-non-goal is about), re-sequencing or tempo
-change (§1(c) — measuring where the reference's kick sits is a measurement, moving the user's
-kick there is composition), and shipping recorded samples (the licensing position in
+non-goal is about), re-sequencing (§1(c) —
+measuring where the reference's kick sits is a measurement, moving the user's kick there is
+composition)
+
+> **Tempo change was on that line and Ryan took it off, 2026-10-11**, asking for pop punk to
+> EDM as the use case. Recorded here rather than left to erode card by card, with what
+> survives of the original reasoning:
+>
+> * The argument was never *tempo change is hard*. It was that a remix framing invites a
+>   comparison with Suno's Cover that this loses on every axis except its real advantage —
+>   **your performance, kept, with every move showing its measurement.** That advantage still
+>   has to survive. A pipeline that re-synthesises everything has thrown it away.
+> * What makes it defensible here is that **nothing is stretched**. For a part reduced to
+>   notes or hits, a tempo change is arithmetic on a list of times and a fresh render, so the
+>   performance is re-played rather than processed — the microtiming moves with it,
+>   proportionally, and is still the drummer's. `retempo.move_notes` has a test for exactly
+>   that.
+> * **Re-sequencing is still out.** Scaling every time by one number keeps the playing;
+>   moving one hit to where a reference's hit sits does not.
+> * `NO_DRM_CIRCUMVENTION` and the streaming block are untouched by any of this., and shipping recorded samples (the licensing position in
 `kit.py`).
 
 | Stage | What | Pts | State |
@@ -2585,6 +2602,56 @@ off**, not by being near it.
   fixture repeats notes only on bar lines so it cannot speak to 0.4. ✅
 - Not yet wired into any caller - the tab path must keep its notes, and the re-voicing path
   does not exist until X0R-1327. ⏳
+
+---
+
+### X0R-1332 · A target tempo, and parts re-played at it · 5 · `DONE` 2026-10-11
+**As a** person turning a pop punk song into a dance track **I want** to set the tempo and
+hear my parts at it **so that** the result is a record at 128 rather than a slowed-down tape.
+
+Sprint 3 candidates B and C, built after Ryan reopened the tempo non-goal. **The whole thing
+rests on one claim: a re-played part is not a stretched part.**
+
+A tempo change normally means a phase vocoder, and a phase vocoder smears transients —
+librosa's own documentation says its "does not try to handle transients and is likely to
+produce many audible artifacts". Drums are nothing *but* transients, which is why this is
+the hard part of the use case and why Rubber Band exists and is GPL-or-pay.
+
+This does not stretch anything. `kit.py` already synthesises at whatever hit positions it is
+given and `voice.py` plays at whatever note times it is given, so a tempo change is
+arithmetic on a list of times followed by a fresh render.
+
+**Measured on a real separated drums stem, 129.2 BPM asked down to 90:**
+
+| | duration | detected tempo | onsets | median gap |
+|---|---:|---:|---:|---:|
+| original | 15.0 s | 129.20 | 63 | 233.7 ms |
+| re-played | 21.5 s | **89.10** | 61 | 336.7 ms |
+
+An independent tempo estimator reads the output as 89.1 when 90 was asked for, and the gap
+ratio is 1.441 against the 1.436 the arithmetic predicts — 0.3%. The same detector still
+finds 61 clean strokes.
+
+**Acceptance criteria**
+- A tempo on the pr0ducer page, prefilled with the track's own, with somewhere to aim: a
+  number alone is not a choice, so the styles are named — house/EDM 128, techno 140, drum
+  and bass 174, hip hop 90, pop 120. ✅
+- Drums re-struck at the new spacing; pitched parts re-played at the new times. ✅
+- A move further than half or double is **refused, not clamped** — silently doing something
+  smaller than what was asked is how somebody ends up at 140 believing they are at 100. ✅
+- Changing the tempo drops every existing render, because they are all at the old one and
+  building a version out of two tempos without being told is the worst failure here. ✅
+- Microtiming scales with the part and is **never quantised**. A snare 20 ms behind the beat
+  at 170 is 27 ms behind it at 128 — the same lateness in beats, which is what makes a
+  performance sound played. Tested directly. ✅
+- The screen says *re-played, not stretched*, and says that parts left as recorded stay at
+  the old tempo and will not line up. ✅
+
+**What it costs, which the panel states rather than buries.** A re-emitted drum part is the
+kit at your drummer's timing, not your drummer's sound — for pop punk to EDM that is usually
+the point, and it is still a substitution. And anything not transcribed does not move, so a
+vocal stays where it was. Sprint 3 candidates D and E are about that, and they are the ones
+that need a licence decision.
 
 ---
 

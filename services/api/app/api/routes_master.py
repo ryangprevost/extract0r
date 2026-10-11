@@ -1537,6 +1537,47 @@ def delete_sample(name: str, settings: Settings = Depends(get_config)) -> Respon
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get("/{track_id}/tempo")
+def track_tempo(
+    track_id: str,
+    settings: Settings = Depends(get_config),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """What tempo this track is at, so a target can be set against something. Sprint 3.
+
+    Cached on the record once measured: it is read every time the pr0ducer page opens and
+    an onset-envelope pass on a four-minute song is not a thing to repeat per page load.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    if record.timing is None:
+        from app.services.analysis.timing import TimingAnalyser
+
+        try:
+            registry.set_timing(track_id, TimingAnalyser().analyse(record.stored.path))
+            record = registry.require(track_id)
+        except Exception:
+            log.info("could not read a tempo for %s", track_id, exc_info=True)
+
+    bpm = getattr(record.timing, "tempo_bpm", 0.0) or 0.0
+    return {
+        "tempo_bpm": round(bpm, 1),
+        "confidence": round(getattr(record.timing, "confidence", 0.0) or 0.0, 3),
+        # Named out loud, because "128" means something to a person and "the target" does
+        # not. These are where the styles actually sit, not a claim about any record.
+        "suggestions": [
+            {"label": "house / EDM", "bpm": 128},
+            {"label": "techno", "bpm": 140},
+            {"label": "drum and bass", "bpm": 174},
+            {"label": "hip hop", "bpm": 90},
+            {"label": "pop", "bpm": 120},
+        ],
+    }
+
+
 @router.post("/{track_id}/revoice", response_model=JobResponse)
 def revoice(
     track_id: str,
@@ -1545,6 +1586,8 @@ def revoice(
     sample: str | None = Query(None, description="an uploaded sample to play it on"),
     pitched: bool | None = Query(None, description="transpose the sample, or trigger it"),
     clean: bool = Query(True, description="merge fragments separation broke apart"),
+    target_bpm: float | None = Query(None, gt=0, description="re-play it at this tempo"),
+    kit: str = Query("tight", description="which kit, when the stem is drums"),
     settings: Settings = Depends(get_config),
     storage: TrackStorage = Depends(get_storage),
     registry: TrackRegistry = Depends(get_registry),
@@ -1582,6 +1625,28 @@ def revoice(
             status.HTTP_409_CONFLICT, f"No {stem.value} stem — separate the track first."
         )
 
+    # Sprint 3: a tempo change is arithmetic on a list of times followed by a fresh render,
+    # so it has to be settled before the job starts - a move this refuses should say so now
+    # rather than after a transcription.
+    move = None
+    if target_bpm:
+        from app.services.synth.retempo import MAX_RATIO, MIN_RATIO, plan
+
+        source_bpm = getattr(record.timing, "tempo_bpm", 0.0) or 0.0
+        if not source_bpm:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "No tempo has been read for this track yet — open the tempo first.",
+            )
+        move = plan(source_bpm, target_bpm, 0.0)
+        if move is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{source_bpm:.0f} to {target_bpm:.0f} BPM is more than this can move a "
+                f"part. It scales a performance between {MIN_RATIO:g}x and {MAX_RATIO:g}x "
+                f"of its own tempo; past that the playing stops being the same playing.",
+            )
+
     out_dir = storage.exports_dir(track_id)
 
     def work(handle: JobHandle) -> dict:
@@ -1592,6 +1657,44 @@ def revoice(
         from app.services.factory import make_transcriber
         from app.services.synth.voice import render_notes
 
+        probe_in = sf.info(str(path))
+        stretched = probe_in.duration * (move.scale if move else 1.0)
+
+        # Drums are not a pitched part and do not go through a transcriber. They are
+        # strokes, and `kit.py` already synthesises at whatever positions it is handed - so
+        # at a new tempo they are re-struck rather than re-pitched, and nothing is stretched.
+        if stem is StemKind.DRUMS:
+            from app.services.drums.detect import find_hits
+            from app.services.synth.retempo import move_hits, rebuild_drums
+
+            handle.update(JobState.RUNNING, 0.2, "finding every stroke in the drums")
+            samples, rate = sf.read(str(path), dtype="float64", always_2d=True)
+            hits = find_hits(samples.mean(axis=1), rate)
+            if not hits:
+                return {"notes": 0, "why": "no drum strokes came back from that stem."}
+
+            handle.update(
+                JobState.RUNNING, 0.7, f"re-playing {len(hits)} strokes on the {kit} kit"
+            )
+            audio = rebuild_drums(
+                move_hits(hits, move.scale if move else 1.0), rate, stretched, kit=kit
+            )
+            out_dir.mkdir(parents=True, exist_ok=True)
+            wav = out_dir / f"drums.{kit}.wav"
+            sf.write(str(wav), audio, rate)
+            return {
+                "stem": "drums",
+                "voice": kit,
+                "notes": len(hits),
+                "notes_before_cleaning": len(hits),
+                "fragments_merged": 0,
+                "out_of_range": 0,
+                "url": f"/api/v1/tracks/{track_id}/revoiced/{wav.name}",
+                "backend": "kit",
+                "moved": move.describe() if move else "",
+                "duration_s": round(stretched, 1),
+            }
+
         handle.update(JobState.RUNNING, 0.1, f"reading the notes out of the {stem.value}")
         transcription = make_transcriber(settings, stem).transcribe(Path(path), stem)
         found = list(transcription.notes)
@@ -1600,11 +1703,16 @@ def revoice(
         if not merged:
             return {"notes": 0, "why": "nothing pitched came back from that stem."}
 
-        probe = sf.info(str(path))
+        probe = probe_in
         label = sample or voice
         handle.update(JobState.RUNNING, 0.7, f"playing {len(merged)} notes on the {label}")
 
         out_of_range = 0
+        if move:
+            from app.services.synth.retempo import move_notes
+
+            merged = move_notes(merged, move.scale)
+
         if sample_path is not None:
             from app.services.synth.samples import Sample, detect_root, render_with_sample
 
@@ -1620,10 +1728,10 @@ def revoice(
             root = _sample_root(settings, sample, detect_root(raw, rate))
             held = Sample(sample, sample_path, rate, len(raw) / rate, root)
             audio, out_of_range = render_with_sample(
-                merged, held, raw, rate, probe.duration, pitched
+                merged, held, raw, rate, stretched, pitched
             )
         else:
-            audio = render_notes(merged, probe.samplerate, voice, duration_s=probe.duration)
+            audio = render_notes(merged, probe.samplerate, voice, duration_s=stretched)
 
         out_dir.mkdir(parents=True, exist_ok=True)
         wav = out_dir / f"{stem.value}.{label}.wav"
@@ -1643,6 +1751,8 @@ def revoice(
             "fragments_merged": len(found) - len(merged),
             "url": f"/api/v1/tracks/{track_id}/revoiced/{wav.name}",
             "backend": transcription.backend,
+            "moved": move.describe() if move else "",
+            "duration_s": round(stretched, 1),
         }
 
     return to_response(jobs.submit("revoice", track_id, work))
@@ -1665,10 +1775,16 @@ def revoiced_audio(
 
     stem, _, rest = name.partition(".")
     voice, _, extension = rest.partition(".")
-    # A render is named after a built-in voice *or* an uploaded sample, and the sample list
-    # is the allow-list for the second kind. Checking only `VOICES` here 404s every
-    # sample-played part, which is how this was nearly shipped.
-    known = voice in VOICES or (settings.sample_dir / f"{voice}.wav").exists()
+    # A render is named after a built-in voice, an uploaded sample, or - for drums, which
+    # are struck rather than pitched - a kit. Each of those is a closed list, which is the
+    # point: the name is rebuilt from known parts rather than taken from the URL.
+    from app.services.drums.kit import KITS
+
+    known = (
+        voice in VOICES
+        or voice in KITS
+        or (settings.sample_dir / f"{voice}.wav").exists()
+    )
     if extension != "wav" or not known or stem not in {k.value for k in StemKind}:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such render.")
 

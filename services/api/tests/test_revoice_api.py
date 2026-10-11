@@ -154,3 +154,71 @@ def test_midi_comes_back_as_a_file_a_daw_would_open(client, separated):
     assert answer.status_code == 200
     assert answer.content[:4] == b"MThd"
     assert "attachment" in answer.headers["content-disposition"]
+
+
+# --- Sprint 3: a part at a different tempo -----------------------------------------------
+
+
+def test_the_tempo_endpoint_offers_somewhere_to_aim(client, separated):
+    """A number alone is not a choice. "house / EDM · 128" is."""
+    body = client.get(f"/api/v1/tracks/{separated}/tempo").json()
+
+    assert body["tempo_bpm"] >= 0
+    labels = {s["label"] for s in body["suggestions"]}
+    assert "house / EDM" in labels
+    assert all(40 < s["bpm"] < 250 for s in body["suggestions"])
+
+
+def test_a_tempo_for_an_unknown_track_is_a_404(client):
+    assert client.get("/api/v1/tracks/" + "e" * 32 + "/tempo").status_code == 404
+
+
+def test_a_move_too_far_is_refused_before_any_work_happens(client, separated):
+    """Refused at the request rather than inside the job: a move this cannot make should
+    say so now, not after paying for a transcription."""
+    client.get(f"/api/v1/tracks/{separated}/tempo")
+    answer = client.post(
+        f"/api/v1/tracks/{separated}/revoice?stem=bass&voice=subbass&target_bpm=20"
+    )
+
+    assert answer.status_code in (400, 409)
+    if answer.status_code == 400:
+        assert "same playing" in answer.json()["detail"]
+
+
+@pytest.mark.ml
+def test_drums_come_back_as_strokes_on_a_kit(client, separated):
+    """Drums take a different door: they are strokes rather than notes, so they take a kit
+    rather than a voice and never touch a transcriber."""
+    started = client.post(f"/api/v1/tracks/{separated}/revoice?stem=drums&kit=punchy")
+    body = finish(client, started.json()["job_id"])
+    # Hit detection needs a real onset backend, which the fast CI job does not install.
+    if body["state"] == "failed":
+        pytest.skip(body.get("error", "no onset backend"))
+    result = body["result"]
+
+    if not result.get("notes"):
+        pytest.skip(result.get("why", "no strokes in the fixture"))
+    assert result["voice"] == "punchy"
+    assert result["backend"] == "kit"
+    assert result["url"].endswith("drums.punchy.wav")
+    assert client.get(result["url"]).status_code == 200
+
+
+@pytest.mark.ml
+def test_a_part_played_at_a_new_tempo_says_what_it_did(client, separated):
+    """The claim is the product: re-played, not stretched. If this wording drifts, either
+    the thing changed or it is being described wrongly."""
+    client.get(f"/api/v1/tracks/{separated}/tempo")
+    started = client.post(
+        f"/api/v1/tracks/{separated}/revoice?stem=drums&kit=tight&target_bpm=90"
+    )
+    body = finish(client, started.json()["job_id"])
+    if body["state"] == "failed":
+        pytest.skip(body.get("error", "no tempo for the fixture"))
+    result = body["result"]
+
+    if not result.get("notes"):
+        pytest.skip("no strokes in the fixture")
+    assert "rather than stretched" in result["moved"]
+    assert result["duration_s"] > 0

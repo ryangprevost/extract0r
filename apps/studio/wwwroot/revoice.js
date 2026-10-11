@@ -31,9 +31,11 @@ const Revoice = (() => {
   //: else on the page has any business with it.
   const parts = new Map();
 
-  //: Which stems can be played from notes. Drums are absent on purpose: they are not one
-  //: pitched part, and the per-drum panel above already does the drum-level work.
+  //: Every part that can be re-played. Drums arrive through a different door - they are
+  //: strokes rather than notes, so they take a kit rather than a voice - but they belong
+  //: in the same list because to a person they are one of the parts.
   const PARTS = [
+    ["drums", "Drums"],
     ["bass", "Bass"],
     ["guitar", "Guitar"],
     ["piano", "Piano"],
@@ -41,11 +43,23 @@ const Revoice = (() => {
     ["other", "The rest"],
   ];
 
+  //: The three kits, which is what the drums row offers instead of voices.
+  const KITS = ["tight", "roomy", "punchy"];
+
+  //: The tempo this version is being built at, and the one it started from.
+  let sourceBpm = 0;
+  let targetBpm = null;
+
   function show() {
     const panel = $("revoice");
     if (!panel) return;
     panel.hidden = !(state.trackId && state.lanes && state.lanes.size);
-    if (!panel.hidden && !$("revoice-parts").children.length) render();
+    if (panel.hidden) return;
+    if (!$("revoice-parts").children.length) render();
+    // Gated on its own state, not on whether the rows exist. The first version keyed off
+    // an empty parts list, so a `show()` that ran before `state.trackId` was set left the
+    // tempo unread and every later call skipped it - the box simply never appeared.
+    if (!sourceBpm) loadTempo();
   }
 
   function isSample(id) {
@@ -80,9 +94,15 @@ const Revoice = (() => {
 
     const pick = document.createElement("select");
     pick.appendChild(new Option("as recorded", ""));
-    for (const voice of voices) pick.appendChild(new Option(voice.label, voice.id));
-    for (const sample of samples) {
-      pick.appendChild(new Option(`${sample.name} (yours)`, sample.name));
+    if (stem === "drums") {
+      // A kit, not a voice: drums are struck rather than pitched, and offering a supersaw
+      // here would be offering something the renderer cannot do with them.
+      for (const kit of KITS) pick.appendChild(new Option(`${kit} kit`, kit));
+    } else {
+      for (const voice of voices) pick.appendChild(new Option(voice.label, voice.id));
+      for (const sample of samples) {
+        pick.appendChild(new Option(`${sample.name} (yours)`, sample.name));
+      }
     }
     pick.value = held.voice || "";
     pick.addEventListener("change", () => choose(stem, pick.value));
@@ -176,9 +196,16 @@ const Revoice = (() => {
     try {
       // A sample and a built-in voice go to the same endpoint by different parameters,
       // because they are the same request with a different source of sound.
-      const query = isSample(held.voice)
-        ? `stem=${stem}&sample=${encodeURIComponent(held.voice)}`
-        : `stem=${stem}&voice=${encodeURIComponent(held.voice)}`;
+      const what =
+        stem === "drums"
+          ? `kit=${encodeURIComponent(held.voice)}`
+          : isSample(held.voice)
+            ? `sample=${encodeURIComponent(held.voice)}`
+            : `voice=${encodeURIComponent(held.voice)}`;
+      // The tempo rides along with every part, so a version is at one tempo rather than
+      // whatever each part happened to be rendered at.
+      const at = targetBpm ? `&target_bpm=${targetBpm}` : "";
+      const query = `stem=${stem}&${what}${at}`;
       const started = await api(`/tracks/${state.trackId}/revoice?${query}`, { method: "POST" });
       const result = (await pollJobQuietly(started.job_id, wait.stage)) || {};
 
@@ -193,9 +220,10 @@ const Revoice = (() => {
         // silently never loaded, with no error anywhere.
         held.url = result.url;
         held.said =
-          `${result.notes} notes` +
+          `${result.notes} ${stem === "drums" ? "strokes" : "notes"}` +
           (result.fragments_merged ? `, ${result.fragments_merged} pieces rejoined` : "") +
-          (result.out_of_range ? `, ${result.out_of_range} out of reach` : "");
+          (result.out_of_range ? `, ${result.out_of_range} out of reach` : "") +
+          (result.moved ? ` — ${result.moved}` : "");
         held.inMaster = true;
       }
       render();
@@ -204,6 +232,82 @@ const Revoice = (() => {
     } finally {
       wait.done();
     }
+  }
+
+  // --- the tempo this version is at -------------------------------------------------
+  //
+  // Sprint 3. The confidence this is meant to give rests on one true sentence: **a
+  // re-played part is not a stretched part.** A tempo change normally smears drums,
+  // because a phase vocoder cannot keep a transient together; this re-strikes the kit at
+  // new positions instead, so a 25% slowdown is as clean as the original. Measured: asking
+  // for 90 BPM produced audio an independent tempo estimator reads as 89.1, with the same
+  // detector finding 61 clean strokes where the original had 63.
+  //
+  // Saying that is the point of the panel, not decoration. Somebody who does not know what
+  // a phase vocoder is still deserves to know why their drums survived.
+
+  async function loadTempo() {
+    const box = $("tempo-box");
+    if (!box || !state.trackId) return;
+    let info;
+    try {
+      info = await api(`/tracks/${state.trackId}/tempo`);
+    } catch {
+      return;
+    }
+    sourceBpm = info.tempo_bpm || 0;
+    if (!sourceBpm) return;
+
+    $("tempo-now").textContent = `This track runs at ${sourceBpm.toFixed(0)} BPM.`;
+    const chips = $("tempo-chips");
+    chips.innerHTML = "";
+    for (const suggestion of info.suggestions || []) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.textContent = `${suggestion.label} · ${suggestion.bpm}`;
+      chip.addEventListener("click", () => setTempo(suggestion.bpm));
+      chips.appendChild(chip);
+    }
+    box.hidden = false;
+    sayTempo();
+  }
+
+  function sayTempo() {
+    const said = $("tempo-said");
+    if (!said) return;
+    if (!targetBpm || !sourceBpm) {
+      said.textContent = "";
+      return;
+    }
+    const scale = sourceBpm / targetBpm;
+    if (scale < 0.5 || scale > 2) {
+      said.textContent =
+        `${sourceBpm.toFixed(0)} to ${targetBpm} BPM is more than this can move a part. ` +
+        `It scales a performance between half and double its own tempo; past that the ` +
+        `playing stops being the same playing.`;
+      return;
+    }
+    const percent = Math.round(Math.abs(1 - 1 / scale) * 100);
+    said.textContent =
+      `${percent}% ${scale > 1 ? "slower" : "faster"}. Every part you re-play below is ` +
+      `re-played at ${targetBpm} rather than stretched to it — the drums are struck again ` +
+      `at the new spacing and the notes are played again at the new times, so nothing ` +
+      `smears. Parts left as recorded stay at ${sourceBpm.toFixed(0)} and will not line up.`;
+  }
+
+  function setTempo(bpm) {
+    targetBpm = bpm || null;
+    $("tempo-target").value = bpm || "";
+    // Every existing render is at the old tempo. Keeping them playable would let somebody
+    // build a version out of parts at two different tempos without being told.
+    for (const [, held] of parts) {
+      held.url = null;
+      held.inMaster = false;
+      held.said = "";
+    }
+    sayTempo();
+    render();
   }
 
   // --- your own samples -------------------------------------------------------------
@@ -335,6 +439,10 @@ const Revoice = (() => {
     $("midi-btn")?.addEventListener("click", midi);
     $("sample-upload")?.addEventListener("click", uploadSample);
     $("sample-root-set")?.addEventListener("click", setRoot);
+    $("tempo-target")?.addEventListener("change", (e) =>
+      setTempo(parseInt(e.target.value, 10) || null),
+    );
+    $("tempo-clear")?.addEventListener("click", () => setTempo(null));
     try {
       voices = (await api("/tracks/voices")).voices || [];
     } catch {

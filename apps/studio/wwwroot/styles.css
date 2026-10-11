@@ -1587,3 +1587,16 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   grid-column: 1 / -1;
   margin: 0;
 }
+
+/* Sprint 3: the tempo the version is being built at. Above the parts because it applies
+   to all of them, and because "this is a 128 BPM record now" is the first decision
+   somebody makes rather than the last. */
+.tempo-box {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  background: var(--panel-2, var(--panel));
+}
+.tempo-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+#tempo-target { width: 5.5rem; }

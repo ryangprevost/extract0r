@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     #: that root, and although it now only removes ones named like a track id, profiles
     #: are meant to outlive every track that used them by years.
     profile_dir: Path = REPO_ROOT / "profiles"
+    #: Samples a user uploaded to play a transcribed part on. X0R-1326.
+    #:
+    #: Outside `storage_dir` for the same reason profiles are, and the reason is sharper
+    #: here: a sample is audio the person chose and may have paid for, and having it
+    #: deleted twenty-four hours later because it happened to sit beside a track would be
+    #: a bad surprise. Gitignored for the same reason profiles are - it is their audio.
+    sample_dir: Path = REPO_ROOT / "samples"
     # Ceiling on one scan, so pointing this at a 40,000-track collection reports a
     # sensible refusal instead of running for a day.
     library_max_tracks: int = 2000

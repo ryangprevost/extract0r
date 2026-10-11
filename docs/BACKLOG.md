@@ -2523,23 +2523,34 @@ I can hear my song's shape in another style without re-recording it.
 
 ---
 
-### X0R-1326 · Bring your own sample as a voice · 5 · `TODO`
+### X0R-1326 · Bring your own sample as a voice · 5 · `PARTIAL` 2026-10-11
 **As a** person with a sample I like **I want** to upload it and have my part played on it
 **so that** the palette is not limited to what ships.
 
 **Acceptance criteria**
-- Upload lands behind the **same rights attestation as a reference track** (X0R-202). A
-  sample is someone's recording; this project has never taken one without a claim, and
-  `kit.py`'s whole argument for synthesis is that it refuses to ship other people's audio.
-  A user's own upload is the one case that was always allowed.
-- One-shot mode (fixed pitch, retriggered per note) and pitched mode (repitched per note),
-  with the mode chosen rather than guessed.
-- The repitch range is capped and the cap is stated on screen: a sample stretched two
-  octaves is a different instrument and sounds like a mistake.
-- Uploaded samples are **gitignored and local**, under the same rule as `profiles/` and
-  `storage/` - they are the user's audio and they do not leave the machine.
-- Retention: the sweep treats them as it treats a track, or it deliberately does not, and
-  the card says which.
+- Upload behind the **same rights attestation as a reference track**. ✅
+- One-shot and pitched mode, chosen rather than guessed. ✅ and the default is *detected*
+  rather than assumed: `detect_root` returns a MIDI number for a pitched sample and **None**
+  for one without a clear pitch, so a snare is triggered and a piano note is transposed. The
+  user overrides either way, because the detector is right most of the time and the user is
+  right all of it.
+- The repitch range is capped. ✅ ±12 semitones, and a note outside it is **dropped and
+  counted** rather than stretched: repitching moves the formants with the pitch, and a part
+  that silently thinned out is worse than one that says it could not reach.
+- Gitignored and local. ✅ `samples/`, with a test asserting the `.gitignore` line still
+  covers it - the same guard `profiles/` has.
+- Retention: deliberately **out of its reach.** ✅ `sample_dir` sits outside `storage_dir`,
+  because a sample is audio somebody chose and may have paid for, and losing it a day later
+  for sitting beside a track would be a bad surprise. Asserted.
+
+**Still open:** nothing on the page uploads one yet - the sample path is reachable only
+through the API, and the picker on the pr0ducer page still lists synth voices only.
+
+**Caught by a test rather than by a user, which is the point of having written it.** Adding
+`sample_dir` made `test_isolation` fail immediately: the suite would have uploaded test
+samples into a real person's folder. That is X0R-1421 exactly, a third time, with a
+different noun - and the first two were found by Ryan noticing his own profile list had
+junk in it.
 
 ---
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -1356,11 +1357,136 @@ def list_voices() -> dict:
     }
 
 
+#: What a sample may be named once it is on disk. A name from a form becomes a filename,
+#: and a filename from a form is a path traversal waiting to happen.
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9 _-]{1,48}$")
+
+
+def _sample_path(settings: Settings, name: str) -> Path:
+    if not _SAFE_NAME.match(name):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "A sample name can hold letters, numbers, spaces, hyphens and underscores.",
+        )
+    return settings.sample_dir / f"{name}.wav"
+
+
+@router.get("/samples")
+def list_samples(settings: Settings = Depends(get_config)) -> dict:
+    """Samples the user has uploaded to play parts on. X0R-1326."""
+    import soundfile as sf
+
+    from app.services.synth.samples import detect_root
+
+    out = []
+    directory = settings.sample_dir
+    if directory.is_dir():
+        for path in sorted(directory.glob("*.wav")):
+            try:
+                info = sf.info(str(path))
+                # Two seconds is plenty to find a fundamental and keeps a long sample
+                # out of memory on a listing that runs on every page load.
+                data, rate = sf.read(
+                    str(path), dtype="float32", always_2d=True, frames=info.samplerate * 2
+                )
+                root = detect_root(data, rate)
+            except Exception:
+                log.info("could not read sample %s", path.name, exc_info=True)
+                continue
+            out.append(
+                {
+                    "name": path.stem,
+                    "duration_s": round(info.duration, 2),
+                    "sample_rate": info.samplerate,
+                    "root_midi": round(root, 1) if root is not None else None,
+                    # What the picker needs to decide for the user: a sample with no clear
+                    # pitch is triggered, not transposed, and saying so beats a dropdown
+                    # that silently does one of them.
+                    "pitched": root is not None,
+                }
+            )
+    return {"samples": out}
+
+
+@router.post("/samples", status_code=status.HTTP_201_CREATED)
+async def upload_sample(
+    file: Annotated[UploadFile, File()],
+    name: Annotated[str, Form()],
+    owns_or_licensed: Annotated[bool, Form()] = False,
+    settings: Settings = Depends(get_config),
+) -> dict:
+    """Take a sample to play a part on. X0R-1326.
+
+    **Behind the same rights attestation a reference track needs**, and for the same reason.
+    `kit.py` refuses to ship recorded hits because shipping a library means shipping
+    someone's audio with no way to check where it came from; a user's own upload is the one
+    case that was never in question, and the attestation is what makes it that case rather
+    than an assumption.
+
+    Stored outside `storage_dir` so the retention sweep cannot take it - a sample is audio
+    somebody chose and may have paid for, and losing it a day later because it sat beside a
+    track would be a bad surprise - and outside the repository, where `.gitignore` keeps it.
+    """
+    import soundfile as sf
+
+    from app.services.synth.samples import MAX_SAMPLE_S
+
+    if settings.require_rights_attestation and not owns_or_licensed:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Confirm you own or are licensed to use this sample.",
+        )
+
+    path = _sample_path(settings, name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_suffix(".staged")
+    try:
+        staged.write_bytes(await file.read())
+        info = sf.info(str(staged))
+        if info.duration > MAX_SAMPLE_S:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                f"That is {info.duration:.0f} seconds long. A sample over {MAX_SAMPLE_S:.0f} "
+                f"is a loop or a phrase rather than an instrument, and triggering it once a "
+                f"note makes a wall rather than a part.",
+            )
+        data, rate = sf.read(str(staged), dtype="float32", always_2d=True)
+        sf.write(str(path), data, rate)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Could not read that audio: {exc}"
+        ) from exc
+    finally:
+        staged.unlink(missing_ok=True)
+
+    from app.services.synth.samples import detect_root
+
+    root = detect_root(data, rate)
+    return {
+        "name": name,
+        "duration_s": round(info.duration, 2),
+        "root_midi": round(root, 1) if root is not None else None,
+        "pitched": root is not None,
+    }
+
+
+@router.delete("/samples/{name}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_sample(name: str, settings: Settings = Depends(get_config)) -> Response:
+    path = _sample_path(settings, name)
+    if path.exists():
+        path.unlink()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/{track_id}/revoice", response_model=JobResponse)
 def revoice(
     track_id: str,
     stem: StemKind,
-    voice: str = Query("supersaw"),
+    voice: str = Query("supersaw", description="a synth voice, or 'sample' with ?sample="),
+    sample: str | None = Query(None, description="an uploaded sample to play it on"),
+    pitched: bool | None = Query(None, description="transpose the sample, or trigger it"),
     clean: bool = Query(True, description="merge fragments separation broke apart"),
     settings: Settings = Depends(get_config),
     storage: TrackStorage = Depends(get_storage),
@@ -1385,7 +1511,12 @@ def revoice(
 
     from app.services.synth.voice import VOICES
 
-    if voice not in VOICES:
+    sample_path = None
+    if sample:
+        sample_path = _sample_path(settings, sample)
+        if not sample_path.exists():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No sample called {sample!r}.")
+    elif voice not in VOICES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No voice called {voice!r}.")
 
     path = _stem_path(record.separation, stem)
@@ -1412,17 +1543,41 @@ def revoice(
         if not merged:
             return {"notes": 0, "why": "nothing pitched came back from that stem."}
 
-        handle.update(JobState.RUNNING, 0.7, f"playing {len(merged)} notes on the {voice}")
         probe = sf.info(str(path))
-        audio = render_notes(merged, probe.samplerate, voice, duration_s=probe.duration)
+        label = sample or voice
+        handle.update(JobState.RUNNING, 0.7, f"playing {len(merged)} notes on the {label}")
+
+        out_of_range = 0
+        if sample_path is not None:
+            from app.services.synth.samples import Sample, detect_root, render_with_sample
+
+            raw, rate = sf.read(str(sample_path), dtype="float64", always_2d=True)
+            if rate != probe.samplerate:
+                # Resampling here would move the sample's pitch, which is the one failure
+                # that gets blamed on the transcription. Said rather than silently fixed.
+                return {
+                    "notes": 0,
+                    "why": f"That sample is {rate} Hz and this track is "
+                    f"{probe.samplerate} Hz. Re-save it at the track's rate.",
+                }
+            held = Sample(sample, sample_path, rate, len(raw) / rate, detect_root(raw, rate))
+            audio, out_of_range = render_with_sample(
+                merged, held, raw, rate, probe.duration, pitched
+            )
+        else:
+            audio = render_notes(merged, probe.samplerate, voice, duration_s=probe.duration)
 
         out_dir.mkdir(parents=True, exist_ok=True)
-        wav = out_dir / f"{stem.value}.{voice}.wav"
+        wav = out_dir / f"{stem.value}.{label}.wav"
         sf.write(str(wav), np.stack([audio, audio], axis=1), probe.samplerate)
 
         return {
             "stem": stem.value,
-            "voice": voice,
+            "voice": label,
+            # Notes the sample could not reach without being stretched past the point where
+            # it stops sounding like itself. Reported rather than hidden: a part that
+            # quietly thinned out is worse than one that says it could not get there.
+            "out_of_range": out_of_range,
             "notes": len(merged),
             "notes_before_cleaning": len(found),
             # Said plainly, because it is the number that decides whether what comes out is
@@ -1439,6 +1594,7 @@ def revoice(
 def revoiced_audio(
     track_id: str,
     name: str,
+    settings: Settings = Depends(get_config),
     storage: TrackStorage = Depends(get_storage),
 ) -> FileResponse:
     """Serve one re-voiced render back for preview.
@@ -1451,7 +1607,11 @@ def revoiced_audio(
 
     stem, _, rest = name.partition(".")
     voice, _, extension = rest.partition(".")
-    if extension != "wav" or voice not in VOICES or stem not in {k.value for k in StemKind}:
+    # A render is named after a built-in voice *or* an uploaded sample, and the sample list
+    # is the allow-list for the second kind. Checking only `VOICES` here 404s every
+    # sample-played part, which is how this was nearly shipped.
+    known = voice in VOICES or (settings.sample_dir / f"{voice}.wav").exists()
+    if extension != "wav" or not known or stem not in {k.value for k in StemKind}:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such render.")
 
     path = storage.exports_dir(track_id) / f"{stem}.{voice}.wav"

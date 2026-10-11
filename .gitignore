@@ -51,6 +51,13 @@ Thumbs.db
 # line still covers it - see tests/test_reference_profile.py.
 profiles/
 
+# Samples a user uploaded to play a part on. Their audio, often licensed, and nothing
+# anybody else should receive by cloning this repository - the same argument as profiles/
+# and the same argument `kit.py` makes for synthesising its drums rather than shipping
+# recordings of them. `app.config.sample_dir` defaults here and a test asserts this line
+# still covers it.
+samples/
+
 # Downloaded ML model weights. Large, third-party, and reproducible from a URL — three
 # good reasons not to put them in a repository. `models/README.md` says where each one
 # comes from and under what licence, which is the part worth keeping in git.

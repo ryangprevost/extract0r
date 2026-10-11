@@ -111,6 +111,11 @@ def settings(tmp_path: Path) -> Settings:
         # they had actually measured. Writing to a developer's own data is worse than the
         # flakiness the other two lines prevent.
         profile_dir=tmp_path / "profiles",
+        # Third time, same bug, and this one was caught by `test_isolation` rather than by
+        # a user noticing - which is the whole reason that test exists. A sample is audio
+        # somebody uploaded, and a suite that writes into their folder is the X0R-1421
+        # failure with a different noun.
+        sample_dir=tmp_path / "samples",
         separation_backend="stub",
         transcription_backend="stub",
         drum_backend="stub",

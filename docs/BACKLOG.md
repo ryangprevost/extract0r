@@ -121,13 +121,37 @@ workflow. Treat `.github/workflows/ci.yml` as unverified until the first push.
 
 ---
 
-### X0R-203 · Upload UI with drag-and-drop · 3 · `PARTIAL`
-Click-to-select and the attestation gate are built; drag-and-drop, client-side duration probe, and a real progress bar are not.
+### X0R-203 · Upload UI with drag-and-drop · 3 · `DONE` 2026-10-11
 
 **Acceptance criteria**
-- Drop zone responds to dragover/drop with a visible state change.
-- Client reads duration via `AudioContext.decodeAudioData` and warns over the configured cap before uploading a byte.
-- `XMLHttpRequest.upload.onprogress` drives a real percentage.
+- Drop zone responds to dragover/drop with a visible state change. ✅ all three zones, via
+  one `Dropzone.wire`.
+- Client reads duration and warns over the configured cap before uploading a byte. ✅ and
+  the cap now travels: `min_duration_s` and `max_duration_s` are on `/capabilities`, so the
+  page and the server cannot drift on what the limit is.
+- `XMLHttpRequest.upload.onprogress` drives a real percentage. ✅ the one place left in this
+  app that wants XHR - `fetch` has no hook for bytes *sent*, and a 60 MB song on a domestic
+  upstream is a minute of a bar sitting at 5%.
+
+**What made this worth picking up over other `PARTIAL`s: the song dropzone has said "Drop
+an audio file here" since the first sprint and nothing listened for a drop.** An interface
+that names a gesture it ignores is worse than one that does not offer it - the user tries,
+nothing happens, and there is no way to tell a broken page from a wrong file.
+
+**Why nobody noticed:** the *reference* zone beside it did handle drops, with its own inline
+listeners. Two identical-looking targets, one of which worked. Those listeners are gone now -
+they skipped the size and duration checks, and two sets of handlers on one element means two
+sources of truth for the highlight, which is how a drop target ends up stuck looking active
+after the cursor has left.
+
+Verified in the browser with synthetic drag events: `dragenter` lights the zone, a 30 s file
+is accepted, an 11:40 file is refused with *"That is 11:40 long and the limit is 10:00"* -
+and the already-accepted file is **not** replaced by the rejected one, which is the failure
+that would have been easy to ship.
+
+The checks are convenience, not control. The server enforces all of it regardless - X0R-205 -
+and a check in a page the user controls never is a control. These exist so the refusal
+arrives at the right moment rather than after a minute of uploading.
 
 ---
 

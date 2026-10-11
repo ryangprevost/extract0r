@@ -70,6 +70,12 @@ def capabilities(settings: Settings = Depends(get_config)) -> dict:
         "limits": {
             "max_upload_mb": settings.max_upload_mb,
             "retention_hours": settings.retention_hours,
+            # The duration gate, so the page can refuse a two-hour DJ set before spending
+            # ten minutes uploading it. The server enforces these regardless - X0R-205 -
+            # and these exist so the refusal can arrive at the right moment instead of
+            # only at the end. X0R-203.
+            "min_duration_s": settings.min_duration_s,
+            "max_duration_s": settings.max_duration_s,
         },
     }
 

@@ -491,7 +491,19 @@ async function upload() {
     $("progress-message").textContent = state.file.name;
     $("progress-fill").style.width = "5%";
 
-    const track = await api("/tracks", { method: "POST", body: form });
+    // Through `Dropzone.upload` rather than `api`, for the progress events - fetch has no
+    // hook for bytes *sent*. X0R-203. Falls back to `api` if that module did not load, so
+    // a missing script costs the bar rather than the upload.
+    const track =
+      typeof Dropzone !== "undefined"
+        ? await Dropzone.upload("/tracks", form, (fraction) => {
+            $("progress-fill").style.width = `${5 + Math.round(fraction * 25)}%`;
+            $("progress-message").textContent =
+              fraction < 1
+                ? `${state.file.name} — ${Math.round(fraction * 100)}% uploaded`
+                : `${state.file.name} — uploaded, waiting for the server`;
+          })
+        : await api("/tracks", { method: "POST", body: form });
     state.trackId = track.track_id;
     state.duration = track.duration_s ?? 0;
 
@@ -2527,21 +2539,10 @@ loadUpfrontProfiles();
 // So the button and its note describe the empty state rather than the markup's
 // placeholder before anything has been chosen.
 refreshUploadButton();
-for (const event of ["dragover", "dragenter"]) {
-  $("upfront-ref-dropzone").addEventListener(event, (e) => {
-    e.preventDefault();
-    $("upfront-ref-dropzone").classList.add("over");
-  });
-}
-for (const event of ["dragleave", "drop"]) {
-  $("upfront-ref-dropzone").addEventListener(event, () =>
-    $("upfront-ref-dropzone").classList.remove("over"),
-  );
-}
-$("upfront-ref-dropzone").addEventListener("drop", (e) => {
-  e.preventDefault();
-  pickUpfrontReference(e.dataTransfer.files[0]);
-});
+// The reference dropzone's own drag handling used to live here. It is gone because
+// `Dropzone.wire` does the same job for all three zones and adds the size and duration
+// check this one skipped - and two handlers on one element means two sources of truth for
+// the highlight, which is how a drop target ends up stuck looking active.
 $("transcribe-btn").addEventListener("click", transcribe);
 $("play-btn").addEventListener("click", togglePlay);
 $("timing-halve").addEventListener("click", () => nudgeTempo(0.5));

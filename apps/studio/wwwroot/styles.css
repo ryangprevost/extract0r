@@ -1550,3 +1550,12 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   align-items: center;
   gap: 6px;
 }
+
+/* X0R-203: the song dropzone now highlights on drag like the reference one always did.
+   It reuses `.dropzone.over` above rather than adding a second class that means the same
+   thing - the outline is the only addition, so a drop target reads as a target and not
+   just as a slightly different colour. */
+.dropzone.over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+}

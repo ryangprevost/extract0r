@@ -234,3 +234,95 @@ def test_the_samples_folder_is_gitignored():
     its drums instead of shipping recordings of them."""
     root = Path(__file__).resolve().parents[3]
     assert "samples/" in (root / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
+# --- X0R-1330: telling a sample what note it is ------------------------------------------
+
+
+def test_the_reach_warning_names_the_arithmetic_and_not_a_false_claim():
+    """The first version said a sample was "below where a guitar part usually sits (E2-E5)"
+    about a sample at E2 — which is the bottom of E2-E5, so the sentence was simply false.
+
+    What is actually true is the arithmetic: a sample moves at most an octave, a part spans
+    more than two, so where it sits decides how much of the part it covers.
+    """
+    from app.services.synth.samples import reach
+
+    _within, _span, said = reach(40, "guitar")  # E2, the bottom of a guitar's usual span
+
+    assert "in reach" in said
+    assert "below" not in said and "above" not in said
+
+
+def test_a_sample_in_the_right_place_gets_no_warning():
+    """A warning that appears every time is furniture."""
+    from app.services.synth.samples import reach
+
+    assert reach(40, "bass")[2] == ""
+
+
+def test_the_same_sample_reaches_more_of_one_part_than_another():
+    from app.services.synth.samples import reach
+
+    assert reach(57, "guitar")[0] > reach(57, "bass")[0]
+
+
+def test_note_names_rather_than_midi_numbers():
+    from app.services.synth.samples import note_name
+
+    assert note_name(57) == "A3"
+    assert note_name(60) == "C4"
+    assert note_name(28) == "E1"
+
+
+def test_a_root_override_is_remembered_and_used(client, pitched_audio):
+    client.post(
+        "/api/v1/tracks/samples",
+        files={"file": ("hit.wav", wav_bytes(pitched_audio), "audio/wav")},
+        data=ATTESTED,
+    )
+    assert client.patch("/api/v1/tracks/samples/my hit?root_midi=45").status_code == 200
+
+    listed = client.get("/api/v1/tracks/samples").json()["samples"][0]
+    assert listed["root_midi"] == 45.0
+    assert listed["root_name"] == "A2"
+
+
+def test_clearing_the_override_goes_back_to_what_was_detected(client, pitched_audio):
+    client.post(
+        "/api/v1/tracks/samples",
+        files={"file": ("hit.wav", wav_bytes(pitched_audio), "audio/wav")},
+        data=ATTESTED,
+    )
+    client.patch("/api/v1/tracks/samples/my hit?root_midi=45")
+    client.patch("/api/v1/tracks/samples/my hit")
+
+    assert client.get("/api/v1/tracks/samples").json()["samples"][0]["root_midi"] == pytest.approx(
+        57.0, abs=1.0
+    )
+
+
+def test_an_override_does_not_outlive_its_sample(client, pitched_audio):
+    """A sidecar left behind would silently re-apply to a different sample uploaded under
+    the same name later."""
+    for _ in range(2):
+        client.post(
+            "/api/v1/tracks/samples",
+            files={"file": ("hit.wav", wav_bytes(pitched_audio), "audio/wav")},
+            data=ATTESTED,
+        )
+        client.patch("/api/v1/tracks/samples/my hit?root_midi=36")
+        client.delete("/api/v1/tracks/samples/my hit")
+
+    client.post(
+        "/api/v1/tracks/samples",
+        files={"file": ("hit.wav", wav_bytes(pitched_audio), "audio/wav")},
+        data=ATTESTED,
+    )
+    assert client.get("/api/v1/tracks/samples").json()["samples"][0]["root_midi"] == pytest.approx(
+        57.0, abs=1.0
+    )
+
+
+def test_setting_a_root_on_a_sample_that_is_not_there_is_a_404(client):
+    assert client.patch("/api/v1/tracks/samples/ghost?root_midi=60").status_code == 404

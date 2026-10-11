@@ -39,17 +39,50 @@ const Revoice = (() => {
       return;
     }
     const sample = samples.find((v) => v.name === id);
+    const root = $("sample-root-row");
     if (!sample) {
       $("revoice-about").textContent = "";
+      if (root) root.hidden = true;
       return;
     }
+
     // What a sample will *do* rather than what it is, because the two modes sound nothing
     // alike and the difference is not visible in a filename.
-    $("revoice-about").textContent = sample.pitched
-      ? `Your sample, transposed to follow the part. Notes more than an octave from its own ` +
-        `pitch are skipped rather than stretched out of shape.`
+    let said = sample.pitched
+      ? `Your sample, transposed to follow the part. Notes more than an octave from its ` +
+        `root are skipped rather than stretched out of shape.`
       : `Your sample has no clear pitch, so it is triggered once a note at its own pitch — ` +
         `a drum machine rather than a sampler.`;
+
+    // X0R-1330: say *before* rendering that most of the part would be skipped. The first
+    // version of this feature let somebody wait for a render to find that out, and the
+    // forecast is cheap - it only needs the root and which part is selected.
+    const warning = sample.reach?.[$("revoice-stem").value];
+    if (warning) said += " " + warning;
+    $("revoice-about").textContent = said;
+
+    if (root) {
+      root.hidden = !sample.pitched;
+      $("sample-root").value = sample.root_midi ?? "";
+      $("sample-root-name").textContent = sample.root_name ? `(${sample.root_name})` : "";
+    }
+  }
+
+  /** Tell a sample what note it is, then re-read the list so the forecast updates. */
+  async function setRoot() {
+    const name = $("revoice-voice").value;
+    const value = $("sample-root").value;
+    try {
+      await api(
+        `/tracks/samples/${encodeURIComponent(name)}` + (value ? `?root_midi=${value}` : ""),
+        { method: "PATCH" },
+      );
+      await refreshSamples();
+      $("revoice-voice").value = name;
+      describe();
+    } catch (error) {
+      fail("revoice-error", error);
+    }
   }
 
   function option(value, label) {
@@ -274,6 +307,9 @@ const Revoice = (() => {
     $("midi-btn")?.addEventListener("click", midi);
     $("revoice-voice")?.addEventListener("change", describe);
     $("sample-upload")?.addEventListener("click", uploadSample);
+    $("sample-root-set")?.addEventListener("click", setRoot);
+    // The forecast depends on which part is selected, so it has to follow that too.
+    $("revoice-stem")?.addEventListener("change", describe);
     loadVoices().then(refreshSamples);
   }
 

@@ -53,6 +53,63 @@ MAX_SAMPLE_S = 10.0
 #: Fade on each end of a triggered copy, so retriggering does not click.
 EDGE_S = 0.004
 
+#: Where each kind of part usually sits, as MIDI numbers. Used only to warn *before* a
+#: render that a sample is pitched too far from the part to reach most of it - X0R-1330.
+#:
+#: These are rules of thumb about instruments, not measurements of the user's audio, and
+#: anything built on them has to say so. A four-string bass's open strings are E1-G2 and a
+#: guitar's are E2-E4; the rest is the usable range above that, trimmed to where parts
+#: actually get written rather than to what the instrument can reach.
+TYPICAL_RANGE: dict[str, tuple[int, int]] = {
+    "bass": (28, 55),
+    "guitar": (40, 76),
+    "piano": (36, 84),
+    "vocals": (48, 79),
+    "other": (36, 84),
+}
+
+#: Note names, because nobody thinks in 57.
+_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+
+def note_name(midi: float) -> str:
+    """MIDI number as a note name with its octave. 57 is A3."""
+    rounded = int(round(midi))
+    return f"{_NAMES[rounded % 12]}{rounded // 12 - 1}"
+
+
+def reach(root_midi: float, stem: str) -> tuple[int, int, str]:
+    """How much of a typical part this sample can play, and a sentence about it.
+
+    Returns (notes in reach, notes in the range, what to say). The sentence is empty when
+    most of the range is reachable - a warning that appears every time is furniture.
+
+    This is a *forecast* from where that instrument usually sits, not a measurement of the
+    user's own part, and the wording says so. The exact answer needs the transcription,
+    which is the expensive thing this is trying to let somebody avoid paying for twice.
+    """
+    low, high = TYPICAL_RANGE.get(stem, (36, 84))
+    span = list(range(low, high + 1))
+    within = [p for p in span if abs(p - root_midi) <= MAX_SHIFT_SEMITONES]
+    if len(within) >= 0.75 * len(span):
+        return len(within), len(span), ""
+
+    share = len(within) / len(span)
+    # Not "the sample is above/below the range" - the first version said that and it was
+    # simply false for a sample sitting *inside* the range whose reach does not span it.
+    # E2 is the bottom of a guitar's usual span, and a sample at E2 was being told it was
+    # below E2. What is actually true is the arithmetic: a sample moves at most an octave,
+    # a part spans more than two, so where it sits decides how much of the part it covers.
+    return (
+        len(within),
+        len(span),
+        f"That sample is {note_name(root_midi)}. A {stem} part usually spans "
+        f"{note_name(low)} to {note_name(high)}, and a sample can only be moved an octave "
+        f"either way - so about {round(share * 100)}% of that range is in reach from "
+        f"{note_name(root_midi)} and the rest would be skipped. Setting its root note "
+        f"moves what it can reach.",
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class Sample:

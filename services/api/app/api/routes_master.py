@@ -1362,6 +1362,23 @@ def list_voices() -> dict:
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9 _-]{1,48}$")
 
 
+def _sample_root(settings: Settings, name: str, detected: float | None) -> float | None:
+    """The root note for a sample: the user's choice if they made one, else the detector's.
+
+    A sidecar JSON beside the wav, which is the same answer `adopt.py` reached for tracks -
+    the directory layout is the record, and one more file beats one more database. X0R-1330.
+    """
+    side = settings.sample_dir / f"{name}.json"
+    if side.exists():
+        try:
+            saved = json.loads(side.read_text(encoding="utf-8")).get("root_midi")
+            if saved is not None:
+                return float(saved)
+        except Exception:
+            log.info("unreadable sidecar for sample %s", name, exc_info=True)
+    return detected
+
+
 def _sample_path(settings: Settings, name: str) -> Path:
     if not _SAFE_NAME.match(name):
         raise HTTPException(
@@ -1376,7 +1393,7 @@ def list_samples(settings: Settings = Depends(get_config)) -> dict:
     """Samples the user has uploaded to play parts on. X0R-1326."""
     import soundfile as sf
 
-    from app.services.synth.samples import detect_root
+    from app.services.synth.samples import detect_root, note_name, reach
 
     out = []
     directory = settings.sample_dir
@@ -1389,7 +1406,7 @@ def list_samples(settings: Settings = Depends(get_config)) -> dict:
                 data, rate = sf.read(
                     str(path), dtype="float32", always_2d=True, frames=info.samplerate * 2
                 )
-                root = detect_root(data, rate)
+                root = _sample_root(settings, path.stem, detect_root(data, rate))
             except Exception:
                 log.info("could not read sample %s", path.name, exc_info=True)
                 continue
@@ -1399,10 +1416,20 @@ def list_samples(settings: Settings = Depends(get_config)) -> dict:
                     "duration_s": round(info.duration, 2),
                     "sample_rate": info.samplerate,
                     "root_midi": round(root, 1) if root is not None else None,
+                    "root_name": note_name(root) if root is not None else None,
                     # What the picker needs to decide for the user: a sample with no clear
                     # pitch is triggered, not transposed, and saying so beats a dropdown
                     # that silently does one of them.
                     "pitched": root is not None,
+                    # Per stem, because the same sample reaches most of a guitar part and
+                    # little of a bass one. A forecast from where that instrument usually
+                    # sits, not a measurement of this user's part - the wording says so.
+                    "reach": {
+                        stem: reach(root, stem)[2]
+                        for stem in ("bass", "guitar", "piano", "vocals", "other")
+                    }
+                    if root is not None
+                    else {},
                 }
             )
     return {"samples": out}
@@ -1472,11 +1499,41 @@ async def upload_sample(
     }
 
 
+@router.patch("/samples/{name}")
+def set_sample_root(
+    name: str,
+    root_midi: float | None = Query(None, ge=0, le=127),
+    settings: Settings = Depends(get_config),
+) -> dict:
+    """Tell a sample what note it is. X0R-1330.
+
+    The control every sampler has had for forty years, and this one needed it as soon as it
+    worked: a one-shot recorded at A3 chosen to play a bass part had 44 of 60 notes skipped,
+    because seventeen semitones is past the cap. The detector is usually right about the
+    pitch and cannot know which octave the user wants it to play in.
+
+    `root_midi` of null clears the override and goes back to what was detected.
+    """
+    path = _sample_path(settings, name)
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No sample called {name!r}.")
+
+    side = settings.sample_dir / f"{name}.json"
+    if root_midi is None:
+        side.unlink(missing_ok=True)
+    else:
+        side.write_text(json.dumps({"root_midi": root_midi}), encoding="utf-8")
+    return {"name": name, "root_midi": root_midi}
+
+
 @router.delete("/samples/{name}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_sample(name: str, settings: Settings = Depends(get_config)) -> Response:
     path = _sample_path(settings, name)
     if path.exists():
         path.unlink()
+    # The override goes with it. A sidecar outliving its sample would silently re-apply to
+    # a different sample uploaded under the same name later.
+    (settings.sample_dir / f"{name}.json").unlink(missing_ok=True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1560,7 +1617,8 @@ def revoice(
                     "why": f"That sample is {rate} Hz and this track is "
                     f"{probe.samplerate} Hz. Re-save it at the track's rate.",
                 }
-            held = Sample(sample, sample_path, rate, len(raw) / rate, detect_root(raw, rate))
+            root = _sample_root(settings, sample, detect_root(raw, rate))
+            held = Sample(sample, sample_path, rate, len(raw) / rate, root)
             audio, out_of_range = render_with_sample(
                 merged, held, raw, rate, probe.duration, pitched
             )

@@ -2578,7 +2578,7 @@ junk in it.
 
 ---
 
-### X0R-1330 · Tell a sample which note it is · 2 · `TODO`
+### X0R-1330 · Tell a sample which note it is · 2 · `DONE` 2026-10-11
 **As a** person playing a bassline on a sample **I want** the sample mapped to the right
 register **so that** most of the part is not skipped.
 
@@ -2598,12 +2598,35 @@ silent transposition is a worse failure than a loud skip, and this project's pos
 throughout is that it reports rather than decides.
 
 **Acceptance criteria**
-- A root-note control beside the sample, pre-filled with the detected value and overridable.
-- Said in note names, not MIDI numbers. Nobody thinks in 57.
+- A root-note control beside the sample, pre-filled with the detected value and
+  overridable. ✅
+- Said in note names, not MIDI numbers. ✅ the field takes a number and the name sits
+  beside it, because the detector's answer is a float and "A3" is what it means.
 - When a choice would put most of the part out of range, the panel says so **before**
-  rendering rather than after. It can be known in advance - the stem's pitch range is
-  already measured by `notes.pitch_range`.
-- The override travels with the sample, so it is set once rather than per render.
+  rendering. ✅ and it updates live as either the sample or the part changes.
+- The override travels with the sample. ✅ a sidecar JSON beside the wav - the same answer
+  `adopt.py` reached for tracks, where the directory layout is the record and one more file
+  beats one more database. It is deleted with the sample, so a leftover cannot silently
+  re-apply to a different sample uploaded under the same name later.
+
+**Measured, on the case that prompted the card.** The same sample and the same bass part:
+
+| sample root | reach forecast | notes skipped |
+|---|---:|---:|
+| A3, as detected | 39% | **44 of 60** |
+| A1, after setting it | 64% | **8 of 60** |
+
+**The forecast is a rule of thumb about instruments and says so.** It uses where a bass or
+a guitar part usually sits, not a measurement of this user's part - the exact answer needs
+the transcription, which is the expensive thing this exists to stop somebody paying for
+twice.
+
+**The first wording of that warning was false.** It said a sample was *"below where a
+guitar part usually sits (E2-E5)"* about a sample at E2, which is the bottom of E2-E5. The
+sample was never outside the range; the ±12 reach *from* it does not span the range. The
+sentence now states that arithmetic instead - a sample moves at most an octave, a part
+spans more than two - and there is a test asserting the words "above" and "below" do not
+come back.
 
 ---
 

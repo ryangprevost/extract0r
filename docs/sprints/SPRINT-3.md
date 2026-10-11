@@ -176,6 +176,7 @@ HTDemucs on the MVSEP leaderboard. Worth knowing and **not worth acting on yet**
 | E | Stretch the parts that are kept as audio | 5 | **done** — `retempo.stretch` and the bounce |
 | F | Say which parts moved and which were re-emitted | 1 | **done** — the bounce's counted summary, X0R-1333 |
 | G | A remix palette: EDM kit, 808 / pluck / pad, the pump, four on the floor, one button | 5 | **done** — X0R-1334, added at Ryan's request mid-sprint |
+| H | The build and the drop: a suggested bar, a riser, a roll, an impact | 3 | **done** — X0R-1335 |
 
 B and C together are a demo: a pop punk record whose drums and bass arrive at 128 BPM with
 no smearing at all, because neither was stretched. That is most of the way to the use case

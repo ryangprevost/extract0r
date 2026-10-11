@@ -280,6 +280,35 @@ const Revoice = (() => {
     }
     box.hidden = false;
     sayTempo();
+    await loadDrops();
+  }
+
+  /**
+   * Where a build and drop would land, offered as a choice rather than made silently.
+   * Strongest first, so the default is the server's best guess - usually where a verse turns
+   * into a chorus - and the rest are there for when the guess is wrong. X0R-1335.
+   */
+  async function loadDrops() {
+    const select = $("drop-bar");
+    const box = $("opt-drop");
+    if (!select || !box) return;
+    let info;
+    try {
+      info = await api(`/tracks/${state.trackId}/drops`);
+    } catch {
+      return;
+    }
+    select.innerHTML = "";
+    (info.suggestions || []).forEach((found, i) => {
+      const option = document.createElement("option");
+      option.value = found.bar;
+      option.textContent = i === 0 ? `bar ${found.bar} (best fit)` : `bar ${found.bar}`;
+      select.appendChild(option);
+    });
+    const any = select.options.length > 0;
+    box.disabled = select.disabled = !any;
+    if (!any) box.checked = false;
+    $("drop-why").textContent = info.why || "";
   }
 
   function sayTempo() {
@@ -323,6 +352,8 @@ const Revoice = (() => {
         `This track runs at ${sourceBpm.toFixed(0)} BPM (you set this).`;
       // Every render was made against the old source tempo, so every one is now wrong.
       setTempo(targetBpm);
+      // And the bars are counted on the new grid.
+      await loadDrops();
     } catch (error) {
       fail("revoice-error", error);
     }
@@ -485,6 +516,7 @@ const Revoice = (() => {
           parts: replayed,
           pump: !!$("opt-pump")?.checked,
           four_on_the_floor: !!$("opt-floor")?.checked,
+          drop_bar: $("opt-drop")?.checked ? parseInt($("drop-bar").value, 10) || null : null,
         }),
       });
       const result = (await pollJobQuietly(started.job_id, wait.stage)) || {};
@@ -571,6 +603,8 @@ const Revoice = (() => {
       }
       $("opt-pump").checked = true;
       $("opt-floor").checked = true;
+      // The drop only if the song has room for one - a short loop has nowhere to build.
+      if (!$("opt-drop").disabled) $("opt-drop").checked = true;
       button.textContent = "Putting it together…";
       await makeVersion();
     } finally {

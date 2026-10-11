@@ -338,3 +338,32 @@ def test_without_a_stretcher_a_new_tempo_says_which_parts_to_re_play(
     assert response.status_code == 409
     detail = response.json()["detail"]
     assert "re-played" in detail and "vocals" in detail
+
+
+# --- X0R-1335: the build and the drop ---------------------------------------------------------
+
+
+def test_drop_suggestions_count_bars_from_one(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    body = client.get(f"/api/v1/tracks/{separated}/drops").json()
+    assert body["build_bars"] == 2
+    for found in body["suggestions"]:
+        assert found["bar"] >= 1 + body["build_bars"]
+        assert 0 <= found["strength"] <= 1
+    assert body["why"]
+
+
+def test_drops_for_an_unknown_track_is_a_404(client):
+    assert client.get("/api/v1/tracks/" + "e" * 32 + "/drops").status_code == 404
+
+
+def test_a_drop_with_no_room_for_a_build_is_refused_before_any_work(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    response = client.post(f"/api/v1/tracks/{separated}/bounce", json={"drop_bar": 2})
+    assert response.status_code == 400
+    assert "needs 2 bars before it" in response.json()["detail"]
+
+
+def test_bar_zero_is_not_a_bar(client, separated):
+    response = client.post(f"/api/v1/tracks/{separated}/bounce", json={"drop_bar": 0})
+    assert response.status_code == 422

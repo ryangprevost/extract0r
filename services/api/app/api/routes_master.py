@@ -1878,6 +1878,8 @@ class BounceRequest(BaseModel):
     #: Lay a kick on every beat and hats between, *alongside* the drummer rather than instead
     #: of him. Added, not moved: re-sequencing his hits is still out.
     four_on_the_floor: bool = False
+    #: Build up into this bar and drop there, counted from 1. X0R-1335. Null for none.
+    drop_bar: int | None = Field(None, ge=1)
 
 
 @router.post("/{track_id}/bounce", response_model=JobResponse)
@@ -1951,6 +1953,27 @@ def bounce_version(
             "This install has no time-stretcher, so every part has to be re-played to change "
             "the tempo. Still to re-play: " + ", ".join(unplayed) + ".",
         )
+    if body.drop_bar:
+        # Checked here, with the reason, rather than inside the job where it would be a log.
+        import soundfile as sf
+
+        from app.services.synth import drop
+        from app.services.synth.retempo import beat_grid
+
+        grid_bpm = body.target_bpm or _tempo_of(track_id, registry)
+        if not grid_bpm:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "A drop needs to know where the bars are, and this track's tempo could not "
+                "be read.",
+            )
+        record = registry.require(track_id)
+        first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+        longest = max(sf.info(str(path)).duration for path in stems.values())
+        try:
+            drop.check(beat_grid(first * scale, grid_bpm, longest * scale), body.drop_bar)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
     def work(handle: JobHandle) -> dict:
         import soundfile as sf
@@ -1982,7 +2005,7 @@ def bounce_version(
         # downbeats rather than on a grid of its own that happens to share a tempo.
         beats = None
         target = body.target_bpm or (getattr(record.timing, "tempo_bpm", 0.0) or 0.0)
-        if (body.pump or body.four_on_the_floor) and target:
+        if (body.pump or body.four_on_the_floor or body.drop_bar) and target:
             from app.services.synth.retempo import beat_grid
 
             first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
@@ -1994,6 +2017,7 @@ def bounce_version(
                 beats=beats, bpm=target,
                 pump_db=8.0 if body.pump else 0.0,
                 floor_kick=body.four_on_the_floor,
+                drop_bar=body.drop_bar or 0,
             )
         except StaleRender as exc:
             return {"ok": False, "why": str(exc), "stem": exc.stem}
@@ -2021,6 +2045,45 @@ def bounce_version(
         }
 
     return to_response(jobs.submit("bounce", track_id, work))
+
+
+@router.get("/{track_id}/drops")
+def suggest_drops(
+    track_id: str,
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Where a build and drop would land best, strongest first. X0R-1335.
+
+    Read from the original mix on the song's own grid. Bars are counted the same at any
+    tempo, so a suggestion here means the same bar in a version at 128.
+    """
+    try:
+        bpm = _tempo_of(track_id, registry)
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if not bpm:
+        return {"bars": 0, "suggestions": [],
+                "why": "The tempo could not be read, so there are no bars to count."}
+
+    import soundfile as sf
+
+    from app.services.synth import drop
+    from app.services.synth.retempo import beat_grid
+
+    audio, rate = sf.read(str(record.stored.path), dtype="float64", always_2d=True)
+    first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+    beats = beat_grid(first, bpm, len(audio) / rate)
+    found = drop.suggest_drops(audio, rate, beats)
+    return {
+        "bars": int(drop.bar_times(beats).size),
+        "build_bars": drop.BUILD_BARS,
+        "suggestions": [{"bar": d.bar, "at_s": round(d.at_s, 2), "strength": d.strength}
+                        for d in found],
+        "why": "Where the music changes most at the start of a four-bar phrase - usually a "
+        "verse turning into a chorus." if found else
+        "The song is too short for a build and a drop.",
+    }
 
 
 @router.get("/{track_id}/version/{name}")

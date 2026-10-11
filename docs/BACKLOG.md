@@ -2617,6 +2617,38 @@ off**, not by being near it.
 
 ---
 
+### X0R-1335 · The build and the drop · 3 · `DONE` 2026-10-11
+**As a** person turning a song into a dance version **I want** the chorus to arrive as a drop
+**so that** it sounds like a dance record with a shape, not one long verse at 128.
+
+After the pump and the four-on-the-floor, the third thing a listener knows a dance record by:
+the music thins and rises for a bar or two, nearly stops, and then everything lands at once.
+
+**Acceptance criteria**
+- **A suggested bar, not a silent decision.** `GET /tracks/{id}/drops` reads a bar-level
+  novelty (log spectrum in 24 bands plus loudness, two bars against two) at four-bar phrase
+  starts, favouring changes that get louder. On the pop punk demo it picks **bar 5 at
+  5.65 s - exactly where the chorus starts**. Numpy only, so it runs on the CI install. ✅
+- **The build**, two bars: a high-pass rising 40 Hz → 1.2 kHz on every non-drum part, a noise
+  riser opening 300 Hz → 9 kHz, a snare roll in eighths then sixteenths getting louder, and
+  the beat before the drop held 18 dB down. ✅
+- **The drop**: a falling sub boom under a high splash on the downbeat, and the added kick
+  sits out the build so the drop is where it arrives. ✅
+- **Added, and said so**: the account reads *"a 2-bar build into bar 5 - a rising filter, a
+  riser and a snare roll - not from your recording"*. Nothing the band played moves. ✅
+- A drop with no room for its build is refused before any work, in words. ✅
+- On the page, a *Build up and drop into [bar 5 (best fit)]* control; *Make it EDM* turns it
+  on when the song has room. ✅
+
+**Measured on the demo version (below 120 Hz):** verse -16.8 dB, build -26.1, the gap beat
+-39.5, the drop bar -16.7. The shape a drop needs, in numbers.
+
+**Known limit:** bars are counted from the song's first beat, so a song with a pickup bar
+will have its suggestions a beat or two off the real downbeat. The alternatives in the list
+are the fix for now; a downbeat finder is the real one.
+
+---
+
 ### X0R-1334 · Make it EDM: a remix, not a MIDI file · 5 · `DONE` 2026-10-11
 **As a** person with a pop punk song **I want** one button that turns it into a dance version
 **so that** I hear a remix - different instruments, the pump, a kick on every beat - and not

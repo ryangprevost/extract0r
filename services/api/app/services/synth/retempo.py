@@ -310,6 +310,7 @@ def bounce(
     bpm: float = 0.0,
     pump_db: float = 0.0,
     floor_kick: bool = False,
+    drop_bar: int = 0,
 ) -> tuple[np.ndarray, list[Part]]:
     """Every part of the song at the new tempo, summed. Returns the audio and the account.
 
@@ -357,6 +358,10 @@ def bounce(
         # silence on every beat, which is the opposite of the effect.
         if pump_db > 0 and beats is not None and bpm > 0 and stem != "drums":
             part = pump(part, sample_rate, beats, bpm, pump_db)
+        if drop_bar and beats is not None and stem != "drums":
+            from app.services.synth.drop import sweep
+
+            part = sweep(part, sample_rate, beats, drop_bar)
 
         take = min(len(part), length)
         mix[:take] += part[:take]
@@ -366,10 +371,23 @@ def bounce(
         if pumped:
             account.append(Part("pump", "pumped", ", ".join(pumped)))
 
+    rest = None
+    if drop_bar and beats is not None and bpm > 0:
+        from app.services.synth.drop import _window
+
+        rest = _window(beats, drop_bar)
     if floor_kick and beats is not None and bpm > 0:
-        mix += four_on_the_floor(beats, bpm, sample_rate, length)
+        # The added kick sits out the build, so the drop is where it arrives.
+        mix += four_on_the_floor(beats, bpm, sample_rate, length, rest=rest)
         account.append(Part("four on the floor", "added",
                             "a kick on every beat and hats between — not from your recording"))
+    if rest is not None:
+        from app.services.synth.drop import build_and_drop, describe
+
+        mix += build_and_drop(beats, bpm, sample_rate, length, drop_bar)
+        build, impact = describe(drop_bar)
+        account.append(Part("build", "added", build))
+        account.append(Part("drop", "added", impact))
 
     # Down to -1 dBFS if the sum went over. Not a limiter - this is a sketch of a version,
     # and the mastering page is where loudness is decided. It only stops the file clipping.
@@ -523,7 +541,7 @@ def pump(audio: np.ndarray, sample_rate: int, beats: np.ndarray, bpm: float,
 
 
 def four_on_the_floor(beats: np.ndarray, bpm: float, sample_rate: int, length: int,
-                      kit: str = "edm") -> np.ndarray:
+                      kit: str = "edm", rest: tuple[float, float] | None = None) -> np.ndarray:
     """A kick on every beat and a hat on every offbeat - the house groove - as stereo audio.
 
     No clap. The drummer's own backbeat, re-struck on the dance kit, already lands on 2 and
@@ -545,6 +563,9 @@ def four_on_the_floor(beats: np.ndarray, bpm: float, sample_rate: int, length: i
         out[at:end, 1] += sample[: end - at] * gain
 
     for beat in beats:
+        # `rest` is a build: from its start up to (not including) the drop, nothing.
+        if rest is not None and rest[0] - 1e-3 <= beat < rest[1] - 1e-3:
+            continue
         lay(kick, beat, 0.95)
         lay(hat, beat + half, 0.38)
     return out

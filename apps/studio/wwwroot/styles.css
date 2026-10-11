@@ -1622,3 +1622,5 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .dance-row { margin-top: 14px; }
+#drop-bar { margin-left: 2px; }
+#drop-why { flex-basis: 100%; }

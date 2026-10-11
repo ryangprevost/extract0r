@@ -836,6 +836,14 @@
           <input type="checkbox" id="opt-floor" />
           Add a four-on-the-floor kick
         </label>
+        <!-- X0R-1335. The bar is a suggestion read from where the song changes most; the
+             list holds the alternatives so a wrong guess is one click to fix. -->
+        <label class="check">
+          <input type="checkbox" id="opt-drop" disabled />
+          Build up and drop into
+          <select id="drop-bar" disabled aria-label="bar to drop into"></select>
+        </label>
+        <span class="muted tiny" id="drop-why"></span>
       </div>
       <div class="bounce-box">
         <button class="primary" id="bounce-btn">Make the version</button>

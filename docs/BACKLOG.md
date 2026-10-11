@@ -31,6 +31,9 @@ another card, ❌ not started.
 EPIC-08 and EPIC-11 were carrying their *original* scope in this table (21 and 24) while
 cards kept being added underneath. Both are now the sum of the cards actually in them.
 Current sprint plan: [sprints/SPRINT-2.md](sprints/SPRINT-2.md).
+**[sprints/SPRINT-3.md](sprints/SPRINT-3.md) is open for review**, not scheduled: the pop
+punk to EDM use case Ryan asked for, what the field already solved, and the scope decision
+it needs first - tempo change is a recorded non-goal and this use case is made of it.
 
 ---
 

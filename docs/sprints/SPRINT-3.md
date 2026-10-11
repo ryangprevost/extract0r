@@ -111,6 +111,46 @@ and it is the kind of work that pays off once.
 
 ---
 
+### Candidate D, measured 2026-10-12 — and the decision is Signalsmith
+
+Each stretcher was run on a vocal-like part synthesised at 170 and compared against the same
+part synthesised directly at 128 — what a singer at the slower tempo would actually produce.
+Two things a real singer does were built into that truth on purpose: vibrato keeps its rate,
+and consonants keep their length.
+
+| | licence | length | pitch | vibrato | spectral fidelity | attacks | time |
+|---|---|---:|---:|---:|---:|---:|---:|
+| truth | | 0.0% | 0 c | 5.5 Hz | 0.0 dB | 1.00 | |
+| librosa | ISC | 0.0% | 3 c | 4.1 Hz | 6.1 dB | 0.20 | 1.67 s |
+| **Signalsmith** | **MIT** | 0.0% | 3 c | 4.1 Hz | **3.8 dB** | 0.34 | **0.14 s** |
+| Rubber Band | GPLv2 / paid | 0.0% | 3 c | 4.1 Hz | 5.2 dB | **0.81** | 0.41 s |
+
+**Signalsmith wins on what matters for the parts that are actually stretched.** A vocal, or a
+guitar kept as recorded, is mostly sustained tonal material, and Signalsmith is the most
+faithful of the three on it — and twelve times faster than librosa. Rubber Band's genuine
+advantage is attacks, 0.81 against 0.34. **But attacks are exactly what this design never
+stretches**: drums are re-struck, not processed. So the architecture and the licence point the
+same way, which is a better reason to choose it than that it is free. The 0.75x boundary in
+its README did not bite at 0.753.
+
+None of them keeps vibrato at its own rate — all three slow it to 4.1 Hz, which is 5.5 ÷ 1.328.
+That is inherent to stretching and is the main audible tell on a held vocal note.
+
+**The measurement nearly gave the opposite answer, and that is worth more than the table.**
+The first spectral metric floored silence at -120 dB, so it measured noise floors rather than
+music. Signalsmith scored *26.9 dB* — worst by far — and the recommendation would have been to
+pay for Rubber Band or go GPL. What exposed it: an inaudible 16-bit round trip moved the
+metric from 12 dB to 33. Flooring each frame 60 dB below its own peak fixed it, and both
+columns now move 0.00 dB under that round trip. A measure that is not checked against an
+inaudible change is not a measure.
+
+Also caught: Signalsmith's time factor is a *speed* factor, the opposite way round from the
+other two. `setTimeFactor(1.328)` made audio shorter. Encoded in `retempo.stretch` with a
+test on the output length.
+
+pylibrb was installed for the measurement and removed afterwards, so nothing GPL is left in
+the environment. `python-stretch` is pinned in `requirements-ml.txt` with this reasoning.
+
 ## 4. Separation — nothing to do, and that is worth recording
 
 The 2026 field has moved to the **BS-RoFormer / Mel-RoFormer** families, which sit above
@@ -129,11 +169,11 @@ HTDemucs on the MVSEP leaderboard. Worth knowing and **not worth acting on yet**
 
 | | what | points | note |
 |---|---|---|---|
-| A | Reopen the tempo non-goal on EPIC-13, or decline to | 0 | **blocks everything else here** |
-| B | A target tempo on the pr0ducer page, and a re-emitted drum part at it | 3 | uses `kit.py` as it stands |
-| C | Re-emit any re-voiced part at the target tempo | 2 | `render_notes` already takes arbitrary times |
-| D | Measure the three stretchers on a real vocal at 0.753 | 2 | decides E before E is built |
-| E | Stretch the parts that are kept as audio | 5 | gated on D, and on a licence decision |
+| A | Reopen the tempo non-goal on EPIC-13, or decline to | 0 | **done** — Ryan reopened it |
+| B | A target tempo on the pr0ducer page, and a re-emitted drum part at it | 3 | **done** — X0R-1332 |
+| C | Re-emit any re-voiced part at the target tempo | 2 | **done** — X0R-1332 |
+| D | Measure the three stretchers on a real vocal at 0.753 | 2 | **done** — Signalsmith, see §3 |
+| E | Stretch the parts that are kept as audio | 5 | **done** — `retempo.stretch` and the bounce |
 | F | Say which parts moved and which were re-emitted | 1 | the Suno argument, kept honest |
 
 B and C together are a demo: a pop punk record whose drums and bass arrive at 128 BPM with

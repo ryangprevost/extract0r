@@ -768,6 +768,14 @@
           <span class="muted small">BPM</span>
           <button class="small" id="tempo-clear">Leave it alone</button>
         </div>
+        <p class="tempo-fix muted small" id="tempo-fix">
+          Sounds wrong? Tempo detectors often land on half, double or two-thirds of the real
+          tempo &mdash; tap whichever matches what you hear:
+          <button type="button" class="chip" data-times="0.5">&times;&frac12;</button>
+          <button type="button" class="chip" data-times="0.6667">&times;&frac23;</button>
+          <button type="button" class="chip" data-times="1.5">&times;1&frac12;</button>
+          <button type="button" class="chip" data-times="2">&times;2</button>
+        </p>
         <p class="tempo-chips" id="tempo-chips"></p>
         <p class="muted small" id="tempo-said"></p>
       </div>
@@ -807,6 +815,15 @@
         <p class="muted small" id="sample-list"></p>
       </details>
       <p class="muted small" id="revoice-summary"></p>
+      <!-- The whole song at the new tempo, as one file you can play and keep. The thing
+           all of the rows above are building towards. -->
+      <div class="bounce-box">
+        <button class="primary" id="bounce-btn">Make the version</button>
+        <span class="muted small" id="bounce-hint">
+          Everything above, at the tempo you chose, as one file.
+        </span>
+      </div>
+      <div id="bounce-result"></div>
       <p class="muted small working" id="revoice-working" hidden></p>
       <p class="error" id="revoice-error" hidden></p>
       <div id="revoice-result"></div>

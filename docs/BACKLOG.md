@@ -2605,6 +2605,59 @@ off**, not by being near it.
 
 ---
 
+### X0R-1333 · Make the version: the whole song at the new tempo · 5 · `DONE` 2026-10-12
+**As a** person who has re-played some parts at 128 **I want** the whole song at 128 as one
+file **so that** I have a dance version I can play to someone, not a set of loose parts.
+
+Sprint 3 candidates D and E, plus what it took to make the use case watchable.
+
+**Measured end to end on a 170 BPM pop punk demo** built from this project's own synthesis,
+so there is nothing in it anybody else owns:
+
+| | tempo, as this app's analyser reads it | length |
+|---|---:|---:|
+| original | 168.5 BPM | 11.7 s |
+| bounced at 128 | 129.2 BPM | 15.4 s |
+
+129.2 is the same grid value the estimator gives a pattern built at exactly 128, so that is
+its resolution rather than drift. Drums and bass re-played, guitars and lead stretched.
+
+**Acceptance criteria**
+- A **Make the version** button that sums every part at the chosen tempo: re-played parts as
+  rendered, everything else stretched with Signalsmith. MP3 and 24-bit WAV. ✅
+- **Not the master pipeline**, and deliberately. That pipeline builds its output as the
+  original plus what the stems changed, which only works at the original tempo; a re-played
+  part sent through it would be truncated and mixed against stems that no longer line up.
+  So the master pipeline now refuses a render of the wrong length and says why, and the
+  *in the master* box is disabled at a new tempo. ✅
+- A part rendered at another tempo is **refused by name** - "Press Play it on the drums again
+  at this tempo" - because renders are named by stem and voice, not by tempo, and a version
+  at two tempos at once is the worst failure available here. ✅
+- **The result says what it is made of, counted rather than asserted.** ✅ See below.
+- The detected tempo can be corrected in one tap: ×½, ×⅔, ×1½, ×2. ✅
+
+**The summary that replaced a false reassurance.** The first bounce reused the single-part
+sentence - *"re-played rather than stretched, so nothing is smeared"* - over a version where
+five of six parts had been stretched, drums included. Somebody would hear soft drums and read
+that nothing smeared. For a feature whose job is to make people confident in what they made,
+a reassurance that is false is worse than none. It now counts: which parts were re-played,
+which stretched, and - when the drums were stretched - *"Play them on a kit above and bounce
+again; re-struck drums keep their punch at any tempo."* The weakness becomes the next thing to
+try.
+
+**Why the tempo correction exists.** Raw librosa read the 170 BPM demo as **112** - a 2:3
+error - while this application's own analyser read 168.5. The analyser was right this time,
+and X0R-1319 proved it cannot always be: every hit on one grid is also on the other. A wrong
+source tempo turns *make it EDM* into a speed-up instead of a slow-down, so the person who
+can hear the song gets the last word, as the four mistakes detectors actually make.
+
+**Found while building it:** an adopted track carries no tempo (X0R-1423 deliberately does
+not open the audio), so after any API restart, re-voicing at a tempo and bouncing both refused
+until something happened to call `/tempo` first - an ordering rule nobody could see.
+`_tempo_of` now reads it on demand for all three.
+
+---
+
 ### X0R-1332 · A target tempo, and parts re-played at it · 5 · `DONE` 2026-10-11
 **As a** person turning a pop punk song into a dance track **I want** to set the tempo and
 hear my parts at it **so that** the result is a record at 128 rather than a slowed-down tape.

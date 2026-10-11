@@ -45,3 +45,13 @@ pretty_midi>=0.2.9
 # The BSS call is one function, `_bss` in `app/services/benchmark/metrics.py`.
 mir_eval>=0.7,<0.9
 resampy<0.4.3
+
+# Time-stretching, for the parts of a tempo change that cannot be re-played (Sprint 3 D).
+# python-stretch wraps Signalsmith Stretch, MIT-licensed, as a wheel with no system
+# dependency. Chosen by measurement against librosa and Rubber Band at 170 -> 128 BPM
+# (1.328x) on a vocal with ground truth: best spectral fidelity of the three (3.8 dB against
+# 5.2 and 6.1) and twelve times faster than librosa. Rubber Band keeps attacks crisper
+# (0.81 against 0.34) and is GPLv2-or-paid, which would make this project GPL - and its one
+# advantage is transients, which is exactly what is never stretched here, because drums are
+# re-struck rather than processed. Full table in docs/sprints/SPRINT-3.md.
+python-stretch>=0.3,<0.4

@@ -1600,3 +1600,15 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 }
 .tempo-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
 #tempo-target { width: 5.5rem; }
+
+/* Sprint 3: the version, as one file. */
+.bounce-box {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  margin: 16px 0 6px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+.bounce-head { font-weight: 600; margin: 10px 0 4px; }
+.bounce-tip {
+  margin: 8px 0; padding: 8px 10px; border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-left: 3px solid var(--accent);
+}

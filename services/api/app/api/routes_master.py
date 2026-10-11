@@ -1537,6 +1537,27 @@ def delete_sample(name: str, settings: Settings = Depends(get_config)) -> Respon
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def _tempo_of(track_id: str, registry: TrackRegistry) -> float:
+    """The track's tempo, reading it now if it has not been read yet.
+
+    One place, called by everything that needs a tempo. Found by restarting the API: an
+    adopted track - X0R-1423 - comes back with no timing on it, because reading one means
+    opening the audio and adoption deliberately does not. Before this, re-voicing at a tempo
+    and bouncing a version both refused with "no tempo has been read" until something
+    happened to call `/tempo` first, which is an ordering rule a user cannot see.
+    """
+    record = registry.require(track_id)
+    if record.timing is None:
+        from app.services.analysis.timing import TimingAnalyser
+
+        try:
+            registry.set_timing(track_id, TimingAnalyser().analyse(record.stored.path))
+            record = registry.require(track_id)
+        except Exception:
+            log.info("could not read a tempo for %s", track_id, exc_info=True)
+    return getattr(record.timing, "tempo_bpm", 0.0) or 0.0
+
+
 @router.get("/{track_id}/tempo")
 def track_tempo(
     track_id: str,
@@ -1549,20 +1570,10 @@ def track_tempo(
     an onset-envelope pass on a four-minute song is not a thing to repeat per page load.
     """
     try:
-        record = registry.require(track_id)
+        bpm = _tempo_of(track_id, registry)
     except KeyError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
-
-    if record.timing is None:
-        from app.services.analysis.timing import TimingAnalyser
-
-        try:
-            registry.set_timing(track_id, TimingAnalyser().analyse(record.stored.path))
-            record = registry.require(track_id)
-        except Exception:
-            log.info("could not read a tempo for %s", track_id, exc_info=True)
-
-    bpm = getattr(record.timing, "tempo_bpm", 0.0) or 0.0
+    record = registry.require(track_id)
     return {
         "tempo_bpm": round(bpm, 1),
         "confidence": round(getattr(record.timing, "confidence", 0.0) or 0.0, 3),
@@ -1576,6 +1587,41 @@ def track_tempo(
             {"label": "pop", "bpm": 120},
         ],
     }
+
+
+@router.put("/{track_id}/tempo")
+def correct_tempo(
+    track_id: str,
+    bpm: float = Query(..., gt=20, lt=300),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Say what tempo the track is really at. Sprint 3.
+
+    The detector is usually right and cannot always be. X0R-1319 proved that a tempo read
+    from onsets alone cannot always tell 170 from 85 or from 113 - every hit on one grid is
+    also on the other - and it measured a live 3:2 disagreement between two estimators on one
+    file. Building this feature turned up another: raw librosa read a 170 BPM pop punk demo as
+    112 while this application's own analyser read 168.5. Either way, a wrong source tempo
+    turns "make it EDM" into a speed-up instead of a slow-down.
+
+    So the person who can hear the song gets the last word. Only the tempo is replaced; the
+    first beat and the metre stay as measured.
+    """
+    try:
+        _tempo_of(track_id, registry)
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+
+    from dataclasses import replace
+
+    from app.domain.timing import TimingEstimate
+
+    timing = record.timing or TimingEstimate(tempo_bpm=bpm)
+    # Full confidence, because a person said so - and the figure means "the tempo is known",
+    # which is now true in a way no estimator could make it.
+    registry.set_timing(track_id, replace(timing, tempo_bpm=float(bpm), confidence=1.0))
+    return {"tempo_bpm": round(float(bpm), 1), "set_by": "you"}
 
 
 @router.post("/{track_id}/revoice", response_model=JobResponse)
@@ -1632,11 +1678,11 @@ def revoice(
     if target_bpm:
         from app.services.synth.retempo import MAX_RATIO, MIN_RATIO, plan
 
-        source_bpm = getattr(record.timing, "tempo_bpm", 0.0) or 0.0
+        source_bpm = _tempo_of(track_id, registry)
         if not source_bpm:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                "No tempo has been read for this track yet — open the tempo first.",
+                "This track's tempo could not be read, so there is nothing to move it from.",
             )
         move = plan(source_bpm, target_bpm, 0.0)
         if move is None:
@@ -1792,6 +1838,143 @@ def revoiced_audio(
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not rendered yet.")
     return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+
+class BounceRequest(BaseModel):
+    #: Null keeps the track's own tempo, which makes this a plain mixdown of the version.
+    target_bpm: float | None = None
+    #: Which parts were re-played and on what, as {stem: voice-or-kit-or-sample}.
+    parts: dict[str, str] = Field(default_factory=dict)
+
+
+@router.post("/{track_id}/bounce", response_model=JobResponse)
+def bounce_version(
+    track_id: str,
+    body: BounceRequest,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """The whole song at the new tempo, as one file. Sprint 3.
+
+    **Not the master pipeline, and deliberately.** That pipeline builds its output as the
+    original file plus whatever the stems *changed* - which is how it keeps separation's
+    artefacts out of everything untouched, and which only works at the original tempo. At a
+    new tempo there is no original to correct, so a re-played part sent through it would be
+    truncated to the old length and mixed against stems that no longer line up. This sums
+    the version directly instead: re-played parts as rendered, everything else stretched.
+
+    That makes it a sketch rather than a master, and the response says so. The mastering
+    page is where loudness and polish are decided.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if record.separation is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Separate the track first.")
+
+    from app.services.synth.retempo import plan
+
+    scale = 1.0
+    move = None
+    if body.target_bpm:
+        source_bpm = _tempo_of(track_id, registry)
+        if not source_bpm:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This track's tempo could not be read, so there is nothing to move it from.",
+            )
+        move = plan(source_bpm, body.target_bpm, 0.0)
+        if move is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{source_bpm:.0f} to {body.target_bpm:.0f} BPM is further than this moves a "
+                f"performance.",
+            )
+        scale = move.scale
+
+    out_dir = storage.exports_dir(track_id)
+    stems = {stem.kind.value: stem.path for stem in record.separation.stems}
+    renders = {
+        stem: out_dir / f"{stem}.{voice}.wav" for stem, voice in body.parts.items()
+    }
+    missing = [stem for stem, path in renders.items() if not path.exists()]
+    if missing:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Play these parts first, so there is something to put in the version: "
+            + ", ".join(missing) + ".",
+        )
+
+    def work(handle: JobHandle) -> dict:
+        import soundfile as sf
+
+        from app.services.mixdown.encode import write_mp3, write_wav
+        from app.services.synth.retempo import StaleRender, bounce, stretcher_available
+
+        handle.update(JobState.RUNNING, 0.1, "gathering the parts")
+        audio: dict = {}
+        rate = 0
+        for stem, path in stems.items():
+            data, rate = sf.read(str(path), dtype="float64", always_2d=True)
+            audio[stem] = data
+        replays = {}
+        for stem, path in renders.items():
+            data, _ = sf.read(str(path), dtype="float64", always_2d=True)
+            replays[stem] = (data, body.parts[stem])
+
+        stretching = [s for s in audio if s not in replays and abs(scale - 1.0) > 1e-6]
+        handle.update(
+            JobState.RUNNING,
+            0.3,
+            f"stretching {', '.join(stretching)} with {stretcher_available()}"
+            if stretching
+            else "summing the parts",
+        )
+        try:
+            mix, account = bounce(audio, rate, scale, replays)
+        except StaleRender as exc:
+            return {"ok": False, "why": str(exc), "stem": exc.stem}
+
+        handle.update(JobState.RUNNING, 0.85, "writing the file")
+        bpm = round(body.target_bpm) if body.target_bpm else "same"
+        wav = write_wav(out_dir / f"version.{bpm}.wav", mix, rate, "24")
+        mp3 = write_mp3(out_dir / f"version.{bpm}.mp3", mix, rate)
+        from app.services.synth.retempo import summarise
+
+        said = summarise(move, account)
+        return {
+            "ok": True,
+            # Counted, not asserted. `Move.describe()` is true of one re-played part and was
+            # printed here on bounces where most parts had been stretched.
+            "headline": said["headline"],
+            "lines": said["lines"],
+            "tip": said["tip"],
+            "duration_s": round(len(mix) / rate, 1),
+            "parts": [{"stem": p.stem, "how": p.how, "detail": p.detail} for p in account],
+            "wav": f"/api/v1/tracks/{track_id}/version/{wav.name}",
+            "mp3": f"/api/v1/tracks/{track_id}/version/{mp3.name}",
+            "note": "A sketch of the version, not a master - the mastering page is where "
+            "loudness is decided.",
+        }
+
+    return to_response(jobs.submit("bounce", track_id, work))
+
+
+@router.get("/{track_id}/version/{name}")
+def version_file(
+    track_id: str, name: str, storage: TrackStorage = Depends(get_storage)
+) -> FileResponse:
+    """A bounced version. The name is checked against the only shape a bounce writes."""
+    if not re.fullmatch(r"version\.(\d{2,3}|same)\.(wav|mp3)", name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such version.")
+    path = storage.exports_dir(track_id) / name
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not bounced yet.")
+    kind = "audio/mpeg" if name.endswith(".mp3") else "audio/wav"
+    return FileResponse(path, media_type=kind, filename=name)
 
 
 @router.get("/{track_id}/midi")

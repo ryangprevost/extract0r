@@ -476,7 +476,19 @@ def run(
         voiced = request.revoiced_audio.get(setting.stem.value)
         if request.revoice.get(setting.stem.value) and voiced and Path(voiced).exists():
             replacement = read_audio(Path(voiced))
-            if replacement.sample_rate != sample_rate:
+            # A render at another tempo is a different length, and substituting it would
+            # truncate or pad it against stems that no longer line up. The mastering
+            # pipeline works at the original tempo - `_apply_as_correction` needs the
+            # original to correct - so a re-played part at a new tempo belongs in a bounce,
+            # not here. Kept as recorded, and said, rather than mangled quietly.
+            mismatch = abs(len(replacement.samples) - len(samples)) > 0.02 * len(samples)
+            if mismatch:
+                report(
+                    0.12,
+                    f"the {setting.stem.value} was played at another tempo; kept as recorded "
+                    f"here - use Make the version on the pr0ducer page for a tempo change",
+                )
+            elif replacement.sample_rate != sample_rate:
                 report(
                     0.12,
                     f"the {setting.stem.value} render is at the wrong rate; kept as recorded",

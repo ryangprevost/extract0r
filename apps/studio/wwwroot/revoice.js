@@ -121,8 +121,14 @@ const Revoice = (() => {
     box.type = "checkbox";
     box.checked = !!held.inMaster;
     // Nothing can go into the master until it has been rendered: the pipeline substitutes
-    // a file, and there is no file until the part has been played once.
-    box.disabled = !held.url;
+    // a file, and there is no file until the part has been played once. And not at all at a
+    // new tempo - the mastering pipeline corrects the original recording, which only exists
+    // at the original tempo. That case goes through Make the version instead.
+    box.disabled = !held.url || !!targetBpm;
+    if (targetBpm) {
+      box.checked = false;
+      inMaster.title = "At a new tempo, use Make the version below.";
+    }
     box.addEventListener("change", () => {
       const now = parts.get(stem);
       if (now) now.inMaster = box.checked;
@@ -224,7 +230,10 @@ const Revoice = (() => {
           (result.fragments_merged ? `, ${result.fragments_merged} pieces rejoined` : "") +
           (result.out_of_range ? `, ${result.out_of_range} out of reach` : "") +
           (result.moved ? ` — ${result.moved}` : "");
-        held.inMaster = true;
+        // Ticked by default only at the original tempo. At a new one the box is disabled,
+        // and ticking it here anyway would slip a part into the master request that the
+        // pipeline cannot use.
+        held.inMaster = !targetBpm;
       }
       render();
     } catch (error) {
@@ -294,6 +303,29 @@ const Revoice = (() => {
       `re-played at ${targetBpm} rather than stretched to it — the drums are struck again ` +
       `at the new spacing and the notes are played again at the new times, so nothing ` +
       `smears. Parts left as recorded stay at ${sourceBpm.toFixed(0)} and will not line up.`;
+  }
+
+  /**
+   * The detected tempo was wrong; the person can hear the song and gets the last word.
+   *
+   * Offered as the four mistakes detectors actually make rather than as a blank box,
+   * because "is it 85, 113 or 170?" is a question anyone can answer by tapping along, and
+   * "type the tempo" is one most people cannot. X0R-1319 proved these confusions cannot
+   * always be resolved from onsets, so this is the honest design rather than a workaround.
+   */
+  async function correctTempo(times) {
+    if (!sourceBpm) return;
+    const bpm = Math.round(sourceBpm * times * 10) / 10;
+    try {
+      const fixed = await api(`/tracks/${state.trackId}/tempo?bpm=${bpm}`, { method: "PUT" });
+      sourceBpm = fixed.tempo_bpm;
+      $("tempo-now").textContent =
+        `This track runs at ${sourceBpm.toFixed(0)} BPM (you set this).`;
+      // Every render was made against the old source tempo, so every one is now wrong.
+      setTempo(targetBpm);
+    } catch (error) {
+      fail("revoice-error", error);
+    }
   }
 
   function setTempo(bpm) {
@@ -417,6 +449,90 @@ const Revoice = (() => {
     }
   }
 
+  // --- the version, as one file ---------------------------------------------------
+
+  /**
+   * Sum everything at the chosen tempo and hand back a file.
+   *
+   * What comes back is shown as the account the server keeps, not as a reassurance: which
+   * parts were re-played, which stretched, and - when the drums were stretched - what to do
+   * about it. The first version of the server's summary said "nothing is smeared" over a
+   * bounce where five of six parts had been stretched, and a false reassurance is worse
+   * than none for a screen whose job is to make somebody trust what they made.
+   */
+  async function makeVersion() {
+    const button = $("bounce-btn");
+    const host = $("bounce-result");
+    const wait = Waiting.begin($("revoice-working"), {
+      headline: targetBpm
+        ? `Building your ${targetBpm} BPM version.`
+        : "Building your version.",
+      estimateSeconds: 0,
+    });
+    $("revoice-error").hidden = true;
+    button.disabled = true;
+    host.innerHTML = "";
+
+    const replayed = {};
+    for (const [stem, held] of parts) if (held.url) replayed[stem] = held.voice;
+
+    try {
+      const started = await api(`/tracks/${state.trackId}/bounce`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_bpm: targetBpm, parts: replayed }),
+      });
+      const result = (await pollJobQuietly(started.job_id, wait.stage)) || {};
+
+      if (!result.ok) {
+        // A part rendered at another tempo. The message names it and says what to press,
+        // which is the useful version of an error.
+        fail("revoice-error", new Error(result.why || "The version could not be built."));
+        return;
+      }
+
+      const head = document.createElement("p");
+      head.className = "bounce-head";
+      head.textContent = `${result.headline} ${result.duration_s} seconds.`;
+      host.appendChild(head);
+      for (const text of result.lines || []) {
+        const line = document.createElement("p");
+        line.className = "muted small";
+        line.textContent = text;
+        host.appendChild(line);
+      }
+      if (result.tip) {
+        const tip = document.createElement("p");
+        tip.className = "bounce-tip small";
+        tip.textContent = result.tip;
+        host.appendChild(tip);
+      }
+
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.src = result.mp3;
+      audio.className = "revoice-audio";
+      host.appendChild(audio);
+
+      const links = document.createElement("p");
+      links.className = "small";
+      links.innerHTML =
+        `<a href="${result.mp3}" download>Download MP3</a> · ` +
+        `<a href="${result.wav}" download>Download WAV (24-bit)</a>`;
+      host.appendChild(links);
+
+      const note = document.createElement("p");
+      note.className = "muted tiny";
+      note.textContent = result.note || "";
+      host.appendChild(note);
+    } catch (error) {
+      fail("revoice-error", error);
+    } finally {
+      wait.done();
+      button.disabled = false;
+    }
+  }
+
   /** What the master render should substitute, for whoever builds that request. */
   function chosen() {
     const out = {};
@@ -443,6 +559,10 @@ const Revoice = (() => {
       setTempo(parseInt(e.target.value, 10) || null),
     );
     $("tempo-clear")?.addEventListener("click", () => setTempo(null));
+    $("bounce-btn")?.addEventListener("click", makeVersion);
+    for (const chip of document.querySelectorAll("#tempo-fix .chip")) {
+      chip.addEventListener("click", () => correctTempo(parseFloat(chip.dataset.times)));
+    }
     try {
       voices = (await api("/tracks/voices")).voices || [];
     } catch {

@@ -1478,6 +1478,10 @@ async function runMaster() {
         per_stem_match: $("per-stem-match").checked,
         preserve_source: $("preserve-source").checked,
         ...kitSettings(),
+        // Parts the user chose to hear played by something else. X0R-1328. Empty is the
+        // normal case and costs the render nothing, which is why it is safe to send
+        // unconditionally rather than branching here.
+        revoice: typeof Revoice !== "undefined" ? Revoice.chosen() : {},
         brightness_db: parseFloat($("brightness").value),
         warmth_db: parseFloat($("warmth").value),
         bass_db: parseFloat($("bass").value),

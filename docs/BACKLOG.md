@@ -24,7 +24,7 @@ another card, ❌ not started.
 | [EPIC-10](#epic-10--mixdown--export) | Mixdown & export | 13 | 2 |
 | [EPIC-11](#epic-11--per-instrument-matching) | Per-instrument matching | 60 | 2 |
 | [EPIC-12](#epic-12--what-a-mastering-suite-has-that-this-does-not) | Mastering-suite parity | 23 | 3 |
-| [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 58 | 4 |
+| [EPIC-13](#epic-13--pr0ducer) | pr0ducer | 60 | 4 |
 | [EPIC-14](#epic-14--speed-and-the-feel-of-using-it) | Speed and usability | ~15 | 3 · *placeholder* |
 | [EPIC-15](#epic-15--the-feedback-sprint) | The feedback sprint | 22 | 3 · *from Ryan, 5 of 9 done* |
 
@@ -1837,7 +1837,7 @@ kick there is composition), and shipping recorded samples (the licensing positio
 | 3 | Re-produce: the processing half | 8 | `TODO`. X0R-1306 holds the measured headroom. |
 | **3B** | **Compare drum to drum** | **11** | **sprint 2** |
 | 4 | Re-perform: drums only | 6 | `TODO`. Ungated as of X0R-414, re-scoped. |
-| **4B** | **Play the notes on something else** | **17** | `TODO`, added 2026-10-09 from Ryan. Transcribe a part, play it on a synth voice or an uploaded sample, land it in the master. Needs X0R-503 for the MIDI itself and **X0R-306 to say whether the notes are trustworthy at all.** |
+| **4B** | **Play the notes on something else** | **19** | `TODO`, added 2026-10-09 from Ryan. Transcribe a part, play it on a synth voice or an uploaded sample, land it in the master. Needs X0R-503 for the MIDI itself and **X0R-306 to say whether the notes are trustworthy at all.** |
 | 5 | Re-perform: bass only | 6 | `TODO`, gated on X0R-306 passing. |
 | **6** | **Note-level comparison** (the Melodyne ask) | **15** | `TODO`. 5 of it buildable today; see below. |
 
@@ -2551,6 +2551,35 @@ through the API, and the picker on the pr0ducer page still lists synth voices on
 samples into a real person's folder. That is X0R-1421 exactly, a third time, with a
 different noun - and the first two were found by Ryan noticing his own profile list had
 junk in it.
+
+---
+
+### X0R-1330 · Tell a sample which note it is · 2 · `TODO`
+**As a** person playing a bassline on a sample **I want** the sample mapped to the right
+register **so that** most of the part is not skipped.
+
+Found by using X0R-1326 the moment it worked. A one-shot recorded at A3 (MIDI 57) was chosen
+to play a bass part sitting around MIDI 40 - seventeen semitones down, past the
+twelve-semitone cap - and **44 of 60 notes were skipped.** The panel said so plainly, which
+is the cap and the reporting both behaving correctly, and the result is still a part that
+mostly does not play.
+
+The fix is the control every sampler has had for forty years: let the user say what note the
+sample *is*. `detect_root` already guesses it and is usually right; what is missing is the
+override, which is also the answer when the detector is wrong about an ambiguous sample.
+
+**Not** automatic octave-folding. Folding the root to reach the part would keep the pitch
+class and change the octave, so the part would come out playing notes nobody played. A
+silent transposition is a worse failure than a loud skip, and this project's position
+throughout is that it reports rather than decides.
+
+**Acceptance criteria**
+- A root-note control beside the sample, pre-filled with the detected value and overridable.
+- Said in note names, not MIDI numbers. Nobody thinks in 57.
+- When a choice would put most of the part out of range, the panel says so **before**
+  rendering rather than after. It can be known in advance - the stem's pitch range is
+  already measured by `notes.pitch_range`.
+- The override travels with the sample, so it is set once rather than per render.
 
 ---
 

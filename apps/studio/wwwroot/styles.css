@@ -1532,3 +1532,21 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   width: 100%;
   margin: 8px 0;
 }
+
+/* X0R-1326: bringing your own sample. Folded away, because most people will use the
+   built-in voices and an upload form is a lot of furniture for a minority path. */
+.sample-box {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 10px 0;
+}
+.sample-box summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.revoice-row label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}

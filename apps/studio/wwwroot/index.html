@@ -798,8 +798,35 @@
           <select id="revoice-voice"></select>
         </label>
         <button class="primary small" id="revoice-btn">Play it on that</button>
+        <label class="check">
+          <input type="checkbox" id="revoice-in-master" />
+          Use it in the master
+        </label>
       </div>
       <p class="muted small" id="revoice-about"></p>
+      <details class="sample-box" id="sample-box">
+        <summary>Use a sample of your own</summary>
+        <p class="muted small">
+          Any short one-shot &mdash; a kick, a stab, a vocal chop. If it has a clear pitch
+          it gets transposed to follow the part; if it does not, like a snare, it gets
+          triggered at its own pitch instead. <strong>Only upload audio you own or are
+          licensed to use.</strong> It stays on this machine.
+        </p>
+        <div class="revoice-row">
+          <label>Name
+            <input type="text" id="sample-name" maxlength="48" placeholder="my kick" />
+          </label>
+          <label>File
+            <input type="file" id="sample-file" accept="audio/*" />
+          </label>
+          <label class="check">
+            <input type="checkbox" id="sample-rights" />
+            I own or am licensed to use this
+          </label>
+          <button class="small" id="sample-upload">Add it</button>
+        </div>
+        <p class="muted small" id="sample-list"></p>
+      </details>
       <p class="muted small working" id="revoice-working" hidden></p>
       <p class="error" id="revoice-error" hidden></p>
       <div id="revoice-result"></div>

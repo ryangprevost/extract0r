@@ -18,6 +18,12 @@
 const Revoice = (() => {
   //: Filled from the server, so the page never invents a voice the renderer does not have.
   let voices = [];
+  let samples = [];
+
+  //: Which stems the user asked to hear in the master, as {stem: voice-or-sample}. This is
+  //: what `MasterRequest.revoice` wants, and it is kept here rather than on `state` because
+  //: it is this panel's business and nothing else reads it.
+  const inMaster = {};
 
   function show() {
     const panel = $("revoice");
@@ -26,8 +32,82 @@ const Revoice = (() => {
   }
 
   function describe() {
-    const picked = voices.find((v) => v.id === $("revoice-voice").value);
-    $("revoice-about").textContent = picked ? picked.about : "";
+    const id = $("revoice-voice").value;
+    const voice = voices.find((v) => v.id === id);
+    if (voice) {
+      $("revoice-about").textContent = voice.about;
+      return;
+    }
+    const sample = samples.find((v) => v.name === id);
+    if (!sample) {
+      $("revoice-about").textContent = "";
+      return;
+    }
+    // What a sample will *do* rather than what it is, because the two modes sound nothing
+    // alike and the difference is not visible in a filename.
+    $("revoice-about").textContent = sample.pitched
+      ? `Your sample, transposed to follow the part. Notes more than an octave from its own ` +
+        `pitch are skipped rather than stretched out of shape.`
+      : `Your sample has no clear pitch, so it is triggered once a note at its own pitch — ` +
+        `a drum machine rather than a sampler.`;
+  }
+
+  function option(value, label) {
+    const node = document.createElement("option");
+    node.value = value;
+    node.textContent = label;
+    return node;
+  }
+
+  async function refreshSamples() {
+    const select = $("revoice-voice");
+    try {
+      samples = (await api("/tracks/samples")).samples || [];
+    } catch {
+      samples = [];
+    }
+    for (const stale of [...select.querySelectorAll("option[data-sample]")]) stale.remove();
+    for (const sample of samples) {
+      const node = option(sample.name, `${sample.name} (yours)`);
+      node.dataset.sample = "yes";
+      select.appendChild(node);
+    }
+    $("sample-list").textContent = samples.length
+      ? `On this machine: ${samples.map((s) => s.name).join(", ")}.`
+      : "";
+    describe();
+  }
+
+  async function uploadSample() {
+    const button = $("sample-upload");
+    const file = $("sample-file").files[0];
+    const name = $("sample-name").value.trim();
+    const box = $("revoice-error");
+    box.hidden = true;
+
+    if (!file || !name) {
+      box.textContent = "A name and a file, both.";
+      box.hidden = false;
+      return;
+    }
+    const form = new FormData();
+    form.append("file", file);
+    form.append("name", name);
+    form.append("owns_or_licensed", $("sample-rights").checked ? "true" : "false");
+
+    button.disabled = true;
+    try {
+      const added = await api("/tracks/samples", { method: "POST", body: form });
+      await refreshSamples();
+      $("revoice-voice").value = added.name;
+      describe();
+      $("sample-name").value = "";
+      $("sample-file").value = "";
+    } catch (error) {
+      fail("revoice-error", error);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async function loadVoices() {
@@ -65,8 +145,31 @@ const Revoice = (() => {
       (result.fragments_merged
         ? ` ${result.fragments_merged} of them arrived split into pieces by the ` +
           `separation and were put back together first.`
+        : "") +
+      // Said here rather than swallowed: a sample cannot reach every note, and a part that
+      // quietly lost a third of itself is the failure people blame on the transcription.
+      (result.out_of_range
+        ? ` ${result.out_of_range} were too far from the sample's own pitch to play ` +
+          `without stretching it out of shape, so they were skipped.`
         : "");
     host.appendChild(said);
+
+    if ($("revoice-in-master").checked) {
+      inMaster[result.stem] = result.voice;
+    } else {
+      delete inMaster[result.stem];
+    }
+    if (Object.keys(inMaster).length) {
+      const note = document.createElement("p");
+      note.className = "muted small";
+      note.textContent =
+        "In the master: " +
+        Object.entries(inMaster)
+          .map(([s, v]) => `${s} on the ${v}`)
+          .join(", ") +
+        ". Render from the mastering page to hear it in the mix.";
+      host.appendChild(note);
+    }
 
     const audio = document.createElement("audio");
     audio.controls = true;
@@ -108,10 +211,15 @@ const Revoice = (() => {
     button.disabled = true;
 
     try {
-      const started = await api(
-        `/tracks/${state.trackId}/revoice?stem=${stem}&voice=${voice}`,
-        { method: "POST" },
-      );
+      // A sample and a built-in voice go to the same endpoint by different parameters,
+      // because they are the same request with a different source of sound.
+      const mine = samples.some((s) => s.name === voice);
+      const query = mine
+        ? `stem=${stem}&sample=${encodeURIComponent(voice)}`
+        : `stem=${stem}&voice=${encodeURIComponent(voice)}`;
+      const started = await api(`/tracks/${state.trackId}/revoice?${query}`, {
+        method: "POST",
+      });
       // `pollJobQuietly` rather than `runJob`: this is a panel with its own progress line,
       // not a full-screen step, and it is what the groove and drum panels already use.
       report(await pollJobQuietly(started.job_id, wait.stage));
@@ -165,10 +273,16 @@ const Revoice = (() => {
     button.addEventListener("click", run);
     $("midi-btn")?.addEventListener("click", midi);
     $("revoice-voice")?.addEventListener("change", describe);
-    loadVoices();
+    $("sample-upload")?.addEventListener("click", uploadSample);
+    loadVoices().then(refreshSamples);
   }
 
-  return { init, show };
+  /** What the master render should substitute, for whoever builds that request. */
+  function chosen() {
+    return { ...inMaster };
+  }
+
+  return { init, show, chosen };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Revoice.init());

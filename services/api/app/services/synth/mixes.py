@@ -50,6 +50,11 @@ STARTERS: dict[str, dict] = {
                                                            "other")},
                      "bass": {"gain_db": 1.5}},
     },
+    "Fade in": {
+        "about": "The whole song fades up from silence over its first four bars - every part "
+                 "and the reverb with it.",
+        "channels": {"master": {"automation": {"gain_db": [[0, -60.0], [16, 0.0]]}}},
+    },
     "Filter-up intro": {
         "about": "The music starts muffled and opens up over the first eight bars, while the "
                  "drums and the beat play through - the classic dance intro.",
@@ -112,6 +117,8 @@ def fit(channels: dict, layers: list[str], beats: float, saved_beats: float | No
     """A saved mix made ready for a version: its layers, its length. Returns the channels to
     use and a sentence for everything that did not carry over as it was."""
     notes = []
+    # The whole-mix strip is on every version.
+    layers = [*layers, "master"]
     missing = sorted(n for n in channels if n not in layers)
     if missing:
         notes.append(f"This version has no {', '.join(missing)}, so "

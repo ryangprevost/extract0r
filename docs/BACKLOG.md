@@ -2617,6 +2617,29 @@ off**, not by being near it.
 
 ---
 
+### X0R-1432 · pr0ducer kept jumping back to the mastering studio · 1 · `DONE` 2026-10-12 · **defect**
+Ryan: *"clicking around the pr0ducor seems to take me back to the mastering studio content."*
+Opening a song ended its loading with `goToPage("master")` ~25 s later, undoing a move to
+pr0ducer; upload, reference split and mastering ended the same way. All now land on the page
+the person is on. See [SPRINT-11.md](sprints/SPRINT-11.md) §1.
+
+---
+
+### X0R-1431 · pr0ducer as fast as it can be · 3 · `DONE` 2026-10-12
+Tempo kept beside the track; sections and drops worked out once per tempo from one decode;
+prefetch when a song opens; one answer for simultaneous requests; FLAC mixer layers.
+Real four-minute song: tempo 9.3 s → 9 ms after the first read, sections and drops 2.6 s
+each every visit → 9 ms. See [SPRINT-11.md](sprints/SPRINT-11.md) §2.
+
+---
+
+### X0R-1430 · Automation on the whole mix · 3 · `DONE` 2026-10-12
+A whole-mix strip (level, low cut, high cut) after every part and both returns, lanes for it,
+saved mixes carry it, a *Fade in* starter. Heard = bounced: -88.4 dB. See
+[SPRINT-11.md](sprints/SPRINT-11.md) §3.
+
+---
+
 ### X0R-1400 · Saved mixes · 3 · `DONE` 2026-10-12
 **As a** person who made a mix I like **I want** to keep it and put it on another version
 **so that** I do not start every remix from a flat mixer.

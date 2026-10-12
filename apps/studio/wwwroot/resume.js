@@ -107,7 +107,9 @@ const Resume = (() => {
           await loadInstrumentComparison();
         }
       }
-      goToPage("master");
+      // Wherever the person is now. This was "master", which took anybody who opened a
+      // song from pr0ducer - or went there while it loaded - back to the mastering studio.
+      goToPage(state.page);
     } catch (error) {
       if (note) note.textContent = error.message || String(error);
       button.disabled = false;

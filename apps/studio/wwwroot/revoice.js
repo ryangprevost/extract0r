@@ -300,8 +300,22 @@ const Revoice = (() => {
     }
     box.hidden = false;
     sayTempo();
-    await loadDrops();
-    if (typeof Arrange !== "undefined") await Arrange.load();
+    // Side by side, not one after the other: both read the song's shape, which the server
+    // works out once and keeps. Sprint 11.
+    await Promise.all([
+      loadDrops(),
+      typeof Arrange !== "undefined" ? Arrange.load() : null,
+    ]);
+  }
+
+  /** Start reading what pr0ducer needs the moment a song opens, on whatever page - the
+   *  tempo, then the song's sections and drops - so the page is ready when it is visited.
+   *  Fire and forget: the server keeps the answers beside the track. Sprint 11. */
+  function prefetch(trackId) {
+    if (!trackId) return;
+    fetch(`${API}/tracks/${trackId}/tempo`)
+      .then(() => fetch(`${API}/tracks/${trackId}/sections`))
+      .catch(() => {});
   }
 
   /**
@@ -1099,7 +1113,7 @@ const Revoice = (() => {
     render();
   }
 
-  return { init, show, chosen, reset, refreshSounds };
+  return { init, show, chosen, reset, refreshSounds, prefetch };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Revoice.init());

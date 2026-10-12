@@ -53,7 +53,7 @@ def test_every_starter_mix_is_a_valid_mix_for_every_layer(name):
     starter = mixes.STARTERS[name]
     assert starter["about"]
     for layer, channel in starter["channels"].items():
-        assert layer in LAYERS
+        assert layer in LAYERS or layer == "master"
         checked = ChannelIn(**channel).model_dump()
         Channel(**checked)               # the mixer accepts it as it is
 
@@ -63,3 +63,8 @@ def test_mixes_live_in_the_samples_folder(tmp_path):
     assert (tmp_path / "mixes" / "mine.json").exists()
     assert mixes.saved_mixes(tmp_path)["mine"]["beats"] == 64.0
     assert mixes.delete_mix(tmp_path, "mine") and mixes.saved_mixes(tmp_path) == {}
+
+
+def test_the_whole_mix_strip_carries_over_to_every_version():
+    out, notes = mixes.fit({"master": {"gain_db": -3.0}}, ["bass"], 16.0, 16.0, stretch=False)
+    assert out["master"]["gain_db"] == -3.0 and notes == []

@@ -688,7 +688,7 @@ def test_a_version_comes_with_its_layers(client, separated):
     assert "beat" in names and "drums" in names
     assert result["label"] == "120" and result["layer_gain"] >= 1.0
     layer = client.get(result["layers"][0]["url"])
-    assert layer.status_code == 200 and layer.headers["content-type"] == "audio/wav"
+    assert layer.status_code == 200 and layer.headers["content-type"] == "audio/flac"
 
 
 def test_a_flat_mix_is_the_version_it_came_from(client, separated):
@@ -826,3 +826,45 @@ def test_putting_an_unknown_mix_on_a_version_is_a_404(client, separated):
     bounced(client, separated)
     assert client.post(f"/api/v1/tracks/{separated}/version/120/mix/apply",
                        json={"name": "nope"}).status_code == 404
+
+
+# --- Sprint 11: the whole mix ------------------------------------------------------------------
+
+
+def test_a_whole_mix_lane_is_bounced(client, separated):
+    bounced(client, separated)
+    started = client.post(f"/api/v1/tracks/{separated}/version/120/mix", json={"channels": {
+        "master": {"automation": {"gain_db": [[0, -60], [8, 0]]}}}})
+    result = finish(client, started.json()["job_id"])["result"]
+    assert "Whole mix: level moving over the song." in result["lines"]
+
+
+# --- Sprint 11: what pr0ducer reads is read once ---------------------------------------------
+
+
+def _track_dir(client, track):
+    return client.storage.exports_dir(track).parent
+
+
+def test_the_tempo_is_kept_beside_the_track_and_a_correction_updates_it(client, separated):
+    import json
+
+    client.get(f"/api/v1/tracks/{separated}/tempo")
+    kept = _track_dir(client, separated) / "timing.json"
+    assert kept.exists()
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=97")
+    assert json.loads(kept.read_text())["tempo_bpm"] == 97.0
+
+
+def test_sections_and_drops_are_worked_out_once_per_tempo(client, separated):
+    import json
+
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    first = client.get(f"/api/v1/tracks/{separated}/sections").json()
+    shape = _track_dir(client, separated) / "shape.json"
+    assert json.loads(shape.read_text())["key"][0] == 120.0
+    assert client.get(f"/api/v1/tracks/{separated}/drops").status_code == 200
+    assert client.get(f"/api/v1/tracks/{separated}/sections").json() == first
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=90")
+    client.get(f"/api/v1/tracks/{separated}/sections")
+    assert json.loads(shape.read_text())["key"][0] == 90.0       # a new grid, read again

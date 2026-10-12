@@ -621,7 +621,10 @@ async function upload() {
           "Your bass against theirs, your drums against theirs.";
         await loadInstrumentComparison();
       }
-      goToPage("master");
+      // The page the person is on now - which may not be the one they started from. Every
+      // flow here used to end on "master", so opening a song and going to pr0ducer while
+      // it loaded was undone 25 seconds later.
+      goToPage(state.page);
     }
   } catch (error) {
     showOnly("step-upload");
@@ -753,6 +756,8 @@ The tail length comes from the reference when the comparison can measure it.">re
   wireLanes();
   goToPage(state.page);
   if (state.page === "tab") loadTiming();
+  // pr0ducer's tempo and song shape take seconds to read the first time; start now.
+  if (typeof Revoice !== "undefined" && Revoice.prefetch) Revoice.prefetch(state.trackId);
   updateMasterSummary();
 
   // The chat box needs lanes and nothing else - it works before a reference is loaded,
@@ -1356,7 +1361,7 @@ async function separateReference() {
       "Splitting the reference…",
       "Same cost as separating your own track. Done once per reference.",
     );
-    goToPage("master");
+    goToPage(state.page);
     await refreshPerStemState();
     // The save box offers to keep this reference as a profile, and what it says depends
     // on whether the reference has been separated — which just changed. Without this the
@@ -1375,7 +1380,7 @@ async function separateReference() {
       await loadSuggestion();
     }
   } catch (error) {
-    goToPage("master");
+    goToPage(state.page);
     fail("master-error", error);
   }
 }
@@ -1529,13 +1534,14 @@ async function runMaster() {
     );
     renderMaster(finished.result);
   } catch (error) {
-    goToPage("master");
+    goToPage(state.page);
     fail("master-error", error);
   }
 }
 
 function renderMaster(result) {
-  goToPage("master");
+  // Shown where the person is; the result waits on the mastering page if they went elsewhere.
+  goToPage(state.page);
   $("master-result").hidden = false;
 
   // Cache-bust: the URL is stable across renders but the file behind it is not.

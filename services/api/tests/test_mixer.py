@@ -185,3 +185,34 @@ def test_a_moving_setting_is_described():
     lines = mixer.describe({"bass": Channel(automation={"gain_db": [[0, -60], [8, 0]],
                                                         "high_cut_hz": [[0, 500], [8, 20000]]})})
     assert lines == ["Bass: level, high cut moving over the song."]
+
+
+# --- Sprint 11: the whole mix -----------------------------------------------------------------
+
+
+def test_a_whole_mix_fade_fades_everything_including_the_reverb():
+    """The reverb's tail is part of the whole mix: a fade-out on the master that left it
+    ringing would not be a fade-out."""
+    layers = {"x": tone(440, 2.0), "y": tone(220, 2.0)}
+    channels = {"x": Channel(reverb=1.0),
+                "master": Channel(automation={"gain_db": [[0, 0], [2, 0], [3, -60]]})}
+    out = mixer.mix(layers, channels, SR, 120.0)
+    assert db(out[: SR // 4]) > -20
+    assert np.max(np.abs(out[int(1.6 * SR):])) == 0.0          # silent after the last point
+
+
+def test_a_whole_mix_filter_closes_on_everything():
+    layers = {"x": tone(5000, 2.0), "y": tone(6000, 2.0)}
+    out = mixer.mix(layers, {"master": Channel(high_cut_hz=500)}, SR, 120.0)
+    assert db(out[SR // 4:]) < db(layers["x"] + layers["y"]) - 30
+
+
+def test_a_flat_whole_mix_strip_changes_nothing():
+    layers = {"x": tone(220), "y": tone(330)}
+    assert np.allclose(mixer.mix(layers, {"master": Channel()}, SR, 120.0),
+                       layers["x"] + layers["y"])
+
+
+def test_the_whole_mix_is_described_as_such():
+    lines = mixer.describe({"master": Channel(automation={"gain_db": [[0, -60], [16, 0]]})})
+    assert lines == ["Whole mix: level moving over the song."]

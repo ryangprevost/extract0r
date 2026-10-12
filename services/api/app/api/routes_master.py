@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -1759,7 +1760,23 @@ def delete_sample(name: str, settings: Settings = Depends(get_config)) -> Respon
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+#: One lock per track for the slow reads, so two requests that arrive together - the page
+#: prefetching while it loads - wait for one answer instead of working it out twice.
+_READING: dict[str, threading.Lock] = {}
+_READING_GUARD = threading.Lock()
+
+
+def _reading(track_id: str) -> threading.Lock:
+    with _READING_GUARD:
+        return _READING.setdefault(track_id, threading.Lock())
+
+
 def _tempo_of(track_id: str, registry: TrackRegistry) -> float:
+    with _reading(track_id):
+        return _tempo_unlocked(track_id, registry)
+
+
+def _tempo_unlocked(track_id: str, registry: TrackRegistry) -> float:
     """The track's tempo, reading it now if it has not been read yet.
 
     One place, called by everything that needs a tempo. Found by restarting the API: an
@@ -1769,6 +1786,13 @@ def _tempo_of(track_id: str, registry: TrackRegistry) -> float:
     happened to call `/tempo` first, which is an ordering rule a user cannot see.
     """
     record = registry.require(track_id)
+    if record.timing is None:
+        # Read before, and kept beside the track: reading it is ~9 s on a four-minute song,
+        # and the registry forgets it on every restart. Sprint 11.
+        kept = _load_timing(record)
+        if kept is not None:
+            registry.set_timing(track_id, kept)
+            record = registry.require(track_id)
     if record.timing is None:
         from dataclasses import replace
 
@@ -1793,10 +1817,89 @@ def _tempo_of(track_id: str, registry: TrackRegistry) -> float:
                 if bpm > 0:
                     timing = replace(timing, tempo_bpm=bpm, first_beat_s=first)
             registry.set_timing(track_id, timing)
+            _save_timing(record, timing)
             record = registry.require(track_id)
         except Exception:
             log.info("could not read a tempo for %s", track_id, exc_info=True)
     return getattr(record.timing, "tempo_bpm", 0.0) or 0.0
+
+
+def _timing_path(record) -> Path:
+    return Path(record.stored.path).parent / "timing.json"
+
+
+def _save_timing(record, timing) -> None:
+    from dataclasses import asdict
+
+    try:
+        _timing_path(record).write_text(json.dumps(asdict(timing)), "utf-8")
+    except Exception:  # noqa: BLE001 - a cache that cannot be written is only slower
+        log.info("could not keep the timing for %s", record.stored.path, exc_info=True)
+
+
+def _load_timing(record):
+    from app.domain.timing import TimingEstimate
+
+    path = _timing_path(record)
+    if not path.exists():
+        return None
+    try:
+        return TimingEstimate(**json.loads(path.read_text("utf-8")))
+    except Exception:  # noqa: BLE001 - a damaged cache is read again, not trusted
+        return None
+
+
+def _song_shape(record, bpm: float) -> dict:
+    """The song's sections and its best drops, worked out together from one read of the
+    audio and kept beside the track, keyed by the grid they were read on. Sprint 11.
+
+    Each was its own request, and each decoded the whole original and measured every bar
+    again on every visit to pr0ducer - 2.6 s apiece on a four-minute song. Now once per
+    track and tempo; a corrected tempo is a different key, so it is read again.
+    """
+    first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+    key = [round(bpm, 4), round(first, 5)]
+    path = Path(record.stored.path).parent / "shape.json"
+    with _reading(f"shape:{record.stored.path}"):
+        return _shape_unlocked(record, bpm, first, key, path)
+
+
+def _shape_unlocked(record, bpm: float, first: float, key: list, path: Path) -> dict:
+    from dataclasses import asdict
+
+    import soundfile as sf
+
+    from app.services.synth import drop
+    from app.services.synth.arrange import Section, find_sections
+    from app.services.synth.retempo import beat_grid
+
+    if path.exists():
+        try:
+            data = json.loads(path.read_text("utf-8"))
+            if data.get("key") == key:
+                data["sections"] = [Section(**x) for x in data["sections"]]
+                return data
+        except Exception:  # noqa: BLE001 - a damaged cache is read again
+            pass
+    audio, rate = sf.read(str(record.stored.path), dtype="float64", always_2d=True)
+    beats = beat_grid(first, bpm, len(audio) / rate)
+    sections = find_sections(audio, rate, beats)
+    drops = drop.suggest_drops(audio, rate, beats)
+    data = {
+        "key": key,
+        # Full precision, not to_dict's: arrangements cut on these exact bar times, and a
+        # start rounded to the millisecond can drop the beat the cut lands on.
+        "sections": [asdict(x) for x in sections],
+        "bars": int(drop.bar_times(beats).size),
+        "drops": [{"bar": d.bar, "at_s": round(d.at_s, 2), "strength": d.strength}
+                  for d in drops],
+    }
+    try:
+        path.write_text(json.dumps(data), "utf-8")
+    except Exception:  # noqa: BLE001 - a cache that cannot be written is only slower
+        log.info("could not keep the song's shape for %s", record.stored.path, exc_info=True)
+    data["sections"] = sections
+    return data
 
 
 @router.get("/{track_id}/tempo")
@@ -1862,6 +1965,7 @@ def correct_tempo(
     # Full confidence, because a person said so - and the figure means "the tempo is known",
     # which is now true in a way no estimator could make it.
     registry.set_timing(track_id, replace(timing, tempo_bpm=float(bpm), confidence=1.0))
+    _save_timing(registry.require(track_id), registry.require(track_id).timing)
     return {"tempo_bpm": round(float(bpm), 1), "set_by": "you"}
 
 
@@ -2331,15 +2435,9 @@ class BounceRequest(BaseModel):
 
 
 def _sections_of(record, bpm: float) -> list:
-    """The song's sections, read off the original mix on its own beat grid. Sprint 5."""
-    import soundfile as sf
-
-    from app.services.synth.arrange import find_sections
-    from app.services.synth.retempo import beat_grid
-
-    audio, rate = sf.read(str(record.stored.path), dtype="float64", always_2d=True)
-    first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
-    return find_sections(audio, rate, beat_grid(first, bpm, len(audio) / rate))
+    """The song's sections, read off the original mix on its own beat grid. Sprint 5;
+    kept beside the track since Sprint 11 - see `_song_shape`."""
+    return _song_shape(record, bpm)["sections"]
 
 
 def _arrangement(record, body: BounceRequest, source_bpm: float, scale: float,
@@ -2659,7 +2757,9 @@ def _save_layers(out_dir: Path, label: str, layers: dict, mix, rate: int, bpm: f
 
     from app.services.synth.mixer import LAYERS
 
-    names = [n for n in LAYERS if n in layers]
+    # A layer with nothing in it - below -80 dBFS throughout - is not a strip worth loading.
+    names = [n for n in LAYERS if n in layers
+             and float(np.max(np.abs(np.asarray(layers[n])))) > 1e-4]
     if not names:
         return {"layers": [], "layer_gain": 1.0}
     raw = sum(np.asarray(layers[n], dtype=np.float64) for n in names)
@@ -2668,11 +2768,14 @@ def _save_layers(out_dir: Path, label: str, layers: dict, mix, rate: int, bpm: f
     scale = bounced / raw_peak
     loudest = max(float(np.max(np.abs(layers[n]))) for n in names) * scale
     fit = min(1.0, 0.99 / loudest) if loudest > 0 else 1.0
-    for old in out_dir.glob(f"layer.{label}.*.wav"):
+    for old in [*out_dir.glob(f"layer.{label}.*.wav"), *out_dir.glob(f"layer.{label}.*.flac")]:
         old.unlink()
     for n in names:
-        sf.write(str(out_dir / f"layer.{label}.{n}.wav"),
-                 np.asarray(layers[n]) * scale * fit, rate, subtype="PCM_16")
+        # FLAC: lossless, so the mixer still hears exactly what is bounced, and about a
+        # tenth of the WAV on the demo - eight layers of a four-minute song as WAV were
+        # some 340 MB for the page to download before it could play a note. Sprint 11.
+        sf.write(str(out_dir / f"layer.{label}.{n}.flac"),
+                 np.asarray(layers[n]) * scale * fit, rate, format="FLAC", subtype="PCM_16")
     meta = {"layers": names, "layer_gain": 1.0 / fit, "bpm": bpm, "rate": rate,
             "first_beat_s": first_beat_s}
     (out_dir / f"layer.{label}.json").write_text(json.dumps(meta), "utf-8")
@@ -2735,10 +2838,20 @@ def version_layer(track_id: str, label: str, name: str,
 
     if not _LABEL.fullmatch(label) or name not in LAYERS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such layer.")
-    path = storage.exports_dir(track_id) / f"layer.{label}.{name}.wav"
-    if not path.exists():
+    path = _layer_path(storage.exports_dir(track_id), label, name)
+    if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Make the version first.")
-    return FileResponse(path, media_type="audio/wav", filename=path.name)
+    kind = "audio/flac" if path.suffix == ".flac" else "audio/wav"
+    return FileResponse(path, media_type=kind, filename=path.name)
+
+
+def _layer_path(out_dir: Path, label: str, name: str) -> Path | None:
+    """A layer's file: FLAC since Sprint 11, WAV for versions bounced before it."""
+    for suffix in (".flac", ".wav"):
+        path = out_dir / f"layer.{label}.{name}{suffix}"
+        if path.exists():
+            return path
+    return None
 
 
 # --- Sprint 10: saved mixes --------------------------------------------------------------------
@@ -2773,7 +2886,7 @@ def _version_beats(out_dir: Path, label: str, meta: dict) -> float:
     """How long a version is, in beats from its first beat."""
     import soundfile as sf
 
-    longest = max((sf.info(str(out_dir / f"layer.{label}.{n}.wav")).duration
+    longest = max((sf.info(str(_layer_path(out_dir, label, n))).duration
                    for n in meta["layers"]), default=0.0)
     bpm = meta.get("bpm") or 0.0
     return max(0.0, (longest - (meta.get("first_beat_s") or 0.0)) * bpm / 60.0) if bpm else 0.0
@@ -2884,7 +2997,8 @@ def mix_version(
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "Make the version first - the mixer mixes its parts.")
     meta = json.loads(meta_path.read_text("utf-8"))
-    unknown = set(body.channels) - set(meta["layers"])
+    # "master" is the whole-mix strip, on every version. Sprint 11.
+    unknown = set(body.channels) - set(meta["layers"]) - {"master"}
     if unknown:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             f"This version has no {', '.join(sorted(unknown))} to mix. Its "
@@ -2900,7 +3014,7 @@ def mix_version(
         handle.update(JobState.RUNNING, 0.2, "mixing")
         layers, rate = {}, meta["rate"]
         for name in meta["layers"]:
-            data, rate = sf.read(str(out_dir / f"layer.{label}.{name}.wav"), dtype="float64",
+            data, rate = sf.read(str(_layer_path(out_dir, label, name)), dtype="float64",
                                  always_2d=True)
             layers[name] = data * meta["layer_gain"]
         channels = {n: mixer.Channel(**c.model_dump()) for n, c in body.channels.items()}
@@ -3153,20 +3267,14 @@ def suggest_drops(
         return {"bars": 0, "suggestions": [],
                 "why": "The tempo could not be read, so there are no bars to count."}
 
-    import soundfile as sf
-
     from app.services.synth import drop
-    from app.services.synth.retempo import beat_grid
 
-    audio, rate = sf.read(str(record.stored.path), dtype="float64", always_2d=True)
-    first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
-    beats = beat_grid(first, bpm, len(audio) / rate)
-    found = drop.suggest_drops(audio, rate, beats)
+    shape = _song_shape(record, bpm)
+    found = shape["drops"]
     return {
-        "bars": int(drop.bar_times(beats).size),
+        "bars": shape["bars"],
         "build_bars": drop.BUILD_BARS,
-        "suggestions": [{"bar": d.bar, "at_s": round(d.at_s, 2), "strength": d.strength}
-                        for d in found],
+        "suggestions": found,
         "why": "Where the music changes most at the start of a four-bar phrase - usually a "
         "verse turning into a chorus." if found else
         "The song is too short for a build and a drop.",

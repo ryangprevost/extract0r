@@ -39,6 +39,11 @@ LAYERS = {
     "build": "Builds and drops",
 }
 
+#: The whole mix's strip, after every part and both effect returns. Sprint 11.
+MASTER = "master"
+#: What the whole-mix strip offers: a fade and a filter, the moves made on a whole mix.
+MASTER_SETTINGS = ("gain_db", "low_cut_hz", "high_cut_hz")
+
 #: The delay: a dotted eighth, the dance-music delay, fed back this much.
 DELAY_BEATS = 0.75
 DELAY_FEEDBACK = 0.35
@@ -291,7 +296,35 @@ def mix(layers: dict[str, np.ndarray], channels: dict[str, Channel], sample_rate
         out += reverb(reverb_bus, impulse(sample_rate))[:length] * REVERB_RETURN
     if np.any(delay_bus) and bpm > 0:
         out += delay(delay_bus, sample_rate, bpm)[:length] * DELAY_RETURN
+    master = channels.get(MASTER)
+    if master is not None and not master.is_flat():
+        out = whole_mix(out, master, sample_rate, bpm, first_beat_s)
     return out
+
+
+def whole_mix(stereo: np.ndarray, channel: Channel, sample_rate: int, bpm: float,
+              first_beat_s: float) -> np.ndarray:
+    """The whole-mix strip: low cut, high cut, level - fixed or moving - on everything,
+    effect returns included, so a fade-out fades the reverb's tail too. Sprint 11."""
+    moving = {k: v for k, v in (channel.automation or {}).items()
+              if k in MASTER_SETTINGS and v}
+
+    def lane(setting: str) -> np.ndarray:
+        return curve(moving[setting], len(stereo), sample_rate, bpm, first_beat_s, setting)
+
+    if "low_cut_hz" in moving:
+        stereo = sweep(stereo, sample_rate, "highpass", lane("low_cut_hz"))
+    else:
+        stereo = tone(stereo, sample_rate, channel.low_cut_hz, 0.0)
+    if "high_cut_hz" in moving:
+        stereo = sweep(stereo, sample_rate, "lowpass", lane("high_cut_hz"))
+    else:
+        stereo = tone(stereo, sample_rate, 0.0, channel.high_cut_hz)
+    if "gain_db" in moving:
+        return stereo * lane("gain_db")[:, None]
+    if channel.gain_db <= OFF_DB:
+        return np.zeros_like(stereo)
+    return stereo * 10 ** (min(channel.gain_db, MAX_GAIN_DB) / 20)
 
 
 def describe(channels: dict[str, Channel]) -> list[str]:
@@ -305,7 +338,7 @@ def describe(channels: dict[str, Channel]) -> list[str]:
     for name, c in channels.items():
         if c.is_flat() or c.solo:
             continue
-        label = LAYERS.get(name, name)
+        label = LAYERS.get(name, "Whole mix" if name == MASTER else name)
         if c.mute:
             lines.append(f"{label}: muted.")
             continue

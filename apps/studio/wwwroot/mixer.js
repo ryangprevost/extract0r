@@ -180,11 +180,40 @@ const Mixer = (() => {
     return box;
   }
 
+  /** The whole mix: level, low cut, high cut - after every part and both effects. */
+  function wholeStrip() {
+    const c = settings.master;
+    const box = document.createElement("div");
+    box.className = "mix-strip mix-whole";
+    box.dataset.layer = "master";
+    const name = document.createElement("strong");
+    name.textContent = "Whole mix";
+    box.appendChild(name);
+    const level = document.createElement("span");
+    level.className = "muted tiny";
+    const sayLevel = () => (level.textContent = c.gain_db <= -60 ? "off" : `${c.gain_db > 0 ? "+" : ""}${c.gain_db.toFixed(1)} dB`);
+    sayLevel();
+    box.appendChild(knob("Level", range(-60, 12, 0.5, c.gain_db, (v) => {
+      c.gain_db = v; sayLevel(); apply();
+    }), level));
+    box.appendChild(knob("Low cut", select(LOW_CUTS, c.low_cut_hz, (hz) => `${hz} Hz`, (v) => {
+      c.low_cut_hz = v; apply();
+    })));
+    box.appendChild(knob("High cut", select(HIGH_CUTS, c.high_cut_hz,
+      (hz) => (hz >= 1000 ? `${hz / 1000} kHz` : `${hz} Hz`), (v) => { c.high_cut_hz = v; apply(); })));
+    const note = document.createElement("span");
+    note.className = "muted tiny";
+    note.textContent = "Everything, reverb and delay included.";
+    box.appendChild(note);
+    return box;
+  }
+
   function draw() {
     const host = $("mixer-strips");
     if (!host || !version) return;
     host.innerHTML = "";
     for (const layer of version.layers) host.appendChild(strip(layer));
+    host.appendChild(wholeStrip());
   }
 
   // --- sound -------------------------------------------------------------------------------
@@ -217,13 +246,26 @@ const Mixer = (() => {
     master = ctx.createGain();
     master.gain.value = version.layer_gain || 1;
     master.connect(ctx.destination);
+    // Sprint 11: everything - every part and both returns - meets on one bus, which runs
+    // through the whole-mix strip, as the server's `whole_mix` does after its sum.
+    const bus = ctx.createGain();
+    const wholeLow = ctx.createBiquadFilter();
+    wholeLow.type = "highpass";
+    wholeLow.Q.value = BUTTERWORTH_DB;
+    const wholeHigh = ctx.createBiquadFilter();
+    wholeHigh.type = "lowpass";
+    wholeHigh.Q.value = BUTTERWORTH_DB;
+    const wholeFader = ctx.createGain();
+    wholeFader.connect(master);
+    nodes = { master: { input: bus, low: wholeLow, high: wholeHigh, fader: wholeFader,
+      whole: true, wiring: null } };
 
     const reverb = ctx.createConvolver();
     reverb.normalize = false;        // the server convolves with this impulse as it is
     reverb.buffer = impulse;
     const reverbReturn = ctx.createGain();
     reverbReturn.gain.value = RETURN;
-    reverb.connect(reverbReturn).connect(master);
+    reverb.connect(reverbReturn).connect(bus);
 
     // The server's loop: y[n] = x[n-d] + feedback * y[n-d], d a whole number of samples.
     // Built from two delays - the first echo from one outside the loop, the repeats from one
@@ -241,9 +283,8 @@ const Mixer = (() => {
     echoes.connect(feedback).connect(repeat).connect(echoes);
     const delayReturn = ctx.createGain();
     delayReturn.gain.value = RETURN;
-    echoes.connect(delayReturn).connect(master);
+    echoes.connect(delayReturn).connect(bus);
 
-    nodes = {};
     for (const layer of version.layers) {
       // Web Audio reads a lowpass or highpass Q in *decibels* (the spec's alpha_QdB), not as
       // a ratio - so the obvious Q = 0.707 is a ratio of 1.085, a slightly peaky filter, and
@@ -261,7 +302,7 @@ const Mixer = (() => {
       const panner = ctx.createStereoPanner();
       const toReverb = ctx.createGain();
       const toDelay = ctx.createGain();
-      fader.connect(muter).connect(panner).connect(master);
+      fader.connect(muter).connect(panner).connect(bus);
       panner.connect(toReverb).connect(reverb);
       panner.connect(toDelay).connect(delay);
       nodes[layer.name] = { input, low, high, fader, muter, panner, toReverb, toDelay,
@@ -294,6 +335,12 @@ const Mixer = (() => {
     for (const [name, n] of Object.entries(nodes)) {
       const c = settings[name];
       wire(n, c);
+      if (n.whole) {
+        if (!moving(c, "gain_db")) n.fader.gain.setTargetAtTime(dbToGain(Math.min(c.gain_db, 12)), now, 0.015);
+        if (c.low_cut_hz && !moving(c, "low_cut_hz")) n.low.frequency.setTargetAtTime(c.low_cut_hz, now, 0.015);
+        if (c.high_cut_hz && !moving(c, "high_cut_hz")) n.high.frequency.setTargetAtTime(c.high_cut_hz, now, 0.015);
+        continue;
+      }
       n.muter.gain.setTargetAtTime(audible(name) ? 1 : 0, now, 0.015);
       // A setting with a lane is the lane's: `schedule` owns it.
       if (!moving(c, "gain_db")) n.fader.gain.setTargetAtTime(dbToGain(Math.min(c.gain_db, 12)), now, 0.015);
@@ -337,9 +384,12 @@ const Mixer = (() => {
   }
 
   function paramFor(n, setting) {
-    return { gain_db: n.fader.gain, pan: n.panner.pan, low_cut_hz: n.low.frequency,
-      high_cut_hz: n.high.frequency, reverb: n.toReverb.gain, delay: n.toDelay.gain }[setting];
+    return { gain_db: n.fader?.gain, pan: n.panner?.pan, low_cut_hz: n.low?.frequency,
+      high_cut_hz: n.high?.frequency, reverb: n.toReverb?.gain, delay: n.toDelay?.gain }[setting];
   }
+
+  //: What the whole-mix strip can move: a fade and a filter.
+  const WHOLE_SETTINGS = ["gain_db", "low_cut_hz", "high_cut_hz"];
 
   /** Every lane onto its AudioParam from where the song is now: the value here, then a ramp
    *  to each point still to come - the timeline the server's curve describes. */
@@ -351,6 +401,7 @@ const Mixer = (() => {
       const c = settings[name];
       for (const setting of Object.keys(MOVES)) {
         const param = paramFor(n, setting);
+        if (!param) continue;
         if (!moving(c, setting)) {
           param.cancelScheduledValues(0);     // a lane emptied leaves nothing behind
           continue;
@@ -469,7 +520,8 @@ const Mixer = (() => {
     head.className = "auto-head";
     const name = document.createElement("strong");
     const layer = version.layers.find((l) => l.name === lane.layer);
-    name.textContent = `${layer ? layer.label : lane.layer} · ${MOVES[lane.setting].label}`;
+    const who = lane.layer === "master" ? "Whole mix" : layer ? layer.label : lane.layer;
+    name.textContent = `${who} · ${MOVES[lane.setting].label}`;
     const readout = document.createElement("span");
     readout.className = "muted tiny";
     const span = document.createElement("select");
@@ -599,6 +651,12 @@ const Mixer = (() => {
     const layer = $("auto-layer").value;
     const setting = $("auto-setting").value;
     if (!layer || lanes.some((l) => l.layer === layer && l.setting === setting)) return;
+    if (layer === "master" && !WHOLE_SETTINGS.includes(setting)) {
+      $("auto-empty").hidden = false;
+      $("auto-empty").textContent = "The whole mix can fade (level) and filter (low or high " +
+        "cut). Pan and the sends belong to the parts.";
+      return;
+    }
     settings[layer].automation[setting] = settings[layer].automation[setting] || [];
     lanes.push({ layer, setting });
     drawLanes();
@@ -609,6 +667,7 @@ const Mixer = (() => {
     if (!pick || !version) return;
     pick.innerHTML = "";
     for (const layer of version.layers) pick.appendChild(new Option(layer.label, layer.name));
+    pick.appendChild(new Option("Whole mix", "master"));
     const what = $("auto-setting");
     if (!what.options.length) {
       for (const [setting, m] of Object.entries(MOVES)) what.appendChild(new Option(m.label, setting));
@@ -854,6 +913,7 @@ const Mixer = (() => {
     for (const layer of result.layers) {
       kept[layer.name] = settings[layer.name] || flat();
     }
+    kept.master = settings.master || flat();
     lanes = lanes.filter((l) => kept[l.layer]);
     settings = kept;
     $("mixer").hidden = false;

@@ -752,3 +752,28 @@ def test_a_kept_kit_is_a_kit_everywhere(client, separated):
     started = client.post(f"/api/v1/tracks/{separated}/bounce",
                           json={"target_bpm": 120, "beat": "house", "beat_kit": "low house"})
     assert finish(client, started.json()["job_id"])["state"] == "succeeded"
+
+
+# --- Sprint 9: automation -------------------------------------------------------------------------
+
+
+def test_a_mix_with_moving_settings_is_bounced_and_described(client, separated):
+    result = bounced(client, separated)
+    assert "first_beat_s" in result
+    started = client.post(f"/api/v1/tracks/{separated}/version/120/mix", json={"channels": {
+        "beat": {"automation": {"gain_db": [[0, -60], [8, 0]], "high_cut_hz": [[0, 400],
+                                                                                [8, 20000]]}}}})
+    mixed = finish(client, started.json()["job_id"])["result"]
+    assert "Added beat: level, high cut moving over the song." in mixed["lines"]
+
+
+@pytest.mark.parametrize("lane", [
+    {"wobble": [[0, 1]]},
+    {"gain_db": [[-1, 0]]},
+    {"pan": [[i, 0] for i in range(300)]},
+])
+def test_a_lane_that_cannot_be_is_refused(client, separated, lane):
+    bounced(client, separated)
+    response = client.post(f"/api/v1/tracks/{separated}/version/120/mix",
+                           json={"channels": {"beat": {"automation": lane}}})
+    assert response.status_code == 422

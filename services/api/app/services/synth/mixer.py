@@ -23,7 +23,7 @@ Sends are post-fader and post-pan, as on a desk: turning a part down turns its r
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -69,9 +69,86 @@ class Channel:
     #: How much goes to the reverb and the delay, 0..1.
     reverb: float = 0.0
     delay: float = 0.0
+    #: Sprint 9: settings that move over the song - {setting: [[beat, value], ...]}, beats
+    #: counted from the version's first beat. A moving setting replaces the fixed one.
+    automation: dict = field(default_factory=dict)
 
     def is_flat(self) -> bool:
         return self == Channel()
+
+
+# --- automation: settings that move ---------------------------------------------------------
+#
+# Sprint 9. A lane is a list of points, [beat, value]; between two points the setting moves
+# in a straight line, and before the first and after the last it holds - exactly what a
+# Web Audio AudioParam does with setValueAtTime and a ramp to each point. Level ramps in
+# linear gain, as a GainNode's does. Cut frequencies ramp *exponentially* - evenly in pitch,
+# which is how a filter sweep is heard - with exponentialRampToValueAtTime on the page.
+
+#: What can move, and the range it moves in.
+AUTOMATABLE = {
+    "gain_db": (-60.0, 12.0),
+    "pan": (-1.0, 1.0),
+    "low_cut_hz": (20.0, 2000.0),
+    "high_cut_hz": (200.0, 20000.0),
+    "reverb": (0.0, 1.0),
+    "delay": (0.0, 1.0),
+}
+EXPONENTIAL = frozenset({"low_cut_hz", "high_cut_hz"})
+#: A moving filter's coefficients are recomputed this often, in samples.
+FILTER_BLOCK = 16
+#: Most points one lane may have.
+MAX_POINTS = 256
+
+
+def curve(points, n: int, sample_rate: int, bpm: float, first_beat_s: float,
+          setting: str) -> np.ndarray:
+    """A lane as one value per sample - the value the page's AudioParam has at each frame."""
+    low, high = AUTOMATABLE[setting]
+    points = sorted((float(b), float(np.clip(v, low, high))) for b, v in points)
+    period = 60.0 / bpm if bpm > 0 else 0.5
+    times = np.array([first_beat_s + b * period for b, _ in points])
+    values = np.array([v for _, v in points])
+    if setting == "gain_db":
+        values = np.where(values <= OFF_DB, 0.0, 10 ** (np.minimum(values, MAX_GAIN_DB) / 20))
+    t = np.arange(n) / sample_rate
+    if setting in EXPONENTIAL:
+        return np.exp(np.interp(t, times, np.log(values)))
+    return np.interp(t, times, values)
+
+
+def pan_moving(stereo: np.ndarray, position: np.ndarray) -> np.ndarray:
+    """`pan`, with the position changing every sample - the StereoPanner law per frame."""
+    position = np.clip(position, -1.0, 1.0)
+    left, right = stereo[:, 0], stereo[:, 1]
+    x = np.where(position <= 0, position + 1.0, position)
+    gain_l, gain_r = np.cos(x * np.pi / 2), np.sin(x * np.pi / 2)
+    out_l = np.where(position <= 0, left + right * gain_l, left * gain_l)
+    out_r = np.where(position <= 0, right * gain_r, right + left * gain_r)
+    return np.stack([out_l, out_r], axis=1)
+
+
+def sweep(stereo: np.ndarray, sample_rate: int, kind: str, cutoff: np.ndarray) -> np.ndarray:
+    """A biquad whose cutoff moves: coefficients every FILTER_BLOCK samples, the filter's
+    past carried across each change as direct-form-I state (inputs and outputs), which is
+    how a BiquadFilterNode holds it."""
+    from scipy.signal import lfilter, lfiltic
+
+    out = np.empty_like(stereo)
+    channels = stereo.shape[1]
+    past_x = np.zeros((2, channels))       # x[n-1], x[n-2]
+    past_y = np.zeros((2, channels))       # y[n-1], y[n-2]
+    for at in range(0, len(stereo), FILTER_BLOCK):
+        end = min(len(stereo), at + FILTER_BLOCK)
+        b, a = _biquad(kind, float(cutoff[at]), sample_rate)
+        for c in range(channels):
+            zi = lfiltic(b, a, past_y[:, c], past_x[:, c])
+            out[at:end, c], _ = lfilter(b, a, stereo[at:end, c], zi=zi)
+        x = stereo[max(0, end - 2): end][::-1]
+        y = out[max(0, end - 2): end][::-1]
+        past_x[: len(x)] = x
+        past_y[: len(y)] = y
+    return out
 
 
 # --- the pieces, each the browser's arithmetic ----------------------------------------------
@@ -158,7 +235,7 @@ def reverb(stereo: np.ndarray, ir: np.ndarray) -> np.ndarray:
 
 
 def mix(layers: dict[str, np.ndarray], channels: dict[str, Channel], sample_rate: int,
-        bpm: float) -> np.ndarray:
+        bpm: float, first_beat_s: float = 0.0) -> np.ndarray:
     """Every layer through its channel, summed, the sends through the effects.
 
     With every channel flat this is the plain sum the version was before - the mixer adds
@@ -178,18 +255,38 @@ def mix(layers: dict[str, np.ndarray], channels: dict[str, Channel], sample_rate
             continue
         audio = np.asarray(audio, dtype=np.float64)
         stereo = audio if audio.ndim > 1 else np.stack([audio, audio], axis=1)
-        stereo = tone(stereo, sample_rate, channel.low_cut_hz, channel.high_cut_hz)
-        if channel.gain_db <= OFF_DB:
+        moving = {k: v for k, v in (channel.automation or {}).items()
+                  if k in AUTOMATABLE and v}
+
+        def lane(setting: str, size: int, moving=moving) -> np.ndarray:
+            return curve(moving[setting], size, sample_rate, bpm, first_beat_s, setting)
+
+        # Tone: a moving cut is a sweep; a fixed one is the plain biquad, or nothing.
+        if "low_cut_hz" in moving:
+            stereo = sweep(stereo, sample_rate, "highpass", lane("low_cut_hz", len(stereo)))
+        else:
+            stereo = tone(stereo, sample_rate, channel.low_cut_hz, 0.0)
+        if "high_cut_hz" in moving:
+            stereo = sweep(stereo, sample_rate, "lowpass", lane("high_cut_hz", len(stereo)))
+        else:
+            stereo = tone(stereo, sample_rate, 0.0, channel.high_cut_hz)
+        if "gain_db" in moving:
+            stereo = stereo * lane("gain_db", len(stereo))[:, None]
+        elif channel.gain_db <= OFF_DB:
             continue
-        stereo = stereo * 10 ** (min(channel.gain_db, MAX_GAIN_DB) / 20)
-        if channel.pan:
+        else:
+            stereo = stereo * 10 ** (min(channel.gain_db, MAX_GAIN_DB) / 20)
+        if "pan" in moving:
+            stereo = pan_moving(stereo, lane("pan", len(stereo)))
+        elif channel.pan:
             stereo = pan(stereo, channel.pan)
         take = min(len(stereo), length)
         out[:take] += stereo[:take]
-        if channel.reverb > 0:
-            reverb_bus[:take] += stereo[:take] * channel.reverb
-        if channel.delay > 0:
-            delay_bus[:take] += stereo[:take] * channel.delay
+        for setting, bus in (("reverb", reverb_bus), ("delay", delay_bus)):
+            if setting in moving:
+                bus[:take] += stereo[:take] * lane(setting, take)[:, None]
+            elif getattr(channel, setting) > 0:
+                bus[:take] += stereo[:take] * getattr(channel, setting)
     if np.any(reverb_bus):
         out += reverb(reverb_bus, impulse(sample_rate))[:length] * REVERB_RETURN
     if np.any(delay_bus) and bpm > 0:
@@ -203,6 +300,8 @@ def describe(channels: dict[str, Channel]) -> list[str]:
     soloed = [LAYERS.get(n, n).lower() for n, c in channels.items() if c.solo]
     if soloed:
         lines.append(f"Soloed: {', '.join(soloed)} - everything else is silent in this file.")
+    words = {"gain_db": "level", "pan": "pan", "low_cut_hz": "low cut",
+             "high_cut_hz": "high cut", "reverb": "reverb", "delay": "delay"}
     for name, c in channels.items():
         if c.is_flat() or c.solo:
             continue
@@ -210,6 +309,9 @@ def describe(channels: dict[str, Channel]) -> list[str]:
         if c.mute:
             lines.append(f"{label}: muted.")
             continue
+        moving = [words[k] for k, v in (c.automation or {}).items() if k in words and v]
+        if moving:
+            lines.append(f"{label}: {', '.join(moving)} moving over the song.")
         bits = []
         if abs(c.gain_db) >= 0.1:
             bits.append(f"{c.gain_db:+.1f} dB")

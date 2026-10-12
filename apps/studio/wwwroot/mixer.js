@@ -18,7 +18,25 @@ const Mixer = (() => {
   const RETURN = 0.5;
   const BUTTERWORTH_DB = 20 * Math.log10(Math.SQRT1_2);
   const FLAT = { gain_db: 0, pan: 0, mute: false, solo: false, low_cut_hz: 0,
-    high_cut_hz: 0, reverb: 0, delay: 0 };
+    high_cut_hz: 0, reverb: 0, delay: 0, automation: {} };
+  const flat = () => ({ ...FLAT, automation: {} });
+
+  // Sprint 9: what can move, its range, how its lane is drawn, and the two shapes offered.
+  const MOVES = {
+    gain_db: { label: "level", min: -60, max: 12, scale: "lin", unit: "dB",
+      up: ["Fade in from here", -60, 0], down: ["Fade out from here", 0, -60] },
+    pan: { label: "pan", min: -1, max: 1, scale: "lin", unit: "",
+      up: ["Sweep left to right", -1, 1], down: ["Sweep right to left", 1, -1] },
+    low_cut_hz: { label: "low cut", min: 20, max: 2000, scale: "log", unit: "Hz",
+      up: ["Thin out from here", 20, 800], down: ["Fill back in from here", 800, 20] },
+    high_cut_hz: { label: "high cut", min: 200, max: 20000, scale: "log", unit: "Hz",
+      up: ["Open up from here", 300, 20000], down: ["Close down from here", 20000, 300] },
+    reverb: { label: "reverb", min: 0, max: 1, scale: "lin", unit: "",
+      up: ["Wash in from here", 0, 0.8], down: ["Dry out from here", 0.8, 0] },
+    delay: { label: "delay", min: 0, max: 1, scale: "lin", unit: "",
+      up: ["Echo in from here", 0, 0.8], down: ["Dry out from here", 0.8, 0] },
+  };
+  let lanes = [];            // [{layer, setting}] in the order they were added
 
   let version = null;       // the bounce result this mixes
   let settings = {};        // layer name -> channel settings, kept across re-bounces
@@ -239,13 +257,15 @@ const Mixer = (() => {
       high.Q.value = BUTTERWORTH_DB;
       const input = ctx.createGain();
       const fader = ctx.createGain();
+      const muter = ctx.createGain();
       const panner = ctx.createStereoPanner();
       const toReverb = ctx.createGain();
       const toDelay = ctx.createGain();
-      fader.connect(panner).connect(master);
+      fader.connect(muter).connect(panner).connect(master);
       panner.connect(toReverb).connect(reverb);
       panner.connect(toDelay).connect(delay);
-      nodes[layer.name] = { input, low, high, fader, panner, toReverb, toDelay, wiring: null };
+      nodes[layer.name] = { input, low, high, fader, muter, panner, toReverb, toDelay,
+        wiring: null };
     }
     apply();
   }
@@ -254,12 +274,15 @@ const Mixer = (() => {
    *  the same: a 10 Hz low cut barely moves the level, but it turns the phase of an 808's
    *  sub, and a flat mix here measured -16.8 dB from the bounced file because of it. */
   function wire(n, c) {
-    const want = `${c.low_cut_hz ? 1 : 0}${c.high_cut_hz ? 1 : 0}`;
+    // A moving cut is always in the chain - it is never "off", only somewhere.
+    const lowOn = c.low_cut_hz || moving(c, "low_cut_hz");
+    const highOn = c.high_cut_hz || moving(c, "high_cut_hz");
+    const want = `${lowOn ? 1 : 0}${highOn ? 1 : 0}`;
     if (n.wiring === want) return;
     for (const node of [n.input, n.low, n.high]) node.disconnect();
     let at = n.input;
-    if (c.low_cut_hz) at = at.connect(n.low);
-    if (c.high_cut_hz) at = at.connect(n.high);
+    if (lowOn) at = at.connect(n.low);
+    if (highOn) at = at.connect(n.high);
     at.connect(n.fader);
     n.wiring = want;
   }
@@ -271,12 +294,324 @@ const Mixer = (() => {
     for (const [name, n] of Object.entries(nodes)) {
       const c = settings[name];
       wire(n, c);
-      n.fader.gain.setTargetAtTime(audible(name) ? dbToGain(Math.min(c.gain_db, 12)) : 0, now, 0.015);
-      n.panner.pan.setTargetAtTime(c.pan, now, 0.015);
-      if (c.low_cut_hz) n.low.frequency.setTargetAtTime(c.low_cut_hz, now, 0.015);
-      if (c.high_cut_hz) n.high.frequency.setTargetAtTime(c.high_cut_hz, now, 0.015);
-      n.toReverb.gain.setTargetAtTime(c.reverb, now, 0.015);
-      n.toDelay.gain.setTargetAtTime(c.delay, now, 0.015);
+      n.muter.gain.setTargetAtTime(audible(name) ? 1 : 0, now, 0.015);
+      // A setting with a lane is the lane's: `schedule` owns it.
+      if (!moving(c, "gain_db")) n.fader.gain.setTargetAtTime(dbToGain(Math.min(c.gain_db, 12)), now, 0.015);
+      if (!moving(c, "pan")) n.panner.pan.setTargetAtTime(c.pan, now, 0.015);
+      if (c.low_cut_hz && !moving(c, "low_cut_hz")) n.low.frequency.setTargetAtTime(c.low_cut_hz, now, 0.015);
+      if (c.high_cut_hz && !moving(c, "high_cut_hz")) n.high.frequency.setTargetAtTime(c.high_cut_hz, now, 0.015);
+      if (!moving(c, "reverb")) n.toReverb.gain.setTargetAtTime(c.reverb, now, 0.015);
+      if (!moving(c, "delay")) n.toDelay.gain.setTargetAtTime(c.delay, now, 0.015);
+    }
+  }
+
+  // --- Sprint 9: automation -------------------------------------------------------------------
+
+  const moving = (c, setting) => (c.automation?.[setting] || []).length > 0;
+  const beatSeconds = () => 60 / (version?.tempo_bpm || 120);
+  const timeOf = (beat) => (version?.first_beat_s || 0) + beat * beatSeconds();
+  const beatAt = (t) => Math.max(0, (t - (version?.first_beat_s || 0)) / beatSeconds());
+
+  /** What the param is given for a point's value: level in linear gain, as the server ramps. */
+  function paramValue(setting, v) {
+    const m = MOVES[setting];
+    v = Math.min(m.max, Math.max(m.min, v));
+    if (setting === "gain_db") return v <= -60 ? 0 : 10 ** (Math.min(v, 12) / 20);
+    return v;
+  }
+
+  /** A lane's value at time t - the server's `curve`: hold, then straight lines (or even in
+   *  pitch, for the cuts), then hold. */
+  function valueAt(setting, points, t) {
+    const pts = [...points].sort((a, b) => a[0] - b[0]).map(([b, v]) => [timeOf(b), paramValue(setting, v)]);
+    if (t <= pts[0][0]) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      const [t0, v0] = pts[i - 1];
+      const [t1, v1] = pts[i];
+      if (t <= t1) {
+        const f = t1 > t0 ? (t - t0) / (t1 - t0) : 1;
+        return MOVES[setting].scale === "log" ? v0 * (v1 / v0) ** f : v0 + (v1 - v0) * f;
+      }
+    }
+    return pts[pts.length - 1][1];
+  }
+
+  function paramFor(n, setting) {
+    return { gain_db: n.fader.gain, pan: n.panner.pan, low_cut_hz: n.low.frequency,
+      high_cut_hz: n.high.frequency, reverb: n.toReverb.gain, delay: n.toDelay.gain }[setting];
+  }
+
+  /** Every lane onto its AudioParam from where the song is now: the value here, then a ramp
+   *  to each point still to come - the timeline the server's curve describes. */
+  function schedule() {
+    if (!ctx || !Object.keys(nodes).length) return;
+    const now = ctx.currentTime;
+    const position = playing ? now - startedAt : offset;
+    for (const [name, n] of Object.entries(nodes)) {
+      const c = settings[name];
+      for (const setting of Object.keys(MOVES)) {
+        const param = paramFor(n, setting);
+        if (!moving(c, setting)) {
+          param.cancelScheduledValues(0);     // a lane emptied leaves nothing behind
+          continue;
+        }
+        const points = c.automation[setting];
+        param.cancelScheduledValues(0);
+        param.setValueAtTime(valueAt(setting, points, position), now);
+        if (!playing) continue;
+        const sorted = [...points].sort((a, b) => a[0] - b[0]);
+        for (const [beat, v] of sorted) {
+          const t = timeOf(beat);
+          if (t <= position) continue;
+          const at = startedAt + t;
+          if (MOVES[setting].scale === "log") param.exponentialRampToValueAtTime(paramValue(setting, v), at);
+          else param.linearRampToValueAtTime(paramValue(setting, v), at);
+        }
+      }
+    }
+    apply();
+  }
+
+  function toY(setting, v, height) {
+    const m = MOVES[setting];
+    const f = m.scale === "log" ? Math.log(v / m.min) / Math.log(m.max / m.min) : (v - m.min) / (m.max - m.min);
+    return height - 4 - f * (height - 8);
+  }
+
+  function fromY(setting, y, height) {
+    const m = MOVES[setting];
+    const f = Math.min(1, Math.max(0, (height - 4 - y) / (height - 8)));
+    const v = m.scale === "log" ? m.min * (m.max / m.min) ** f : m.min + f * (m.max - m.min);
+    return m.scale === "log" ? Math.round(v) : Math.round(v * 100) / 100;
+  }
+
+  function said(setting, v) {
+    const m = MOVES[setting];
+    if (setting === "gain_db") return v <= -60 ? "off" : `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
+    if (setting === "pan") return Math.abs(v) < 0.02 ? "centre" : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? "left" : "right"}`;
+    if (m.unit === "Hz") return v >= 1000 ? `${(v / 1000).toFixed(1)} kHz` : `${Math.round(v)} Hz`;
+    return `${Math.round(v * 100)}%`;
+  }
+
+  const PX_PER_BEAT = 14;
+  const LANE_H = 70;
+
+  function drawLane(lane, canvas) {
+    const c = settings[lane.layer];
+    const points = [...(c.automation[lane.setting] || [])].sort((a, b) => a[0] - b[0]);
+    const beats = Math.ceil(beatAt(duration || 30)) + 4;
+    const width = beats * PX_PER_BEAT;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = width * ratio;
+    canvas.height = LANE_H * ratio;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${LANE_H}px`;
+    const g = canvas.getContext("2d");
+    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim() || "#888";
+    g.fillStyle = css("--panel-2");
+    g.fillRect(0, 0, width, LANE_H);
+    for (let b = 0; b <= beats; b++) {
+      g.strokeStyle = css(b % 4 === 0 ? "--muted" : "--edge");
+      g.globalAlpha = b % 4 === 0 ? 0.7 : 0.3;
+      g.beginPath();
+      g.moveTo(b * PX_PER_BEAT + 0.5, 0);
+      g.lineTo(b * PX_PER_BEAT + 0.5, LANE_H);
+      g.stroke();
+      if (b % 4 === 0) {
+        g.globalAlpha = 1;
+        g.fillStyle = css("--muted");
+        g.font = "10px ui-monospace, monospace";
+        g.fillText(`${b / 4 + 1}`, b * PX_PER_BEAT + 3, 10);
+      }
+    }
+    g.globalAlpha = 1;
+    // The value it holds when the lane is empty: the strip's own setting.
+    const resting = lane.setting === "gain_db" ? c.gain_db : c[lane.setting] || MOVES[lane.setting].min;
+    g.strokeStyle = css("--accent");
+    g.lineWidth = 2;
+    g.beginPath();
+    if (!points.length) {
+      const y = toY(lane.setting, Math.max(MOVES[lane.setting].min, resting), LANE_H);
+      g.moveTo(0, y);
+      g.lineTo(width, y);
+    } else {
+      g.moveTo(0, toY(lane.setting, points[0][1], LANE_H));
+      // Cuts are drawn as they move: evenly in pitch, which is a straight line on this scale.
+      for (const [b, v] of points) g.lineTo(b * PX_PER_BEAT, toY(lane.setting, v, LANE_H));
+      g.lineTo(width, toY(lane.setting, points[points.length - 1][1], LANE_H));
+    }
+    g.stroke();
+    g.lineWidth = 1;
+    g.fillStyle = css("--ink");
+    for (const [b, v] of points) {
+      g.beginPath();
+      g.arc(b * PX_PER_BEAT, toY(lane.setting, v, LANE_H), 4, 0, Math.PI * 2);
+      g.fill();
+    }
+    if (version && duration) {
+      const now = playing ? ctx.currentTime - startedAt : offset;
+      g.strokeStyle = css("--ink");
+      g.globalAlpha = 0.6;
+      g.beginPath();
+      const x = beatAt(now) * PX_PER_BEAT;
+      g.moveTo(x, 0);
+      g.lineTo(x, LANE_H);
+      g.stroke();
+      g.globalAlpha = 1;
+    }
+  }
+
+  function laneEditor(lane) {
+    const box = document.createElement("div");
+    box.className = "auto-lane";
+    const head = document.createElement("div");
+    head.className = "auto-head";
+    const name = document.createElement("strong");
+    const layer = version.layers.find((l) => l.name === lane.layer);
+    name.textContent = `${layer ? layer.label : lane.layer} · ${MOVES[lane.setting].label}`;
+    const readout = document.createElement("span");
+    readout.className = "muted tiny";
+    const span = document.createElement("select");
+    for (const bars of [1, 2, 4, 8, 16]) span.appendChild(new Option(`over ${bars} bar${bars > 1 ? "s" : ""}`, bars));
+    span.value = 4;
+    const shape = (which) => {
+      const [, from, to] = MOVES[lane.setting][which];
+      const here = Math.round(beatAt(playing ? ctx.currentTime - startedAt : offset));
+      const end = here + 4 * parseInt(span.value, 10);
+      const c = settings[lane.layer];
+      const kept = (c.automation[lane.setting] || []).filter(([b]) => b < here || b > end);
+      c.automation[lane.setting] = [...kept, [here, from], [end, to]].sort((a, b) => a[0] - b[0]);
+      changed();
+    };
+    const up = document.createElement("button");
+    up.type = "button";
+    up.className = "small";
+    up.textContent = MOVES[lane.setting].up[0];
+    up.addEventListener("click", () => shape("up"));
+    const down = document.createElement("button");
+    down.type = "button";
+    down.className = "small";
+    down.textContent = MOVES[lane.setting].down[0];
+    down.addEventListener("click", () => shape("down"));
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "small";
+    clear.textContent = "Clear";
+    clear.addEventListener("click", () => { settings[lane.layer].automation[lane.setting] = []; changed(); });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "small";
+    remove.textContent = "\u2715";
+    remove.setAttribute("aria-label", "Remove this lane");
+    remove.addEventListener("click", () => {
+      delete settings[lane.layer].automation[lane.setting];
+      lanes = lanes.filter((l) => l !== lane);
+      changed();
+    });
+    head.append(name, up, down, span, clear, remove, readout);
+
+    const scroll = document.createElement("div");
+    scroll.className = "auto-scroll";
+    const canvas = document.createElement("canvas");
+    canvas.className = "auto-canvas";
+    canvas.dataset.layer = lane.layer;
+    canvas.dataset.setting = lane.setting;
+    scroll.appendChild(canvas);
+    box.append(head, scroll);
+
+    // Click to add a point (on the beat), drag to move one, double-click to remove one.
+    let dragging = null;
+    const where = (e) => {
+      const r = canvas.getBoundingClientRect();
+      return [e.clientX - r.left, e.clientY - r.top];
+    };
+    const near = (x, y) => (settings[lane.layer].automation[lane.setting] || []).findIndex(([b, v]) =>
+      Math.abs(b * PX_PER_BEAT - x) < 7 && Math.abs(toY(lane.setting, v, LANE_H) - y) < 7);
+    canvas.addEventListener("pointerdown", (e) => {
+      const [x, y] = where(e);
+      const c = settings[lane.layer];
+      c.automation[lane.setting] = c.automation[lane.setting] || [];
+      let i = near(x, y);
+      if (i < 0) {
+        c.automation[lane.setting].push([Math.round(x / PX_PER_BEAT), fromY(lane.setting, y, LANE_H)]);
+        i = c.automation[lane.setting].length - 1;
+      }
+      dragging = i;
+      canvas.setPointerCapture?.(e.pointerId);
+      changed(false);
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      const [x, y] = where(e);
+      const points = settings[lane.layer].automation[lane.setting] || [];
+      if (dragging === null) {
+        const i = near(x, y);
+        readout.textContent = i >= 0 ? `bar ${Math.floor(points[i][0] / 4) + 1}: ${said(lane.setting, points[i][1])}` : "";
+        return;
+      }
+      points[dragging] = [Math.max(0, Math.round(x / PX_PER_BEAT)), fromY(lane.setting, y, LANE_H)];
+      readout.textContent = `bar ${Math.floor(points[dragging][0] / 4) + 1}: ${said(lane.setting, points[dragging][1])}`;
+      drawLane(lane, canvas);
+    });
+    const done = () => {
+      if (dragging !== null) {
+        dragging = null;
+        changed();
+      }
+    };
+    canvas.addEventListener("pointerup", done);
+    canvas.addEventListener("pointercancel", done);
+    canvas.addEventListener("dblclick", (e) => {
+      const [x, y] = where(e);
+      const i = near(x, y);
+      if (i >= 0) {
+        settings[lane.layer].automation[lane.setting].splice(i, 1);
+        changed();
+      }
+    });
+    drawLane(lane, canvas);
+    return box;
+  }
+
+  function drawLanes() {
+    const host = $("auto-lanes");
+    if (!host || !version) return;
+    host.innerHTML = "";
+    for (const lane of lanes) host.appendChild(laneEditor(lane));
+    $("auto-empty").hidden = lanes.length > 0;
+  }
+
+  function redrawPlayheads() {
+    for (const canvas of document.querySelectorAll(".auto-canvas")) {
+      const lane = lanes.find((l) => l.layer === canvas.dataset.layer && l.setting === canvas.dataset.setting);
+      if (lane) drawLane(lane, canvas);
+    }
+  }
+
+  /** A lane changed: reschedule what is playing, and redraw. */
+  function changed(redraw = true) {
+    schedule();
+    if (redraw) drawLanes();
+    else redrawPlayheads();
+  }
+
+  function addLane() {
+    const layer = $("auto-layer").value;
+    const setting = $("auto-setting").value;
+    if (!layer || lanes.some((l) => l.layer === layer && l.setting === setting)) return;
+    settings[layer].automation[setting] = settings[layer].automation[setting] || [];
+    lanes.push({ layer, setting });
+    drawLanes();
+  }
+
+  function fillLanePickers() {
+    const pick = $("auto-layer");
+    if (!pick || !version) return;
+    pick.innerHTML = "";
+    for (const layer of version.layers) pick.appendChild(new Option(layer.label, layer.name));
+    const what = $("auto-setting");
+    if (!what.options.length) {
+      for (const [setting, m] of Object.entries(MOVES)) what.appendChild(new Option(m.label, setting));
     }
   }
 
@@ -295,6 +630,7 @@ const Mixer = (() => {
     }
     startedAt = at - offset;
     playing = true;
+    schedule();
     $("mixer-play").textContent = "Pause";
     // A timer rather than requestAnimationFrame: animation frames stop when the tab is in
     // the background, and the music does not, so the position bar froze at 0:00.
@@ -315,6 +651,7 @@ const Mixer = (() => {
     offset = Math.min(duration, ctx.currentTime - startedAt);
     stopSources();
     playing = false;
+    schedule();
     clearInterval(clock);
     $("mixer-play").textContent = "Play";
   }
@@ -331,6 +668,7 @@ const Mixer = (() => {
     seek.value = Math.min(now, duration).toFixed(2);
     const s = Math.max(0, Math.min(now, duration));
     $("mixer-time").textContent = `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+    redrawPlayheads();
   }
 
   // --- bouncing the mix --------------------------------------------------------------------
@@ -342,7 +680,9 @@ const Mixer = (() => {
     host.innerHTML = "";
     const channels = {};
     for (const [name, c] of Object.entries(settings)) {
-      if (JSON.stringify(c) !== JSON.stringify(FLAT)) channels[name] = c;
+      const lanesOf = Object.fromEntries(Object.entries(c.automation || {}).filter(([, p]) => p.length));
+      const body = { ...c, automation: lanesOf };
+      if (JSON.stringify(body) !== JSON.stringify(flat())) channels[name] = body;
     }
     try {
       const started = await api(`/tracks/${state.trackId}/version/${version.label}/mix`, {
@@ -388,12 +728,15 @@ const Mixer = (() => {
     version = { ...result, url_key: `${result.label}:${Date.now()}` };
     const kept = {};
     for (const layer of result.layers) {
-      kept[layer.name] = settings[layer.name] || { ...FLAT };
+      kept[layer.name] = settings[layer.name] || flat();
     }
+    lanes = lanes.filter((l) => kept[l.layer]);
     settings = kept;
     $("mixer").hidden = false;
     $("mixer-result").innerHTML = "";
     draw();
+    fillLanePickers();
+    drawLanes();
   }
 
   function reset() {
@@ -420,12 +763,17 @@ const Mixer = (() => {
       if (playing) pause();
       offset = parseFloat(e.target.value) || 0;
       if (was) play();
+      else { schedule(); redrawPlayheads(); }
     });
     $("mixer-bounce").addEventListener("click", bounce);
+    $("auto-add").addEventListener("click", addLane);
     $("mixer-reset").addEventListener("click", () => {
-      for (const name of Object.keys(settings)) settings[name] = { ...FLAT };
+      for (const name of Object.keys(settings)) settings[name] = flat();
+      lanes = [];
       apply();
+      schedule();
       draw();
+      drawLanes();
     });
   }
 

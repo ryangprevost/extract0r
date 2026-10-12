@@ -117,3 +117,71 @@ def test_the_bottom_of_the_fader_is_off():
     """The page plays silence there and says "off"; the file did -60 dB, which is not off."""
     out = mixer.mix({"x": tone(220), "y": tone(330)}, {"x": Channel(gain_db=-60.0)}, SR, 120.0)
     assert np.allclose(out, tone(330))
+
+
+# --- Sprint 9: automation ------------------------------------------------------------------------
+
+
+def test_a_level_lane_ramps_in_linear_gain_like_a_gain_node():
+    """-60 dB is off (0) and 0 dB is 1, so halfway along the ramp the gain is 0.5."""
+    lane = mixer.curve([[0, -60], [4, 0]], SR * 3, SR, 120.0, 0.0, "gain_db")
+    assert lane[0] == 0.0
+    assert lane[SR] == pytest.approx(0.5, abs=1e-4)          # beat 2 of 4, at 120 BPM
+    assert lane[int(2.5 * SR)] == pytest.approx(1.0)         # held after the last point
+
+
+def test_a_lane_holds_before_its_first_point():
+    lane = mixer.curve([[4, 0.8], [8, 0.2]], SR * 5, SR, 120.0, 0.0, "reverb")
+    assert lane[0] == pytest.approx(0.8) and lane[SR] == pytest.approx(0.8)
+
+
+def test_a_cut_sweeps_evenly_in_pitch():
+    lane = mixer.curve([[0, 200], [4, 20000]], SR * 2, SR, 120.0, 0.0, "high_cut_hz")
+    assert lane[SR] == pytest.approx(2000.0, rel=1e-3)       # halfway is the geometric mean
+
+
+def test_points_are_counted_from_the_first_beat():
+    lane = mixer.curve([[0, 0.0], [2, 1.0]], SR * 2, SR, 120.0, 0.5, "delay")
+    assert lane[int(0.5 * SR)] == pytest.approx(0.0) and lane[int(1.5 * SR)] == pytest.approx(1.0)
+
+
+def test_values_are_held_to_each_setting_s_range():
+    lane = mixer.curve([[0, 5.0]], 10, SR, 120.0, 0.0, "pan")
+    assert np.all(lane == 1.0)
+
+
+def test_a_sweep_held_still_is_the_fixed_filter():
+    """The moving filter carries its state across every coefficient change; held at one
+    cutoff it must be the plain biquad exactly, or every sweep would click."""
+    from scipy.signal import lfilter
+
+    noise = np.random.default_rng(9).standard_normal((SR, 2))
+    moving = mixer.sweep(noise, SR, "lowpass", np.full(SR, 1500.0))
+    b, a = mixer._biquad("lowpass", 1500.0, SR)
+    assert np.allclose(moving, lfilter(b, a, noise, axis=0), atol=1e-9)
+
+
+def test_a_fade_in_fades_in():
+    out = mixer.mix({"x": tone(220, 2.0)},
+                    {"x": Channel(automation={"gain_db": [[0, -60], [4, 0]]})}, SR, 120.0)
+    assert db(out[: SR // 10]) < db(out[-SR // 10:]) - 20
+
+
+def test_a_pan_lane_moves_the_part():
+    out = mixer.mix({"x": tone(220, 2.0)},
+                    {"x": Channel(automation={"pan": [[0, -1], [1, -1], [3, 1]]})}, SR, 120.0)
+    start, end = out[: SR // 10], out[-SR // 10:]
+    assert db(start[:, 1]) < db(start[:, 0]) - 40 and db(end[:, 0]) < db(end[:, 1]) - 40
+
+
+def test_a_closing_filter_darkens():
+    out = mixer.mix({"x": tone(4000, 2.0)},
+                    {"x": Channel(automation={"high_cut_hz": [[0, 20000], [4, 300]]})},
+                    SR, 120.0)
+    assert db(out[-SR // 10:]) < db(out[: SR // 10]) - 30
+
+
+def test_a_moving_setting_is_described():
+    lines = mixer.describe({"bass": Channel(automation={"gain_db": [[0, -60], [8, 0]],
+                                                        "high_cut_hz": [[0, 500], [8, 20000]]})})
+    assert lines == ["Bass: level, high cut moving over the song."]

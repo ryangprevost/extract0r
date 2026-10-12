@@ -23,7 +23,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps import get_config, get_jobs, get_registry, get_storage
 from app.api.routes_jobs import to_response
@@ -2607,7 +2607,10 @@ def bounce_version(
         wav = write_wav(out_dir / f"version.{bpm}.wav", mix, rate, "24")
         mp3 = write_mp3(out_dir / f"version.{bpm}.mp3", mix, rate)
         handle.update(JobState.RUNNING, 0.92, "keeping each part for the mixer")
-        mixable = _save_layers(out_dir, str(bpm), layers, mix, rate, target)
+        # Where the version's first beat falls, so automation drawn in bars lands on them.
+        grid_first = 0.0 if pieces else (
+            getattr(record.timing, "first_beat_s", 0.0) or 0.0) * scale
+        mixable = _save_layers(out_dir, str(bpm), layers, mix, rate, target, grid_first)
         from app.services.synth.retempo import summarise
 
         said = summarise(move, account)
@@ -2631,6 +2634,7 @@ def bounce_version(
                        for n, lbl in mixable["layers"]],
             "layer_gain": mixable["layer_gain"],
             "tempo_bpm": round(target, 2) if target else None,
+            "first_beat_s": round(grid_first, 6),
         }
 
     return to_response(jobs.submit("bounce", track_id, work))
@@ -2641,7 +2645,8 @@ def bounce_version(
 _LABEL = re.compile(r"\d{2,3}|same")
 
 
-def _save_layers(out_dir: Path, label: str, layers: dict, mix, rate: int, bpm: float) -> dict:
+def _save_layers(out_dir: Path, label: str, layers: dict, mix, rate: int, bpm: float,
+                 first_beat_s: float = 0.0) -> dict:
     """Every layer of a version as its own file, for the mixer, and how to read them back.
 
     Scaled by what the bounce did to the sum, so a flat mix of the layers *is* the file that
@@ -2668,7 +2673,8 @@ def _save_layers(out_dir: Path, label: str, layers: dict, mix, rate: int, bpm: f
     for n in names:
         sf.write(str(out_dir / f"layer.{label}.{n}.wav"),
                  np.asarray(layers[n]) * scale * fit, rate, subtype="PCM_16")
-    meta = {"layers": names, "layer_gain": 1.0 / fit, "bpm": bpm, "rate": rate}
+    meta = {"layers": names, "layer_gain": 1.0 / fit, "bpm": bpm, "rate": rate,
+            "first_beat_s": first_beat_s}
     (out_dir / f"layer.{label}.json").write_text(json.dumps(meta), "utf-8")
     return {"layers": [(n, LAYERS[n]) for n in names], "layer_gain": round(1.0 / fit, 6)}
 
@@ -2682,6 +2688,23 @@ class ChannelIn(BaseModel):
     high_cut_hz: float = Field(0.0, ge=0.0, le=20000.0)
     reverb: float = Field(0.0, ge=0.0, le=1.0)
     delay: float = Field(0.0, ge=0.0, le=1.0)
+    #: Sprint 9: {setting: [[beat, value], ...]} - level, pan, low or high cut, reverb or
+    #: delay, moving over the song. Values outside a setting's range are held to it.
+    automation: dict[str, list[tuple[float, float]]] = Field(default_factory=dict)
+
+    @field_validator("automation")
+    @classmethod
+    def _lanes(cls, lanes: dict) -> dict:
+        from app.services.synth.mixer import AUTOMATABLE, MAX_POINTS
+
+        for setting, points in lanes.items():
+            if setting not in AUTOMATABLE:
+                raise ValueError(f"{setting!r} cannot move. These can: {', '.join(AUTOMATABLE)}.")
+            if len(points) > MAX_POINTS:
+                raise ValueError(f"A lane holds up to {MAX_POINTS} points.")
+            if any(b < 0 for b, _ in points):
+                raise ValueError("A point cannot come before the song's first beat.")
+        return lanes
 
 
 class MixRequest(BaseModel):
@@ -2762,7 +2785,8 @@ def mix_version(
                                  always_2d=True)
             layers[name] = data * meta["layer_gain"]
         channels = {n: mixer.Channel(**c.model_dump()) for n, c in body.channels.items()}
-        mixed = mixer.mix(layers, channels, rate, meta.get("bpm") or 0.0)
+        mixed = mixer.mix(layers, channels, rate, meta.get("bpm") or 0.0,
+                          meta.get("first_beat_s", 0.0))
         # The same ceiling the bounce uses: -1 dBFS if the mix went over, nothing otherwise.
         peak = float(np.max(np.abs(mixed))) if mixed.size else 0.0
         ceiling = 10 ** (-1.0 / 20)

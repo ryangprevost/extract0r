@@ -2617,6 +2617,22 @@ off**, not by being near it.
 
 ---
 
+### X0R-1390 · Automation · 5 · `DONE` 2026-10-12
+**As a** person mixing a remix **I want** settings to move over the song - a filter opening
+into the drop, a part fading in **so that** the version has motion, not one fixed balance.
+
+See [SPRINT-9.md](sprints/SPRINT-9.md).
+
+**Acceptance criteria**
+- Lanes for level, pan, low cut, high cut, reverb and delay on any part, in bars; click,
+  drag, double-click; shapes from the playhead (fade in/out, open up/close down, ...). ✅
+- Heard live, rescheduled as points move; mute and solo on their own stage. ✅
+- Bounced with the same curves - linear in gain, exponential for cuts, a moving biquad that
+  carries its state - and described in the account. ✅
+- Heard = bounced with five lanes at once: -90 dB. ✅
+
+---
+
 ### X0R-1380 · Shape the sounds · 5 · `DONE` 2026-10-12
 **As a** person choosing sounds **I want** to turn a voice brighter, a kick lower, a snare
 snappier **so that** the sounds in my remix are mine, not stock.

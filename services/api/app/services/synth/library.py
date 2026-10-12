@@ -118,7 +118,10 @@ def delete_kit(sample_dir: Path, name: str) -> bool:
 
 
 def exists(kit: str, sample_dir: Path | None) -> bool:
-    return kit in KITS or (sample_dir is not None and kit in user_kits(sample_dir))
+    from app.services.synth.shape import kit_named
+
+    return (kit in KITS or (sample_dir is not None and kit in user_kits(sample_dir))
+            or kit_named(kit, sample_dir) is not None)
 
 
 def _load(path: Path, sample_rate: int) -> np.ndarray:
@@ -150,6 +153,13 @@ def sounds(kit: str, sample_rate: int, sample_dir: Path | None = None,
     if kit in KITS:
         return {d: render_voice(KITS[kit][d], sample_rate, seed=seed + i)
                 for i, d in enumerate(DRUMS) if d in KITS[kit]}
+    from app.services.synth.shape import kit_named
+
+    shaped = kit_named(kit, sample_dir)
+    if shaped is not None:
+        # A built-in kit with your knobs on it. Sprint 8.
+        return {d: render_voice(shaped[d], sample_rate, seed=seed + i)
+                for i, d in enumerate(DRUMS) if d in shaped}
     mine = user_kits(sample_dir) if sample_dir is not None else {}
     if kit not in mine:
         raise KeyError(kit)
@@ -192,7 +202,7 @@ def preview_kit(kit_sounds: dict[str, np.ndarray], sample_rate: int) -> np.ndarr
     return out / max(float(np.max(np.abs(out))), 1e-9) * 0.89
 
 
-def preview_voice(voice: str, sample_rate: int) -> np.ndarray:
+def preview_voice(voice: str, sample_rate: int, patch=None) -> np.ndarray:
     """A short phrase in the voice's own register: an arpeggio, then the chord held."""
     from app.domain.notes import NoteEvent
     from app.services.synth.voice import render_notes
@@ -203,7 +213,7 @@ def preview_voice(voice: str, sample_rate: int) -> np.ndarray:
     notes = [NoteEvent(i * 0.25, i * 0.25 + 0.22, root + s, 100) for i, s in enumerate(steps)]
     chord = [0] if low else [0, 4, 7]
     notes += [NoteEvent(1.0, 2.4, root + s, 90) for s in chord]
-    audio = render_notes(notes, sample_rate, voice, duration_s=3.0)
+    audio = render_notes(notes, sample_rate, patch or voice, duration_s=3.0)
     return audio / max(float(np.max(np.abs(audio))), 1e-9) * 0.89
 
 

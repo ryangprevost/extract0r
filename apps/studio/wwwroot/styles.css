@@ -1701,3 +1701,14 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .mix-buttons .on { background: var(--accent); color: var(--ink); border-color: var(--accent); }
 .mix-control { display: grid; gap: 2px; }
 .mix-control input[type=range], .mix-control select { width: 100%; }
+
+/* -- Sprint 8: shaping the sounds -- */
+.shaper-box { margin: 12px 0; }
+.shaper-box summary { cursor: pointer; font-weight: 600; }
+.shape-knobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px 16px; margin: 8px 0; }
+.shape-knob { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 2px 8px; }
+.shape-knob .tiny { grid-column: 2; }
+.shape-name { font-family: var(--mono); font-size: 12px; }
+.shape-drum { grid-column: 1 / -1; margin: 6px 0 0; font-size: 12.5px; }
+.shape-yours-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0; }

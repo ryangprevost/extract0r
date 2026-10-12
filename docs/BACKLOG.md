@@ -2617,6 +2617,24 @@ off**, not by being near it.
 
 ---
 
+### X0R-1380 · Shape the sounds · 5 · `DONE` 2026-10-12
+**As a** person choosing sounds **I want** to turn a voice brighter, a kick lower, a snare
+snappier **so that** the sounds in my remix are mine, not stock.
+
+See [SPRINT-8.md](sprints/SPRINT-8.md).
+
+**Acceptance criteria**
+- Eight knobs on every voice, five on every drum, named for what is heard; 0 is the stock
+  sound exactly (tested for every voice and kit). ✅
+- Heard as it is turned, rendered by the engine that plays the parts. ✅
+- Kept under a name in `samples/sounds/`, outside the repository; in every voice and kit
+  list; described in words. ✅
+- Every shaped voice still plays its note at every extreme - nine failures in the first
+  version, fixed by changing what weight, brightness and width do, not by loosening the
+  test. ✅
+
+---
+
 ### X0R-1370 · Mix each part · 8 · `DONE` 2026-10-12
 **As a** person finishing a remix **I want** to balance, place and treat each part while it
 plays **so that** the version sounds mixed, not summed.

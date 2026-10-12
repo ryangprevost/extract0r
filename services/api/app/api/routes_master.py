@@ -1333,7 +1333,7 @@ def list_tracks(registry: TrackRegistry = Depends(get_registry)) -> dict:
 
 
 @router.get("/voices")
-def list_voices() -> dict:
+def list_voices(settings: Settings = Depends(get_config)) -> dict:
     """What a transcribed part can be played on. X0R-1325.
 
     Parameters rather than recordings, which is `kit.py`'s argument reused: nothing here is
@@ -1356,13 +1356,115 @@ def list_voices() -> dict:
         "bell": "Sparse and ringing — a bell or mallet top line over the drop.",
         "square": "Hollow and bright — chiptune and old-school rave leads.",
     }
+    from app.services.synth.shape import describe, user_sounds
+
+    mine = [
+        {"id": name, "label": f"{name} (yours)", "about": "Shaped: " + describe(
+            "voice", sound["base"], sound.get("knobs") or {}), "yours": True}
+        for name, sound in user_sounds(settings.sample_dir).items() if sound["kind"] == "voice"
+    ]
     return {
         "voices": [
             {"id": name, "label": name, "about": blurbs.get(name, ""),
              "partials": len(voice.partials), "stack": voice.stack}
             for name, voice in sorted(VOICES.items())
-        ]
+        ] + mine
     }
+
+
+class SoundRequest(BaseModel):
+    """A sound to hear or keep: a built-in voice or kit, and knob positions (-1..1)."""
+
+    kind: str = Field(pattern="^(voice|kit)$")
+    base: str
+    #: For a voice, {knob: value}. For a kit, {drum: {knob: value}}.
+    knobs: dict = Field(default_factory=dict)
+    name: str | None = None
+
+
+def _check_sound(body: SoundRequest) -> None:
+    from app.services.drums.kit import KITS
+    from app.services.synth.voice import VOICES
+
+    if body.kind == "voice" and body.base not in VOICES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"No voice called {body.base!r} to start from.")
+    if body.kind == "kit" and body.base not in KITS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"No kit called {body.base!r} to start from.")
+
+
+@router.get("/sounds")
+def list_sounds(settings: Settings = Depends(get_config)) -> dict:
+    """The knobs there are, and the sounds you have shaped. Sprint 8."""
+    from app.services.drums.kit import DRUMS, KITS
+    from app.services.synth import shape
+    from app.services.synth.voice import VOICES
+
+    return {
+        "voice_knobs": shape.VOICE_KNOBS,
+        "drum_knobs": shape.DRUM_KNOBS,
+        "drums": list(DRUMS),
+        "voices": sorted(VOICES),
+        "kits": list(KITS),
+        "yours": [{"name": n, **v, "about": shape.describe(v["kind"], v["base"],
+                                                           v.get("knobs") or {})}
+                  for n, v in shape.user_sounds(settings.sample_dir).items()],
+    }
+
+
+@router.post("/sounds/preview")
+def preview_sound(body: SoundRequest) -> Response:
+    """Hear a sound with these knobs, before keeping it - the phrase a voice is previewed on,
+    or two bars of a beat for a kit. The exact sound a part will be played on."""
+    from app.services.drums.kit import render_voice
+    from app.services.synth import library, shape
+    from app.services.synth.voice import VOICES
+
+    _check_sound(body)
+    rate = 44100
+    if body.kind == "voice":
+        patch = shape.shape_voice(VOICES[body.base], body.knobs)
+        audio = library.preview_voice(body.base, rate, patch)
+    else:
+        kit = shape.shape_kit(body.base, body.knobs)
+        audio = library.preview_kit({d: render_voice(v, rate, seed=i)
+                                     for i, (d, v) in enumerate(kit.items())}, rate)
+    return Response(library.wav_bytes(audio, rate), media_type="audio/wav")
+
+
+@router.post("/sounds", status_code=status.HTTP_201_CREATED)
+def save_sound(body: SoundRequest, settings: Settings = Depends(get_config)) -> dict:
+    """Keep a shaped sound under a name. It is then in every voice or kit list."""
+    from app.services.drums.kit import KITS
+    from app.services.synth import library, shape
+    from app.services.synth.voice import VOICES
+
+    _check_sound(body)
+    name = (body.name or "").strip()
+    if not shape.SAFE_NAME.match(name):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "A sound's name can hold letters, numbers, spaces, hyphens and "
+                            "underscores, up to 32 of them.")
+    taken = (name in VOICES or name in KITS or name in library.user_kits(settings.sample_dir)
+             or (settings.sample_dir / f"{name}.wav").exists())
+    existing = shape.user_sounds(settings.sample_dir).get(name)
+    if taken or (existing and existing["kind"] != body.kind):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"{name!r} is already the name of something else. Call it "
+                            f"something else.")
+    shape.save_sound(settings.sample_dir, name, body.kind, body.base, body.knobs)
+    return {"name": name, "kind": body.kind,
+            "about": shape.describe(body.kind, body.base, body.knobs)}
+
+
+@router.delete("/sounds/{name}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_sound(name: str, settings: Settings = Depends(get_config)) -> Response:
+    from app.services.synth import shape
+
+    if not shape.SAFE_NAME.match(name) or not shape.delete_sound(settings.sample_dir, name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No sound of yours called {name!r}.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 class KitRequest(BaseModel):
@@ -1397,13 +1499,20 @@ def sound_library(settings: Settings = Depends(get_config)) -> dict:
                 continue  # longer than a one-shot: a phrase or a loop, not a drum hit
             kind, why = library.classify(data, rate)
             shots.append({"name": path.stem, "sounds_like": kind, "why": why})
-    blurbs = list_voices()["voices"]
+    blurbs = list_voices(settings)["voices"]
+    from app.services.synth.shape import describe as said_shape
+    from app.services.synth.shape import user_sounds
+
+    shaped = {n: v for n, v in user_sounds(settings.sample_dir).items() if v["kind"] == "kit"}
     return {
         "kits": [{"name": k, "yours": False, "about": library.KIT_ABOUT.get(k, "")}
                  for k in KITS]
+        + [{"name": k, "yours": True, "about": "Shaped: " + said_shape(
+            "kit", v["base"], v.get("knobs") or {})} for k, v in shaped.items()]
         + [{"name": k, "yours": True, "about": "Your kit: " + ", ".join(
             f"{d} - {n}" for d, n in v.items())} for k, v in mine.items()],
-        "voices": [{"name": v["id"], "about": v["about"]} for v in blurbs if v["id"] in VOICES],
+        "voices": [{"name": v["id"], "about": v["about"]} for v in blurbs
+                   if v["id"] in VOICES or v.get("yours")],
         "one_shots": shots,
         "note": "Built-in sounds are synthesised here, so nothing anybody else recorded ships. "
         "Your kits are made of samples you uploaded and stay on this machine.",
@@ -1423,15 +1532,17 @@ def preview_kit(kit: str, settings: Settings = Depends(get_config)) -> Response:
 
 
 @router.get("/library/voices/{voice}/preview")
-def preview_voice(voice: str) -> Response:
+def preview_voice(voice: str, settings: Settings = Depends(get_config)) -> Response:
     """A short phrase on this voice, in its own register."""
     from app.services.synth import library
-    from app.services.synth.voice import VOICES
+    from app.services.synth.shape import user_sounds, voice_named
 
-    if voice not in VOICES:
+    patch = voice_named(voice, settings.sample_dir)
+    if patch is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No voice called {voice!r}.")
+    base = user_sounds(settings.sample_dir).get(voice, {}).get("base", voice)
     rate = 44100
-    return Response(library.wav_bytes(library.preview_voice(voice, rate), rate),
+    return Response(library.wav_bytes(library.preview_voice(base, rate, patch), rate),
                     media_type="audio/wav")
 
 
@@ -1936,17 +2047,22 @@ def revoice(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
 
     from app.services.synth import library
-    from app.services.synth.voice import VOICES
 
     if stem is StemKind.DRUMS and not library.exists(kit, settings.sample_dir):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No kit called {kit!r}.")
+    from app.services.synth.shape import voice_named
+
     sample_path = None
+    patch = None
     if sample:
         sample_path = _sample_path(settings, sample)
         if not sample_path.exists():
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"No sample called {sample!r}.")
-    elif voice not in VOICES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No voice called {voice!r}.")
+    else:
+        # A built-in voice, or one you shaped. Sprint 8.
+        patch = voice_named(voice, settings.sample_dir)
+        if patch is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No voice called {voice!r}.")
 
     path = _stem_path(record.separation, stem)
     if path is None:
@@ -2091,7 +2207,7 @@ def revoice(
                 merged, held, raw, rate, stretched, pitched
             )
         else:
-            audio = render_notes(merged, probe.samplerate, voice, duration_s=stretched)
+            audio = render_notes(merged, probe.samplerate, patch, duration_s=stretched)
 
         out_dir.mkdir(parents=True, exist_ok=True)
         wav = out_dir / f"{stem.value}.{label}.wav"
@@ -2141,12 +2257,14 @@ def revoiced_audio(
     # point: the name is rebuilt from known parts rather than taken from the URL.
     from app.services.drums.kit import KITS
     from app.services.synth import library
+    from app.services.synth.shape import voice_named
 
     known = (
         voice in VOICES
         or voice in KITS
         or (settings.sample_dir / f"{voice}.wav").exists()
         or library.exists(voice, settings.sample_dir)
+        or voice_named(voice, settings.sample_dir) is not None
     )
     if extension != "wav" or not known or stem not in {k.value for k in StemKind}:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such render.")

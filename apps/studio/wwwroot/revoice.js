@@ -1088,7 +1088,18 @@ const Revoice = (() => {
     await refreshSamples();
   }
 
-  return { init, show, chosen, reset };
+  /** Sprint 8: a sound was kept or deleted - every list that offers sounds hears of it. */
+  async function refreshSounds() {
+    try {
+      voices = (await api("/tracks/voices")).voices || [];
+    } catch {
+      /* keep what we had */
+    }
+    await loadLibrary();
+    render();
+  }
+
+  return { init, show, chosen, reset, refreshSounds };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Revoice.init());

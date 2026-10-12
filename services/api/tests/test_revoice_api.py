@@ -738,3 +738,17 @@ def test_the_layer_url_refuses_anything_that_is_not_a_layer(client, separated, l
 def test_the_reverb_impulse_is_served_for_the_page(client):
     response = client.get("/api/v1/tracks/mixer/impulse?rate=22050")
     assert response.status_code == 200 and response.headers["content-type"] == "audio/wav"
+
+
+# --- Sprint 8: shaped sounds ---------------------------------------------------------------
+
+
+def test_a_kept_kit_is_a_kit_everywhere(client, separated):
+    client.post("/api/v1/tracks/sounds", json={
+        "kind": "kit", "base": "house", "knobs": {"kick": {"tune": -0.4}}, "name": "low house"})
+    kits = {k["name"]: k for k in client.get("/api/v1/tracks/library").json()["kits"]}
+    assert kits["low house"]["yours"] and "kick lower" in kits["low house"]["about"]
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    started = client.post(f"/api/v1/tracks/{separated}/bounce",
+                          json={"target_bpm": 120, "beat": "house", "beat_kit": "low house"})
+    assert finish(client, started.json()["job_id"])["state"] == "succeeded"

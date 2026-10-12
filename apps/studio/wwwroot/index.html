@@ -911,6 +911,35 @@
         </div>
         <p class="muted small" id="mykit-said"></p>
       </details>
+      <!-- Sprint 8: knobs on every voice and kit, heard as they turn, kept under a name. -->
+      <details class="shaper-box" id="shaper-box">
+        <summary>Shape a sound</summary>
+        <p class="muted small">
+          Start from any voice or kit and turn the knobs - each one is named for what you
+          will hear. Every change plays the new sound. Double-click a knob to put it back.
+        </p>
+        <div class="revoice-row">
+          <label>Shape a
+            <select id="shape-kind">
+              <option value="voice">synth voice</option>
+              <option value="kit">drum kit</option>
+            </select>
+          </label>
+          <label>starting from <select id="shape-base"></select></label>
+          <button class="small" id="shape-hear" type="button">Hear it</button>
+          <button class="small" id="shape-reset" type="button">Back to stock</button>
+        </div>
+        <div class="shape-knobs" id="shape-knobs"></div>
+        <div class="revoice-row">
+          <label>Keep it as
+            <input type="text" id="shape-name" maxlength="32" placeholder="my 808" />
+          </label>
+          <button class="primary small" id="shape-keep" type="button">Keep it</button>
+        </div>
+        <p class="muted small" id="shape-said"></p>
+        <h4 class="library-head" id="shape-yours-head" hidden>Your sounds</h4>
+        <div id="shape-yours"></div>
+      </details>
       <p class="muted small" id="revoice-summary"></p>
       <!-- The whole song at the new tempo, as one file you can play and keep. The thing
            all of the rows above are building towards. -->
@@ -1145,6 +1174,7 @@
 <script src="arrange.js"></script>
 <script src="notes.js"></script>
 <script src="mixer.js"></script>
+<script src="shaper.js"></script>
 <script src="dropzone.js"></script>
 <script src="spectrum.js"></script>
 <script src="groups.js"></script>

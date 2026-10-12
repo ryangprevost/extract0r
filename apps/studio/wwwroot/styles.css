@@ -1687,3 +1687,17 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .beat-editor { flex-basis: 100%; }
 .beat-editor .cell { cursor: pointer; padding: 0; }
 .beat-editor .cell:focus-visible { outline: 2px solid var(--accent); }
+
+/* -- Sprint 7: the mixer -- */
+.mixer { margin: 16px 0; padding: 10px; border: 1px solid var(--edge); border-radius: 8px;
+  display: grid; gap: 8px; }
+.mixer-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#mixer-seek { flex: 1; min-width: 120px; }
+.mixer-strips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.mix-strip { flex: 0 0 128px; display: grid; gap: 6px; align-content: start; padding: 8px;
+  border: 1px solid var(--edge); border-radius: 6px; background: var(--panel-2); }
+.mix-strip strong { font-size: 12.5px; }
+.mix-buttons { display: flex; gap: 4px; }
+.mix-buttons .on { background: var(--accent); color: var(--ink); border-color: var(--accent); }
+.mix-control { display: grid; gap: 2px; }
+.mix-control input[type=range], .mix-control select { width: 100%; }

@@ -2617,6 +2617,25 @@ off**, not by being near it.
 
 ---
 
+### X0R-1370 · Mix each part · 8 · `DONE` 2026-10-12
+**As a** person finishing a remix **I want** to balance, place and treat each part while it
+plays **so that** the version sounds mixed, not summed.
+
+See [SPRINT-7.md](sprints/SPRINT-7.md).
+
+**Acceptance criteria**
+- Every bounce keeps its layers; a flat mix of them is the bounced file (-72 dBFS, 16-bit
+  rounding). ✅
+- A live mixer: level, pan, mute, solo, low and high cut, reverb and delay sends per layer;
+  play, pause, stop, seek. ✅
+- *Bounce this mix* renders on the server in seconds and describes the mix. ✅
+- **Heard = bounced**, measured per component against a browser render of the same graph:
+  every component -87 dB or better, everything at once -84.8 dB. Four real mismatches found
+  and fixed on the way (filter bypass, Q in dB, Chromium's feedback-loop latency, fader-off).
+  ✅
+
+---
+
 ### X0R-1360 · Edit notes and beats · 8 · `DONE` 2026-10-12
 **As a** person remixing **I want** to change the notes of a part and write my own beat **so
 that** the remix is mine, not only a re-voicing of the band.

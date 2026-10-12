@@ -668,3 +668,73 @@ def test_a_beat_row_that_is_not_a_row_is_refused(client, separated, rows):
     response = client.post(f"/api/v1/tracks/{separated}/bounce",
                            json={"custom_beat": {"rows": rows}})
     assert response.status_code == 400
+
+
+# --- Sprint 7: mixing each part ----------------------------------------------------------------
+
+
+def bounced(client, track, body=None):
+    client.put(f"/api/v1/tracks/{track}/tempo?bpm=120")
+    started = client.post(f"/api/v1/tracks/{track}/bounce",
+                          json=body or {"target_bpm": 120, "beat": "house"})
+    result = finish(client, started.json()["job_id"])
+    assert result["state"] == "succeeded", result
+    return result["result"]
+
+
+def test_a_version_comes_with_its_layers(client, separated):
+    result = bounced(client, separated)
+    names = [layer["name"] for layer in result["layers"]]
+    assert "beat" in names and "drums" in names
+    assert result["label"] == "120" and result["layer_gain"] >= 1.0
+    layer = client.get(result["layers"][0]["url"])
+    assert layer.status_code == 200 and layer.headers["content-type"] == "audio/wav"
+
+
+def test_a_flat_mix_is_the_version_it_came_from(client, separated):
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    result = bounced(client, separated)
+    before, _ = sf.read(io.BytesIO(client.get(result["wav"]).content), always_2d=True)
+    mixed = finish(client, client.post(f"/api/v1/tracks/{separated}/version/120/mix",
+                                       json={"channels": {}}).json()["job_id"])["result"]
+    assert mixed["headline"].startswith("Mixed flat")
+    after, _ = sf.read(io.BytesIO(client.get(mixed["wav"]).content), always_2d=True)
+    assert before.shape == after.shape
+    # Only 16-bit rounding of each layer, summed: measured at -72 dBFS, held under -60.
+    assert np.max(np.abs(before - after)) < 1e-3
+
+
+def test_a_mix_is_bounced_and_described(client, separated):
+    bounced(client, separated)
+    started = client.post(f"/api/v1/tracks/{separated}/version/120/mix", json={"channels": {
+        "beat": {"gain_db": -6, "pan": 0.3}, "drums": {"mute": True}}})
+    result = finish(client, started.json()["job_id"])["result"]
+    assert "Added beat: -6.0 dB, panned 30% right." in result["lines"]
+    assert "Drums: muted." in result["lines"]
+
+
+def test_mixing_a_layer_the_version_does_not_have_is_refused(client, separated):
+    bounced(client, separated)
+    response = client.post(f"/api/v1/tracks/{separated}/version/120/mix",
+                           json={"channels": {"build": {"gain_db": -3}}})
+    assert response.status_code == 400 and "no build" in response.json()["detail"]
+
+
+def test_mixing_before_making_the_version_says_so(client, separated):
+    response = client.post(f"/api/v1/tracks/{separated}/version/99/mix", json={})
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize("label, name", [("120", "kazoo"), ("../x", "beat"), ("1200", "beat")])
+def test_the_layer_url_refuses_anything_that_is_not_a_layer(client, separated, label, name):
+    assert client.get(f"/api/v1/tracks/{separated}/version/{label}/layers/{name}").status_code \
+        == 404
+
+
+def test_the_reverb_impulse_is_served_for_the_page(client):
+    response = client.get("/api/v1/tracks/mixer/impulse?rate=22050")
+    assert response.status_code == 200 and response.headers["content-type"] == "audio/wav"

@@ -2464,6 +2464,7 @@ def bounce_version(
             first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
             longest = max(len(a) for a in audio.values()) / rate
             beats = beat_grid(first * scale, target, longest * scale)
+        layers: dict = {}
         try:
             mix, account = bounce(
                 audio, rate, scale, replays,
@@ -2478,6 +2479,7 @@ def bounce_version(
                 beat_sounds=library.sounds(body.beat_kit, rate, sample_dir) if added_beat else None,
                 humanize=body.humanize,
                 pieces=pieces,
+                layers_out=layers,
             )
         except StaleRender as exc:
             return {"ok": False, "why": str(exc), "stem": exc.stem}
@@ -2486,6 +2488,8 @@ def bounce_version(
         bpm = round(body.target_bpm) if body.target_bpm else "same"
         wav = write_wav(out_dir / f"version.{bpm}.wav", mix, rate, "24")
         mp3 = write_mp3(out_dir / f"version.{bpm}.mp3", mix, rate)
+        handle.update(JobState.RUNNING, 0.92, "keeping each part for the mixer")
+        mixable = _save_layers(out_dir, str(bpm), layers, mix, rate, target)
         from app.services.synth.retempo import summarise
 
         said = summarise(move, account)
@@ -2502,9 +2506,166 @@ def bounce_version(
             "mp3": f"/api/v1/tracks/{track_id}/version/{mp3.name}",
             "note": "A sketch of the version, not a master - the mastering page is where "
             "loudness is decided.",
+            # Sprint 7: the layers, for the mixer.
+            "label": str(bpm),
+            "layers": [{"name": n, "label": lbl,
+                        "url": f"/api/v1/tracks/{track_id}/version/{bpm}/layers/{n}"}
+                       for n, lbl in mixable["layers"]],
+            "layer_gain": mixable["layer_gain"],
+            "tempo_bpm": round(target, 2) if target else None,
         }
 
     return to_response(jobs.submit("bounce", track_id, work))
+
+
+# --- Sprint 7: mixing each part -----------------------------------------------------------
+
+_LABEL = re.compile(r"\d{2,3}|same")
+
+
+def _save_layers(out_dir: Path, label: str, layers: dict, mix, rate: int, bpm: float) -> dict:
+    """Every layer of a version as its own file, for the mixer, and how to read them back.
+
+    Scaled by what the bounce did to the sum, so a flat mix of the layers *is* the file that
+    was just written. Then, if any single layer would clip as 16-bit, all of them come down
+    together and `layer_gain` says by how much - the page and the server both turn them back
+    up by it.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    from app.services.synth.mixer import LAYERS
+
+    names = [n for n in LAYERS if n in layers]
+    if not names:
+        return {"layers": [], "layer_gain": 1.0}
+    raw = sum(np.asarray(layers[n], dtype=np.float64) for n in names)
+    raw_peak = float(np.max(np.abs(raw))) or 1.0
+    bounced = float(np.max(np.abs(mix))) or raw_peak
+    scale = bounced / raw_peak
+    loudest = max(float(np.max(np.abs(layers[n]))) for n in names) * scale
+    fit = min(1.0, 0.99 / loudest) if loudest > 0 else 1.0
+    for old in out_dir.glob(f"layer.{label}.*.wav"):
+        old.unlink()
+    for n in names:
+        sf.write(str(out_dir / f"layer.{label}.{n}.wav"),
+                 np.asarray(layers[n]) * scale * fit, rate, subtype="PCM_16")
+    meta = {"layers": names, "layer_gain": 1.0 / fit, "bpm": bpm, "rate": rate}
+    (out_dir / f"layer.{label}.json").write_text(json.dumps(meta), "utf-8")
+    return {"layers": [(n, LAYERS[n]) for n in names], "layer_gain": round(1.0 / fit, 6)}
+
+
+class ChannelIn(BaseModel):
+    gain_db: float = Field(0.0, ge=-60.0, le=12.0)
+    pan: float = Field(0.0, ge=-1.0, le=1.0)
+    mute: bool = False
+    solo: bool = False
+    low_cut_hz: float = Field(0.0, ge=0.0, le=2000.0)
+    high_cut_hz: float = Field(0.0, ge=0.0, le=20000.0)
+    reverb: float = Field(0.0, ge=0.0, le=1.0)
+    delay: float = Field(0.0, ge=0.0, le=1.0)
+
+
+class MixRequest(BaseModel):
+    channels: dict[str, ChannelIn] = Field(default_factory=dict)
+
+
+@router.get("/mixer/impulse")
+def mixer_impulse(rate: int = Query(44100, ge=8000, le=192000)) -> Response:
+    """The reverb's impulse response, for the page's ConvolverNode - the same one the server
+    convolves with, so the reverb heard is the reverb bounced. 32-bit float WAV."""
+    import io
+
+    import soundfile as sf
+
+    from app.services.synth.mixer import impulse
+
+    buffer = io.BytesIO()
+    sf.write(buffer, impulse(rate), rate, format="WAV", subtype="FLOAT")
+    return Response(buffer.getvalue(), media_type="audio/wav")
+
+
+@router.get("/{track_id}/version/{label}/layers/{name}")
+def version_layer(track_id: str, label: str, name: str,
+                  storage: TrackStorage = Depends(get_storage)) -> FileResponse:
+    """One layer of a bounced version. Both parts of the name are checked against closed
+    lists, because a path built from a URL is a traversal waiting to happen."""
+    from app.services.synth.mixer import LAYERS
+
+    if not _LABEL.fullmatch(label) or name not in LAYERS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such layer.")
+    path = storage.exports_dir(track_id) / f"layer.{label}.{name}.wav"
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Make the version first.")
+    return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+
+@router.post("/{track_id}/version/{label}/mix", response_model=JobResponse)
+def mix_version(
+    track_id: str,
+    label: str,
+    body: MixRequest,
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """Bounce the version again with a mix: each layer's level, pan, mute, solo, tone and
+    sends. Nothing is re-played or re-stretched - the layers saved by the last bounce are
+    mixed - so this takes seconds. Sprint 7, see `synth/mixer.py`."""
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if not _LABEL.fullmatch(label):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such version.")
+    out_dir = storage.exports_dir(track_id)
+    meta_path = out_dir / f"layer.{label}.json"
+    if not meta_path.exists():
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Make the version first - the mixer mixes its parts.")
+    meta = json.loads(meta_path.read_text("utf-8"))
+    unknown = set(body.channels) - set(meta["layers"])
+    if unknown:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"This version has no {', '.join(sorted(unknown))} to mix. Its "
+                            f"parts are {', '.join(meta['layers'])}.")
+
+    def work(handle: JobHandle) -> dict:
+        import numpy as np
+        import soundfile as sf
+
+        from app.services.mixdown.encode import write_mp3, write_wav
+        from app.services.synth import mixer
+
+        handle.update(JobState.RUNNING, 0.2, "mixing")
+        layers, rate = {}, meta["rate"]
+        for name in meta["layers"]:
+            data, rate = sf.read(str(out_dir / f"layer.{label}.{name}.wav"), dtype="float64",
+                                 always_2d=True)
+            layers[name] = data * meta["layer_gain"]
+        channels = {n: mixer.Channel(**c.model_dump()) for n, c in body.channels.items()}
+        mixed = mixer.mix(layers, channels, rate, meta.get("bpm") or 0.0)
+        # The same ceiling the bounce uses: -1 dBFS if the mix went over, nothing otherwise.
+        peak = float(np.max(np.abs(mixed))) if mixed.size else 0.0
+        ceiling = 10 ** (-1.0 / 20)
+        if peak > ceiling:
+            mixed *= ceiling / peak
+        handle.update(JobState.RUNNING, 0.8, "writing the file")
+        wav = write_wav(out_dir / f"version.{label}.wav", mixed, rate, "24")
+        mp3 = write_mp3(out_dir / f"version.{label}.mp3", mixed, rate)
+        meta["mix"] = {n: c.model_dump() for n, c in body.channels.items()}
+        meta_path.write_text(json.dumps(meta), "utf-8")
+        said = mixer.describe(channels)
+        return {
+            "ok": True,
+            "headline": "Mixed." if said else "Mixed flat - every part as it was.",
+            "lines": said,
+            "duration_s": round(len(mixed) / rate, 1),
+            "wav": f"/api/v1/tracks/{track_id}/version/{wav.name}",
+            "mp3": f"/api/v1/tracks/{track_id}/version/{mp3.name}",
+        }
+
+    return to_response(jobs.submit("mix", track_id, work))
 
 
 def _have_detector() -> bool:

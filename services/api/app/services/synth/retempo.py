@@ -323,6 +323,7 @@ def bounce(
     beat_sounds: dict[str, np.ndarray] | None = None,
     humanize: float = 0.0,
     pieces: list | None = None,
+    layers_out: dict | None = None,
 ) -> tuple[np.ndarray, list[Part]]:
     """Every part of the song at the new tempo, summed. Returns the audio and the account.
 
@@ -424,6 +425,11 @@ def bounce(
 
         take = min(len(part), length)
         mix[:take] += part[:take]
+        if layers_out is not None:
+            # Sprint 7: each part kept on its own, for the mixer.
+            layer = np.zeros((length, 2))
+            layer[:take] = part[:take]
+            layers_out[stem] = layer
 
     if pump_db > 0 and beats is not None and bpm > 0:
         pumped = [p.stem for p in account if p.stem != "drums"]
@@ -436,12 +442,19 @@ def bounce(
         # Any groove - built in, or read off a reference - added alongside the band. Sprint 4.
         from app.services.synth.groove import render as play_groove
 
-        mix += play_groove(added_beat, beats, sample_rate, length, kit=beat_kit,
-                           rest=beat_rests, swing=swing, sounds=beat_sounds, humanize=humanize)
+        played = play_groove(added_beat, beats, sample_rate, length, kit=beat_kit,
+                             rest=beat_rests, swing=swing, sounds=beat_sounds,
+                             humanize=humanize)
+        mix += played
+        if layers_out is not None:
+            layers_out["beat"] = played
         account.append(Part("beat", "added", _beat_detail(added_beat, swing, humanize)))
     elif floor_kick and beats is not None and bpm > 0:
         # The added kick sits out the build, so the drop is where it arrives.
-        mix += four_on_the_floor(beats, bpm, sample_rate, length, rest=beat_rests)
+        played = four_on_the_floor(beats, bpm, sample_rate, length, rest=beat_rests)
+        mix += played
+        if layers_out is not None:
+            layers_out["beat"] = played
         account.append(Part("four on the floor", "added",
                             "a kick on every beat and hats between — not from your recording"))
     for stem in left_out:
@@ -450,7 +463,10 @@ def bounce(
         from app.services.synth.drop import build_and_drop, describe
 
         for bar in drops:
-            mix += build_and_drop(beats, bpm, sample_rate, length, bar)
+            built = build_and_drop(beats, bpm, sample_rate, length, bar)
+            mix += built
+            if layers_out is not None:
+                layers_out["build"] = layers_out.get("build", 0) + built
             build, impact = describe(bar)
             account.append(Part("build", "added", build))
             account.append(Part("drop", "added", impact))

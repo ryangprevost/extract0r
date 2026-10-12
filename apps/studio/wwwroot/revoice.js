@@ -580,6 +580,8 @@ const Revoice = (() => {
       note.className = "muted tiny";
       note.textContent = result.note || "";
       host.appendChild(note);
+      // Sprint 7: the version's layers go to the mixer.
+      if (typeof Mixer !== "undefined") Mixer.load(result);
     } catch (error) {
       fail("revoice-error", error);
     } finally {
@@ -1040,6 +1042,7 @@ const Revoice = (() => {
     if ($("beat-select")?.value === "reference") $("beat-select").value = "";
     if (typeof Arrange !== "undefined") Arrange.reset();
     if (typeof Notes !== "undefined") Notes.close();
+    if (typeof Mixer !== "undefined") Mixer.reset();
     customRows = null;
     customBase = null;
     if ($("beat-select")?.value === "custom") $("beat-select").value = "";

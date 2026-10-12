@@ -997,6 +997,30 @@
         </span>
       </div>
       <div id="bounce-result"></div>
+      <!-- Sprint 7: every layer of the version on its own channel strip, heard live. -->
+      <section class="mixer" id="mixer" hidden>
+        <div class="mixer-top">
+          <strong>Mixer</strong>
+          <button class="small" id="mixer-play" type="button">Play</button>
+          <button class="small" id="mixer-stop" type="button">Stop</button>
+          <input type="range" id="mixer-seek" min="0" max="1" step="0.01" value="0"
+                 aria-label="Position in the version" />
+          <span class="muted small" id="mixer-time">0:00</span>
+          <span class="muted small" id="mixer-status"></span>
+        </div>
+        <p class="muted small">
+          Every part of the version on its own strip. Move anything while it plays - what you
+          hear is what <em>Bounce this mix</em> writes. Reverb and delay are shared, like on
+          a desk: each strip decides how much it sends to them.
+        </p>
+        <div class="mixer-strips" id="mixer-strips"></div>
+        <div class="bounce-box">
+          <button class="primary" id="mixer-bounce" type="button">Bounce this mix</button>
+          <button class="small" id="mixer-reset" type="button">Reset the mix</button>
+          <span class="muted small">Seconds, not minutes - nothing is played again, the parts are just mixed.</span>
+        </div>
+        <div id="mixer-result"></div>
+      </section>
       <p class="muted small working" id="revoice-working" hidden></p>
       <p class="error" id="revoice-error" hidden></p>
       <div id="revoice-result"></div>
@@ -1120,6 +1144,7 @@
 <script src="revoice.js"></script>
 <script src="arrange.js"></script>
 <script src="notes.js"></script>
+<script src="mixer.js"></script>
 <script src="dropzone.js"></script>
 <script src="spectrum.js"></script>
 <script src="groups.js"></script>

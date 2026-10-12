@@ -2617,6 +2617,39 @@ off**, not by being near it.
 
 ---
 
+### X0R-1442 · Mark the song's parts yourself · 3 · `TODO`
+**As a** person rearranging a song **I want** to say where the verse, chorus and bridge start
+myself **so that** the arrangement editor works on the sections I hear, not the ones the
+detector guessed.
+
+Ryan, 2026-10-12: *"please let me determine the parts of the song instead of parsing them.
+this can be a future enhancement."* Today `GET /sections` reads four-bar phrases and groups
+them by sound (Sprint 5), tuned on synthetic songs only.
+
+**Acceptance criteria (proposed)**
+- A timeline of the song in bars, with its waveform, where a click sets a section start and a
+  name can be typed (verse, chorus, drop ...); sections snap to bars.
+- The detected sections are the starting suggestion, never forced; the person's sections are
+  kept beside the track and used everywhere sections are (arrangement, previews, MIDI).
+- Hear a section from its start while placing it.
+
+---
+
+### X0R-1441 · The site timed out while code was changing · 1 · `DONE` 2026-10-12 · **defect**
+The API ran under `uvicorn --reload`, so every server-code change restarted it and requests in
+those seconds failed. Now runs without auto-reload, restarted deliberately. See
+[SPRINT-12.md](sprints/SPRINT-12.md) §1.
+
+---
+
+### X0R-1440 · Real synths, and styles · 5 · `DONE` 2026-10-12
+Free-licensed synth multisamples (CC0 / public domain, in the user's samples folder only)
+imported as instruments with measured pitches; parts play on them like a sampler, moved by
+octaves to sit in range; five styles that pick a real synth for every part. See
+[SPRINT-12.md](sprints/SPRINT-12.md) §2-3.
+
+---
+
 ### X0R-1432 · pr0ducer kept jumping back to the mastering studio · 1 · `DONE` 2026-10-12 · **defect**
 Ryan: *"clicking around the pr0ducor seems to take me back to the mastering studio content."*
 Opening a song ended its loading with `goToPage("master")` ~25 s later, undoing a move to

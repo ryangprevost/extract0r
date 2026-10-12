@@ -868,3 +868,20 @@ def test_sections_and_drops_are_worked_out_once_per_tempo(client, separated):
     client.put(f"/api/v1/tracks/{separated}/tempo?bpm=90")
     client.get(f"/api/v1/tracks/{separated}/sections")
     assert json.loads(shape.read_text())["key"][0] == 90.0       # a new grid, read again
+
+
+# --- Sprint 12: real synths ---------------------------------------------------------------------
+
+
+def test_a_part_plays_on_a_real_synth(client, separated, settings, tmp_path):
+    from tests.test_instruments import make
+
+    make(settings.sample_dir)
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    played(client, separated, "bass", PLAYED)
+    mine = [{"beat": b, "length": 0.5, "pitch": 48 + b, "velocity": 100} for b in range(4)]
+    client.put(f"/api/v1/tracks/{separated}/parts/bass/notes", json={"notes": mine})
+    started = client.post(f"/api/v1/tracks/{separated}/revoice?stem=bass&voice=test-bass")
+    result = finish(client, started.json()["job_id"])["result"]
+    assert result["voice"] == "test-bass" and result["notes"] == 4
+    assert client.get(result["url"]).status_code == 200

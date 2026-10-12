@@ -1357,8 +1357,14 @@ def list_voices(settings: Settings = Depends(get_config)) -> dict:
         "bell": "Sparse and ringing — a bell or mallet top line over the drop.",
         "square": "Hollow and bright — chiptune and old-school rave leads.",
     }
+    from app.services.synth import instruments
     from app.services.synth.shape import describe, user_sounds
 
+    real = [
+        {"id": i.id, "label": f"{i.name} (real synth)", "about": i.about, "real": True,
+         "kind": i.kind}
+        for i in instruments.installed(settings.sample_dir).values()
+    ]
     mine = [
         {"id": name, "label": f"{name} (yours)", "about": "Shaped: " + describe(
             "voice", sound["base"], sound.get("knobs") or {}), "yours": True}
@@ -1369,7 +1375,7 @@ def list_voices(settings: Settings = Depends(get_config)) -> dict:
             {"id": name, "label": name, "about": blurbs.get(name, ""),
              "partials": len(voice.partials), "stack": voice.stack}
             for name, voice in sorted(VOICES.items())
-        ] + mine
+        ] + mine + real
     }
 
 
@@ -1512,8 +1518,8 @@ def sound_library(settings: Settings = Depends(get_config)) -> dict:
             "kit", v["base"], v.get("knobs") or {})} for k, v in shaped.items()]
         + [{"name": k, "yours": True, "about": "Your kit: " + ", ".join(
             f"{d} - {n}" for d, n in v.items())} for k, v in mine.items()],
-        "voices": [{"name": v["id"], "about": v["about"]} for v in blurbs
-                   if v["id"] in VOICES or v.get("yours")],
+        "voices": [{"name": v["id"], "about": v["about"], "real": bool(v.get("real"))}
+                   for v in blurbs if v["id"] in VOICES or v.get("yours") or v.get("real")],
         "one_shots": shots,
         "note": "Built-in sounds are synthesised here, so nothing anybody else recorded ships. "
         "Your kits are made of samples you uploaded and stay on this machine.",
@@ -1535,9 +1541,14 @@ def preview_kit(kit: str, settings: Settings = Depends(get_config)) -> Response:
 @router.get("/library/voices/{voice}/preview")
 def preview_voice(voice: str, settings: Settings = Depends(get_config)) -> Response:
     """A short phrase on this voice, in its own register."""
-    from app.services.synth import library
+    from app.services.synth import instruments, library
     from app.services.synth.shape import user_sounds, voice_named
 
+    real = instruments.find(voice, settings.sample_dir)
+    if real is not None:
+        rate = 44100
+        return Response(library.wav_bytes(instruments.preview(real, rate), rate),
+                        media_type="audio/wav")
     patch = voice_named(voice, settings.sample_dir)
     if patch is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No voice called {voice!r}.")
@@ -2154,15 +2165,18 @@ def revoice(
 
     if stem is StemKind.DRUMS and not library.exists(kit, settings.sample_dir):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No kit called {kit!r}.")
+    from app.services.synth import instruments
     from app.services.synth.shape import voice_named
 
     sample_path = None
     patch = None
-    if sample:
+    # A multisampled real synth (Sprint 12) needs nothing more checked here.
+    real = None if sample else instruments.find(voice, settings.sample_dir)
+    if real is None and sample:
         sample_path = _sample_path(settings, sample)
         if not sample_path.exists():
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"No sample called {sample!r}.")
-    else:
+    elif real is None:
         # A built-in voice, or one you shaped. Sprint 8.
         patch = voice_named(voice, settings.sample_dir)
         if patch is None:
@@ -2288,6 +2302,7 @@ def revoice(
         handle.update(JobState.RUNNING, 0.7, f"playing {len(merged)} notes on the {label}")
 
         out_of_range = 0
+        octaves = 0
         if move:
             from app.services.synth.retempo import move_notes
 
@@ -2311,7 +2326,11 @@ def revoice(
                 merged, held, raw, rate, stretched, pitched
             )
         else:
-            audio = render_notes(merged, probe.samplerate, patch, duration_s=stretched)
+            if real is not None:
+                audio, out_of_range, octaves = instruments.render(
+                    merged, real, probe.samplerate, stretched)
+            else:
+                audio = render_notes(merged, probe.samplerate, patch, duration_s=stretched)
 
         out_dir.mkdir(parents=True, exist_ok=True)
         wav = out_dir / f"{stem.value}.{label}.wav"
@@ -2334,6 +2353,8 @@ def revoice(
             "moved": move.describe() if move else "",
             "duration_s": round(stretched, 1),
             "edited": edited is not None,
+            # Sprint 12: a part moved by whole octaves to sit in a real synth's range.
+            "octaves": octaves,
         }
 
     return to_response(jobs.submit("revoice", track_id, work))
@@ -2361,6 +2382,7 @@ def revoiced_audio(
     # point: the name is rebuilt from known parts rather than taken from the URL.
     from app.services.drums.kit import KITS
     from app.services.synth import library
+    from app.services.synth.instruments import find as real_synth
     from app.services.synth.shape import voice_named
 
     known = (
@@ -2369,6 +2391,7 @@ def revoiced_audio(
         or (settings.sample_dir / f"{voice}.wav").exists()
         or library.exists(voice, settings.sample_dir)
         or voice_named(voice, settings.sample_dir) is not None
+        or real_synth(voice, settings.sample_dir) is not None
     )
     if extension != "wav" or not known or stem not in {k.value for k in StemKind}:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such render.")
@@ -3055,6 +3078,16 @@ def _have_detector() -> bool:
 
 NO_DETECTOR = ("Reading a beat needs the hit detector, which comes with the ML extras "
                "(requirements-ml.txt). Built-in beats still work without it.")
+
+
+@router.get("/styles")
+def list_styles(settings: Settings = Depends(get_config)) -> dict:
+    """Styles to remix into - each a tempo, a beat, a kit and a sound for every part, real
+    synths where they are installed and this app's own voices where not. Sprint 12."""
+    from app.services.synth import instruments, styles
+
+    have = set(instruments.installed(settings.sample_dir))
+    return {"styles": [styles.resolve(name, have) for name in styles.STYLES]}
 
 
 @router.get("/grooves")

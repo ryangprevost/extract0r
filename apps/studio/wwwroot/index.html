@@ -765,8 +765,12 @@
            track hears one immediately, and learns what made it by looking at the rows. -->
       <div class="preset-box" id="preset-box">
         <div class="preset-row">
+          <!-- Sprint 12: a style is every choice a producer would make for a genre - tempo,
+               beat, kit, and a real synth for every part where one is installed. -->
+          <label class="sr-only" for="style-pick">Style</label>
+          <select id="style-pick" aria-label="style to remix into"></select>
           <button class="primary" id="preset-edm">Make it EDM</button>
-          <span class="muted small">
+          <span class="muted small" id="style-about">
             128 BPM, dance drums, an 808 bass, plucked synths for the guitars, the pump, and a
             four-on-the-floor kick &mdash; then change anything you like below.
           </span>

@@ -249,7 +249,8 @@ const Revoice = (() => {
           (result.fragments_merged ? `, ${result.fragments_merged} pieces rejoined` : "") +
           (result.out_of_range ? `, ${result.out_of_range} out of reach` : "") +
           (result.moved ? ` — ${result.moved}` : "") +
-          (result.edited ? " · your edit" : "");
+          (result.edited ? " · your edit" : "") +
+          (result.octaves ? ` · moved ${Math.abs(result.octaves)} octave${Math.abs(result.octaves) > 1 ? "s" : ""} ${result.octaves < 0 ? "down" : "up"} to sit where this synth was recorded` : "");
         // Ticked by default only at the original tempo. At a new one the box is disabled,
         // and ticking it here anyway would slip a part into the master request that the
         // pipeline cannot use.
@@ -682,9 +683,38 @@ const Revoice = (() => {
   //: and change it to a pad. Vocals stay as recorded - stretched, because a voice is the
   //: one part nobody wants replaced by a synth playing its notes.
   const EDM = {
-    tempo: 128,
+    name: "EDM", tempo: 128, beat: "four on the floor", kit: "edm", pump: true, drop: true,
     parts: { drums: "edm", bass: "808", guitar: "pluck", piano: "pad", other: "pad" },
   };
+  //: Sprint 12: every style the server offers, made concrete for this install - real
+  //: synths where they are installed. EDM above is the fallback if the list cannot load.
+  let styles = [EDM];
+
+  async function loadStyles() {
+    try {
+      styles = (await api("/tracks/styles")).styles || [EDM];
+    } catch {
+      styles = [EDM];
+    }
+    const pick = $("style-pick");
+    if (!pick) return;
+    pick.innerHTML = "";
+    for (const style of styles) pick.appendChild(new Option(`${style.name} \u00b7 ${style.tempo}`, style.name));
+    sayStyle();
+  }
+
+  function chosenStyle() {
+    return styles.find((s) => s.name === $("style-pick")?.value) || styles[0] || EDM;
+  }
+
+  function sayStyle() {
+    const style = chosenStyle();
+    $("preset-edm").textContent = `Make it ${style.name}`;
+    const real = style.real_synths
+      ? ` ${style.real_synths} part${style.real_synths === 1 ? "" : "s"} on real synths.` : "";
+    $("style-about").textContent =
+      `${style.tempo} BPM. ${style.about || ""}${real} Then change anything you like below.`;
+  }
 
   /**
    * Choose, render and bounce in one go.
@@ -696,24 +726,26 @@ const Revoice = (() => {
     const button = $("preset-edm");
     button.disabled = true;
     const was = button.textContent;
+    const style = chosenStyle();
     try {
-      setTempo(EDM.tempo);
-      for (const [stem, voice] of Object.entries(EDM.parts)) {
+      setTempo(style.tempo);
+      for (const [stem, voice] of Object.entries(style.parts)) {
         parts.set(stem, { voice });
       }
       render();
-      for (const stem of Object.keys(EDM.parts)) {
+      for (const stem of Object.keys(style.parts)) {
         button.textContent = `Playing the ${stem}…`;
         await run(stem);
       }
-      $("opt-pump").checked = true;
+      $("opt-pump").checked = !!style.pump;
       pumpDb = null;
-      $("beat-select").value = "four on the floor";
-      $("beat-kit").value = "edm";
+      $("beat-select").value = style.beat || "";
+      if (KITS.includes(style.kit)) $("beat-kit").value = style.kit;
       $("beat-swing").value = "";
       $("opt-leave-drums").checked = false;
-      // The drop only if the song has room for one - a short loop has nowhere to build.
-      if (!$("opt-drop").disabled) $("opt-drop").checked = true;
+      // The drop only if the style has one and the song has room - a short loop has
+      // nowhere to build.
+      $("opt-drop").checked = !!style.drop && !$("opt-drop").disabled;
       button.textContent = "Putting it together…";
       await makeVersion();
     } finally {
@@ -1077,6 +1109,8 @@ const Revoice = (() => {
     $("bounce-btn")?.addEventListener("click", makeVersion);
     $("midi-version-btn")?.addEventListener("click", versionMidi);
     $("preset-edm")?.addEventListener("click", makeItEdm);
+    $("style-pick")?.addEventListener("change", sayStyle);
+    loadStyles();
     $("preset-reference")?.addEventListener("click", remixLikeReference);
     $("groove-box")?.addEventListener("toggle", (e) => {
       if (e.target.open) loadMyGroove();

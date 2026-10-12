@@ -474,3 +474,14 @@ def test_an_added_beat_can_play_on_your_own_kit(client, separated):
     refused = client.post(f"/api/v1/tracks/{separated}/bounce",
                           json={"beat": "house", "beat_kit": "nobody's"})
     assert refused.status_code == 400
+
+
+def test_a_humanized_beat_says_so(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    started = client.post(f"/api/v1/tracks/{separated}/bounce",
+                          json={"target_bpm": 120, "beat": "trap", "humanize": 0.8,
+                                "pump": True})
+    body = finish(client, started.json()["job_id"])
+    lines = " ".join(body["result"]["lines"])
+    assert "a trap beat, played with a human feel" in lines
+    assert "Pumping with the added beat's kick" in lines

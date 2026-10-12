@@ -321,6 +321,7 @@ def bounce(
     swing: float | None = None,
     left_out: tuple[str, ...] = (),
     beat_sounds: dict[str, np.ndarray] | None = None,
+    humanize: float = 0.0,
 ) -> tuple[np.ndarray, list[Part]]:
     """Every part of the song at the new tempo, summed. Returns the audio and the account.
 
@@ -341,6 +342,28 @@ def bounce(
     mix = np.zeros((length, 2))
     account: list[Part] = []
     engine = stretcher_available()
+
+    rest = None
+    if drop_bar and beats is not None and bpm > 0:
+        from app.services.synth.drop import _window
+
+        rest = _window(beats, drop_bar)
+
+    # The pump follows the kick. On every beat is right for a four-on-the-floor; under a
+    # breakbeat or a trap pattern, whose kick is not on every beat, ducking on the beat
+    # fights the beat. So with an added beat it ducks where that beat's kicks are.
+    pump_at = beats
+    if added_beat is not None and beats is not None and bpm > 0 and pump_db > 0:
+        from app.services.synth.groove import events
+
+        kicks = [t for t, kind, _ in events(added_beat, beats, rest, swing,
+                                             humanize=humanize) if kind == "kick"]
+        if kicks:
+            pump_at = np.asarray(kicks)
+    # And it rests through a build, with the kick, so the drop is where the pump arrives.
+    if rest is not None and pump_at is not None:
+        pump_at = np.asarray(pump_at)
+        pump_at = pump_at[(pump_at < rest[0] - 1e-3) | (pump_at >= rest[1] - 1e-3)]
 
     for stem, audio in stems.items():
         audio = np.asarray(audio, dtype=np.float64)
@@ -367,7 +390,7 @@ def bounce(
         # The pump goes on everything except the drums: ducking the kick to itself is
         # silence on every beat, which is the opposite of the effect.
         if pump_db > 0 and beats is not None and bpm > 0 and stem != "drums":
-            part = pump(part, sample_rate, beats, bpm, pump_db)
+            part = pump(part, sample_rate, pump_at, bpm, pump_db)
         if drop_bar and beats is not None and stem != "drums":
             from app.services.synth.drop import sweep
 
@@ -379,20 +402,17 @@ def bounce(
     if pump_db > 0 and beats is not None and bpm > 0:
         pumped = [p.stem for p in account if p.stem != "drums"]
         if pumped:
-            account.append(Part("pump", "pumped", ", ".join(pumped)))
+            # Named for what it follows, because that is what is heard.
+            follows = "kick" if pump_at is not beats else "beat"
+            account.append(Part(f"pump on the {follows}", "pumped", ", ".join(pumped)))
 
-    rest = None
-    if drop_bar and beats is not None and bpm > 0:
-        from app.services.synth.drop import _window
-
-        rest = _window(beats, drop_bar)
     if added_beat is not None and beats is not None and bpm > 0:
         # Any groove - built in, or read off a reference - added alongside the band. Sprint 4.
         from app.services.synth.groove import render as play_groove
 
         mix += play_groove(added_beat, beats, sample_rate, length, kit=beat_kit, rest=rest,
-                           swing=swing, sounds=beat_sounds)
-        account.append(Part("beat", "added", _beat_detail(added_beat, swing)))
+                           swing=swing, sounds=beat_sounds, humanize=humanize)
+        account.append(Part("beat", "added", _beat_detail(added_beat, swing, humanize)))
     elif floor_kick and beats is not None and bpm > 0:
         # The added kick sits out the build, so the drop is where it arrives.
         mix += four_on_the_floor(beats, bpm, sample_rate, length, rest=rest)
@@ -417,7 +437,7 @@ def bounce(
     return mix, account
 
 
-def _beat_detail(groove, swing: float | None) -> str:
+def _beat_detail(groove, swing: float | None, humanize: float = 0.0) -> str:
     """How the account names an added beat: whose it is, and that it is not the band's."""
     whose = ("the beat from your reference" if groove.source == "your reference"
              else f"a {groove.name} beat")
@@ -426,6 +446,8 @@ def _beat_detail(groove, swing: float | None) -> str:
         feel = f", swung at {int(round(50 + 50 * swing / 3))}%"
     elif groove.source == "your reference" and groove.swing_percent >= 54:
         feel = f", with its swing ({groove.swing_percent}%)"
+    if humanize > 0.02:
+        feel += ", played with a human feel" if humanize >= 0.6 else ", with a little human feel"
     return f"{whose}{feel} — not from your recording"
 
 
@@ -470,7 +492,11 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
     if stretched:
         lines.append(f"Stretched to fit: {', '.join(stretched)}.")
     for part in pumped:
-        lines.append(f"Pumping on every beat, like a dance record: {part.detail}.")
+        if part.stem.endswith("kick"):
+            lines.append(f"Pumping with the added beat's kick, like a dance record: "
+                         f"{part.detail}.")
+        else:
+            lines.append(f"Pumping on every beat, like a dance record: {part.detail}.")
     for part in added:
         lines.append(f"Added: {part.detail}.")
     if left_out:

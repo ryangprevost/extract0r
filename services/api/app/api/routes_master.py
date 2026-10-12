@@ -2009,6 +2009,9 @@ class BounceRequest(BaseModel):
     pump_db: float | None = Field(None, ge=0.0, le=12.0)
     #: Stems to leave out of this version entirely - a mute, the user's choice.
     leave_out: list[str] = Field(default_factory=list)
+    #: How much the added beat is nudged off the grid and varied in level, 0..1. A built-in
+    #: beat is programmed dead straight; this is what makes it sound played.
+    humanize: float = Field(0.0, ge=0.0, le=1.0)
 
 
 def _resolve_beat(body: BounceRequest, out_dir: Path):
@@ -2188,6 +2191,7 @@ def bounce_version(
                 swing=body.swing,
                 left_out=tuple(body.leave_out),
                 beat_sounds=library.sounds(body.beat_kit, rate, sample_dir) if added_beat else None,
+                humanize=body.humanize,
             )
         except StaleRender as exc:
             return {"ok": False, "why": str(exc), "stem": exc.stem}
@@ -2520,7 +2524,8 @@ def version_midi(
         beat_notes = None
         beat_name = "beat"
         if added is not None:
-            beat_notes = vm.added_beat(g.events(added, beats, rest, body.swing))
+            beat_notes = vm.added_beat(g.events(added, beats, rest, body.swing,
+                                                humanize=body.humanize))
             beat_name = ("your reference's beat" if added.source == "your reference"
                          else f"{added.name} beat")
         elif body.four_on_the_floor:

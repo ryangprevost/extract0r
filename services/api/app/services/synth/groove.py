@@ -74,6 +74,12 @@ KICK_JUMP_DB = 6.0
 #: The same test for a snare, on its rattle band. See `confirm_snares`.
 SNARE_WITHIN_DB = 6.0
 SNARE_JUMP_DB = 6.0
+#: At full humanize, how far a stroke may drift from where it was programmed (standard
+#: deviation, seconds) and how much its level may vary. Small on purpose: a few ms is the
+#: difference between a drum machine and a drummer; tens of ms is a drummer who is lost.
+HUMANIZE_S = 0.006
+HUMANIZE_LIMIT_S = 0.012
+HUMANIZE_LEVEL = 0.18
 #: Level of each drum in an added beat, before accents. Matches `four_on_the_floor`.
 GAIN = {"kick": 0.95, "snare": 0.7, "hihat": 0.38}
 
@@ -399,7 +405,8 @@ BUILT_IN: dict[str, Groove] = {
 
 def events(groove: Groove, beats: np.ndarray, rest: tuple[float, float] | None = None,
            swing: float | None = None, feel: bool = True,
-           threshold: float = PLAYS_FROM) -> list[tuple[float, str, float]]:
+           threshold: float = PLAYS_FROM,
+           humanize: float = 0.0) -> list[tuple[float, str, float]]:
     """Every stroke of the groove along `beats`, as (time, drum, velocity 0..1), in order.
 
     One place that decides where an added beat's strokes fall, shared by the audio render and
@@ -408,10 +415,16 @@ def events(groove: Groove, beats: np.ndarray, rest: tuple[float, float] | None =
     `feel` keeps each step's measured distance from the grid; off, it is quantised. `swing`
     overrides the feel on the off-sixteenths with a set amount, 0..1, which is the one knob
     everybody reaches for. `rest` is a span with nothing in it - a build before a drop.
+
+    `humanize`, 0..1, nudges every stroke a few milliseconds and varies its level - the
+    difference between a programmed beat and a played one. Seeded, so the same settings
+    give the same beat twice: a remix that changed every time it was bounced would be
+    impossible to judge.
     """
     beats = np.asarray(beats, dtype=np.float64)
     if beats.size < 2:
         return []
+    rng = np.random.default_rng(1340)
     period = float(np.median(np.diff(beats)))
     grid = np.append(beats, beats[-1] + period * np.arange(1, 5))
     out = []
@@ -431,11 +444,18 @@ def events(groove: Groove, beats: np.ndarray, rest: tuple[float, float] | None =
                     continue
                 # A step played a little ahead of the song's very first beat lands before
                 # zero. It is still the downbeat - dropping it lost the first kick.
+                velocity = max(0.15, s.velocity)
+                if humanize > 0:
+                    drift = float(np.clip(rng.normal(0.0, HUMANIZE_S * humanize),
+                                          -HUMANIZE_LIMIT_S, HUMANIZE_LIMIT_S))
+                    t += drift
+                    velocity = float(np.clip(
+                        velocity * (1 + rng.uniform(-1, 1) * HUMANIZE_LEVEL * humanize), 0.1, 1.0))
                 if t < 0:
                     if t < -sixteenth / 2:
                         continue
                     t = 0.0
-                out.append((t, kind, max(0.15, s.velocity)))
+                out.append((t, kind, velocity))
     return sorted(out)
 
 
@@ -443,7 +463,8 @@ def render(groove: Groove, beats: np.ndarray, sample_rate: int, length: int,
            kit: str = "edm", rest: tuple[float, float] | None = None,
            swing: float | None = None, feel: bool = True,
            threshold: float = PLAYS_FROM,
-           sounds: dict[str, np.ndarray] | None = None) -> np.ndarray:
+           sounds: dict[str, np.ndarray] | None = None,
+           humanize: float = 0.0) -> np.ndarray:
     """The groove as stereo audio on a kit, bar after bar along `beats`. See `events`.
     `sounds` is a kit already loaded - the library's, possibly the user's own hits."""
     out = np.zeros((length, 2))
@@ -451,7 +472,7 @@ def render(groove: Groove, beats: np.ndarray, sample_rate: int, length: int,
         voices = KITS.get(kit) or KITS["edm"]
         sounds = {k: render_voice(voices[k], sample_rate, seed=20 + i)
                   for i, k in enumerate(KINDS) if k in voices}
-    for t, kind, velocity in events(groove, beats, rest, swing, feel, threshold):
+    for t, kind, velocity in events(groove, beats, rest, swing, feel, threshold, humanize):
         sound = sounds.get(kind)
         at = int(round(t * sample_rate))
         if sound is None or at >= length:

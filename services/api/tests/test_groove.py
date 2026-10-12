@@ -148,3 +148,48 @@ def test_a_groove_survives_being_saved():
     again = g.Groove.from_dict(read.to_dict())
     assert again.grid() == read.grid()
     assert again.swing == read.swing
+
+
+# --- feel: humanize, and a pump that follows the kick ---------------------------------------
+
+
+def test_humanize_off_is_the_programmed_beat():
+    beats = beat_grid(0.0, BPM, 8 * BEAT)
+    assert g.events(g.BUILT_IN["house"], beats) == g.events(g.BUILT_IN["house"], beats,
+                                                            humanize=0.0)
+
+
+def test_humanize_nudges_every_stroke_a_little_and_the_same_way_twice():
+    beats = beat_grid(0.0, BPM, 16 * BEAT)
+    straight = g.events(g.BUILT_IN["techno"], beats)
+    played = g.events(g.BUILT_IN["techno"], beats, humanize=0.8)
+    assert played == g.events(g.BUILT_IN["techno"], beats, humanize=0.8)
+    drift = [abs(a[0] - b[0]) for a, b in zip(straight, played, strict=True) if a[0] > 0]
+    assert max(drift) <= g.HUMANIZE_LIMIT_S + 1e-9
+    assert np.mean(drift) > 0.001
+    assert len({round(v, 3) for _, _, v in played}) > 3
+
+
+def test_the_pump_follows_the_added_beat_s_kick_not_every_beat():
+    """A breakbeat kicks on 1 and the "and" of 3. Ducking on every beat fought it."""
+    from app.services.synth.retempo import bounce
+
+    seconds = 4 * 4 * BEAT
+    t = np.arange(int(seconds * SR)) / SR
+    tone = 0.3 * np.sin(2 * np.pi * 220 * t)
+    stems = {"other": np.stack([tone, tone], axis=1)}
+    beats = beat_grid(0.0, BPM, seconds)
+    # The beat plays silent hits, so what is measured is the pumped tone and nothing else.
+    silent = {kind: np.zeros(10) for kind in g.KINDS}
+    mix, _ = bounce(stems, SR, 1.0, {}, beats=beats, bpm=BPM, pump_db=8.0,
+                    added_beat=g.BUILT_IN["breakbeat"], beat_sounds=silent)
+    dry, _ = bounce(stems, SR, 1.0, {}, beats=beats, bpm=BPM, pump_db=8.0)
+
+    def level(audio, at_s):
+        a = int(at_s * SR)
+        return 20 * np.log10(np.sqrt(np.mean(audio[a + 200: a + 1500, 0] ** 2)) + 1e-12)
+
+    one, two = BEAT * 4, BEAT * 5          # bar 2: beat 1 has a kick, beat 2 does not
+    assert level(dry, two) < level(dry, two + BEAT * 0.8) - 4     # every-beat pump dips
+    assert level(mix, one) < level(mix, one + BEAT * 0.8) - 4     # dips on the kick
+    assert abs(level(mix, two) - level(mix, two + BEAT * 0.8)) < 1  # and not where none is

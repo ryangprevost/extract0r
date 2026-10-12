@@ -2617,6 +2617,23 @@ off**, not by being near it.
 
 ---
 
+### X0R-1344 · Feel: a pump that follows the kick, and a beat that sounds played · 2 · `DONE` 2026-10-11
+**As a** person adding a beat **I want** the pump to breathe with that beat's kick and the beat
+to sound played rather than programmed **so that** the remix grooves.
+
+**Acceptance criteria**
+- With an added beat, the pump ducks on *its* kicks. Every beat was right for four on the
+  floor and fought a breakbeat or trap pattern, whose kick is not on every beat. Tested on a
+  steady tone under a silent breakbeat: dips on the kick, flat (under 1 dB) where none is. ✅
+- The pump rests through a build with the added kick, so the drop is where it arrives. ✅
+- *Feel: programmed / a little human / played* - each stroke nudged a few ms (6 ms SD at
+  full, capped at 12) and varied in level. Seeded, so the same settings bounce the same beat
+  twice. Same strokes in the MIDI file. ✅
+- The account says both: "Pumping with the added beat's kick", "a trap beat, played with a
+  human feel". The old line said "on every beat" after it stopped being true. ✅
+
+---
+
 ### X0R-1343 · The sound library · 5 · `DONE` 2026-10-11
 **As a** person choosing sounds **I want** to hear every kit and voice before I use it, and to
 use my own drum hits **so that** the remix sounds like the style I am going for.

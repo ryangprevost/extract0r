@@ -582,6 +582,7 @@ const Revoice = (() => {
       swing: $("beat-swing")?.value === "" ? null : parseFloat($("beat-swing").value),
       leave_out: $("opt-leave-drums")?.checked ? ["drums"] : [],
       drop_bar: $("opt-drop")?.checked ? parseInt($("drop-bar").value, 10) || null : null,
+      humanize: parseFloat($("beat-humanize")?.value || "0") || 0,
     };
   }
 

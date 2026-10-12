@@ -855,11 +855,25 @@
         </div>
         <div class="notes-scroll">
           <canvas id="notes-canvas" tabindex="0" aria-label="Piano roll"></canvas>
+          <canvas id="notes-vel" tabindex="0" aria-label="Velocity of each note"></canvas>
+        </div>
+        <div class="notes-tools">
+          <label title="How hard a note is played: here, how loud. 127 is full; 64 is about 6 dB quieter.">Velocity
+            <input type="number" id="notes-vel-value" min="1" max="127" step="1" placeholder="1-127" />
+          </label>
+          <button class="small" id="notes-vel-set" title="Give the selected notes - or all - this velocity">Set</button>
+          <button class="small" id="notes-softer" title="About 1.4 dB quieter, keeping the differences between notes">Softer</button>
+          <button class="small" id="notes-louder" title="About 1.2 dB louder, keeping the differences between notes">Louder</button>
+          <button class="small" id="notes-even" title="Halfway to the average - steadier, still played">Even out</button>
+          <button class="small" id="notes-humanize" title="A few steps either way, as a player's hands vary">Humanize</button>
         </div>
         <p class="muted tiny">
           Click empty space to add a note. Drag a note to move it, its right edge to make it
           longer. Shift-click to pick several; Delete removes, the arrow keys move and
-          transpose, Ctrl+Z undoes, double-click deletes one.
+          transpose, Ctrl+Z undoes, double-click deletes one. In the velocity lane, drag a
+          stick to make a note harder or softer - the selected ones move together - or drag
+          across empty space to draw, say, a crescendo. Alt+Up and Alt+Down do the same from
+          the keyboard.
         </p>
         <div class="notes-tools">
           <button class="primary small" id="notes-save">Save and play it</button>
@@ -1014,9 +1028,27 @@
           Cuts land on the bar lines, so the beat never stumbles.
         </p>
         <div class="preset-row" id="arrange-presets"></div>
-        <h4 class="library-head">The song's sections</h4>
+        <h4 class="library-head">The song's sections
+          <button class="small" id="marks-open" type="button">Mark the parts yourself</button>
+        </h4>
         <div class="arrange-sources" id="arrange-sections"></div>
         <p class="muted tiny" id="arrange-note"></p>
+        <!-- Sprint 13: the person says where the parts start and what they are. -->
+        <div class="marks-box" id="marks-box" hidden>
+          <p class="muted small">
+            Every bar of the song, as tall as it is loud - a chorus usually stands taller.
+            Click a bar to start a part there, name it, and press play to check it starts
+            where you hear it. Parts with the same name are treated as the same part.
+          </p>
+          <div class="mark-strip" id="mark-strip" role="group" aria-label="Bars of the song"></div>
+          <ol class="mark-list" id="mark-list"></ol>
+          <div class="preset-row">
+            <button class="primary small" id="marks-save" type="button">Use these parts</button>
+            <button class="small" id="marks-detected" type="button">Start from the detected ones</button>
+            <button class="small" id="marks-clear" type="button">Go back to the detected ones</button>
+            <span class="muted small" id="marks-said"></span>
+          </div>
+        </div>
         <h4 class="library-head">Your version, in order</h4>
         <ol class="arrange-lane" id="arrange-lane"></ol>
         <p class="muted small" id="arrange-length"></p>

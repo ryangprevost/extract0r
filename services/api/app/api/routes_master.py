@@ -1782,6 +1782,41 @@ def _reading(track_id: str) -> threading.Lock:
         return _READING.setdefault(track_id, threading.Lock())
 
 
+def _transcribe(settings: Settings, kind: StemKind, path: Path):
+    """A stem's notes, transcribed once and kept beside it. Sprint 14.
+
+    Every change of sound on a part used to transcribe the stem again - the same notes,
+    tens of seconds each time on a full song - so trying three synths on one part paid for
+    three transcriptions. The notes are kept next to the stem in the track's storage, keyed
+    on the stem file and the transcriber, so a new separation or a different transcriber
+    reads them afresh."""
+    from app.domain.notes import NoteEvent, Transcription
+    from app.services.factory import make_transcriber
+
+    transcriber = make_transcriber(settings, kind)
+    info = path.stat()
+    key = [path.name, info.st_size, info.st_mtime_ns, type(transcriber).__name__, 1]
+    kept = path.with_name(f"{path.stem}.notes.json")
+    with _reading(str(path)):
+        try:
+            data = json.loads(kept.read_text("utf-8"))
+            if data.get("key") == key:
+                return Transcription(
+                    stem=kind, backend=data["backend"], tempo_bpm=data["tempo_bpm"],
+                    notes=[NoteEvent(s, e, p, v) for s, e, p, v in data["notes"]])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        found = transcriber.transcribe(path, kind)
+        try:
+            kept.write_text(json.dumps({
+                "key": key, "backend": found.backend, "tempo_bpm": found.tempo_bpm,
+                "notes": [[n.start_s, n.end_s, n.pitch, n.velocity] for n in found.notes],
+            }), "utf-8")
+        except OSError:
+            log.info("could not keep the notes of %s", path, exc_info=True)
+        return found
+
+
 def _tempo_of(track_id: str, registry: TrackRegistry) -> float:
     with _reading(track_id):
         return _tempo_unlocked(track_id, registry)
@@ -1869,7 +1904,8 @@ def _song_shape(record, bpm: float) -> dict:
     track and tempo; a corrected tempo is a different key, so it is read again.
     """
     first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
-    key = [round(bpm, 4), round(first, 5)]
+    # The third element versions the cache: v2 added the song's length and bar loudness.
+    key = [round(bpm, 4), round(first, 5), 2]
     path = Path(record.stored.path).parent / "shape.json"
     with _reading(f"shape:{record.stored.path}"):
         return _shape_unlocked(record, bpm, first, key, path)
@@ -1896,8 +1932,12 @@ def _shape_unlocked(record, bpm: float, first: float, key: list, path: Path) -> 
     beats = beat_grid(first, bpm, len(audio) / rate)
     sections = find_sections(audio, rate, beats)
     drops = drop.suggest_drops(audio, rate, beats)
+    from app.services.synth.arrange import bar_levels
+
     data = {
         "key": key,
+        "duration_s": len(audio) / rate,
+        "bar_db": bar_levels(audio, rate, beats),
         # Full precision, not to_dict's: arrangements cut on these exact bar times, and a
         # start rounded to the millisecond can drop the beat the cut lands on.
         "sections": [asdict(x) for x in sections],
@@ -2222,7 +2262,6 @@ def revoice(
         import soundfile as sf
 
         from app.domain.notes import coalesce
-        from app.services.factory import make_transcriber
         from app.services.synth import edit
         from app.services.synth.voice import render_notes
 
@@ -2287,7 +2326,7 @@ def revoice(
             backend = "your edits"
         else:
             handle.update(JobState.RUNNING, 0.1, f"reading the notes out of the {stem.value}")
-            transcription = make_transcriber(settings, stem).transcribe(Path(path), stem)
+            transcription = _transcribe(settings, stem, Path(path))
             found = list(transcription.notes)
             merged = coalesce(found) if clean else found
             backend = transcription.backend
@@ -2457,10 +2496,36 @@ class BounceRequest(BaseModel):
     arrangement: list[ArrangeItem] | None = Field(None, max_length=64)
 
 
+def _marks_path(record) -> Path:
+    return Path(record.stored.path).parent / "sections.user.json"
+
+
+def _user_marks(record) -> list[tuple[int, str]] | None:
+    """The sections the person marked - [(bar, name)] - or None if they have not."""
+    path = _marks_path(record)
+    if not path.exists():
+        return None
+    try:
+        return [(int(m["bar"]), str(m["label"])) for m in json.loads(path.read_text("utf-8"))]
+    except Exception:  # noqa: BLE001 - a damaged file falls back to the detected sections
+        log.info("unreadable section marks for %s", record.stored.path, exc_info=True)
+        return None
+
+
 def _sections_of(record, bpm: float) -> list:
-    """The song's sections, read off the original mix on its own beat grid. Sprint 5;
-    kept beside the track since Sprint 11 - see `_song_shape`."""
-    return _song_shape(record, bpm)["sections"]
+    """The song's sections: the person's own marks when there are any (Sprint 13), else the
+    ones read off the original mix on its own beat grid (Sprint 5, kept beside the track
+    since Sprint 11 - see `_song_shape`)."""
+    shape = _song_shape(record, bpm)
+    marks = _user_marks(record)
+    if not marks:
+        return shape["sections"]
+    from app.services.synth.arrange import sections_from_marks
+    from app.services.synth.retempo import beat_grid
+
+    first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+    duration = shape.get("duration_s") or 0.0
+    return sections_from_marks(marks, beat_grid(first, bpm, duration), duration)
 
 
 def _arrangement(record, body: BounceRequest, source_bpm: float, scale: float,
@@ -3247,13 +3312,107 @@ def song_sections(
     if not bpm:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "The tempo could not be read, so there are no bars to count.")
+    return _sections_body(record, bpm)
+
+
+def _sections_body(record, bpm: float) -> dict:
+    shape = _song_shape(record, bpm)
     found = _sections_of(record, bpm)
+    yours = _user_marks(record) is not None
     return {
         "tempo_bpm": round(bpm, 2),
         "sections": [s.to_dict() for s in found],
-        "note": "Cut on four-bar phrases and grouped by how they sound: the same letter "
-        "sounds alike. The names are guesses - the loudest group is called the chorus.",
+        "source": "yours" if yours else "detected",
+        # For the marking editor: every bar's loudness, and what the detector suggested.
+        "bar_db": shape.get("bar_db", []),
+        "detected": [{"bar": s.start_bar, "label": s.label} for s in shape["sections"]],
+        "note": "Marked by you." if yours else
+        "Cut on four-bar phrases and grouped by how they sound: the same letter sounds "
+        "alike. The names are guesses - mark them yourself if they are wrong.",
     }
+
+
+class Mark(BaseModel):
+    bar: int = Field(ge=1)
+    label: str = Field(min_length=1, max_length=24)
+
+
+class MarksRequest(BaseModel):
+    marks: list[Mark] = Field(min_length=1, max_length=128)
+
+
+@router.put("/{track_id}/sections")
+def mark_sections(
+    track_id: str,
+    body: MarksRequest,
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Say where the song's parts start and what they are. Sprint 13.
+
+    Kept beside the track and used everywhere sections are - the arrangement editor, section
+    previews, bounces and the MIDI export - instead of the detector's guess."""
+    try:
+        bpm = _tempo_of(track_id, registry)
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if not bpm:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "The tempo could not be read, so there are no bars to mark.")
+    bars = len(_song_shape(record, bpm).get("bar_db") or [])
+    late = [m.bar for m in body.marks if bars and m.bar > bars]
+    if late:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"The song has {bars} bars, so a section cannot start at bar "
+                            f"{late[0]}.")
+    seen = {}
+    for m in sorted(body.marks, key=lambda m: m.bar):
+        seen[m.bar] = m.label.strip()
+    _marks_path(record).write_text(
+        json.dumps([{"bar": b, "label": label} for b, label in seen.items()]), "utf-8")
+    return _sections_body(record, bpm)
+
+
+@router.delete("/{track_id}/sections", status_code=status.HTTP_204_NO_CONTENT)
+def unmark_sections(track_id: str, registry: TrackRegistry = Depends(get_registry)) -> Response:
+    """Back to the detected sections."""
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    _marks_path(record).unlink(missing_ok=True)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{track_id}/listen")
+def listen_from_bar(
+    track_id: str,
+    bar: int = Query(1, ge=1),
+    bars: int = Query(4, ge=1, le=32),
+    registry: TrackRegistry = Depends(get_registry),
+) -> Response:
+    """A few bars of the original from any bar - to hear where a part starts before marking
+    it. Sprint 13."""
+    try:
+        bpm = _tempo_of(track_id, registry)
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if not bpm:
+        raise HTTPException(status.HTTP_409_CONFLICT, "The tempo could not be read.")
+    import soundfile as sf
+
+    from app.services.synth.library import wav_bytes
+
+    first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+    bar_s = 4 * 60.0 / bpm
+    info = sf.info(str(record.stored.path))
+    start = int((first + (bar - 1) * bar_s) * info.samplerate)
+    if start >= info.frames:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "The song ends before that bar.")
+    audio, rate = sf.read(str(record.stored.path), dtype="float64", always_2d=True,
+                          start=start, frames=int(bars * bar_s * info.samplerate))
+    return Response(wav_bytes(audio, rate), media_type="audio/wav")
 
 
 @router.get("/{track_id}/sections/{section_id}/preview")
@@ -3382,7 +3541,6 @@ def version_midi(
         import soundfile as sf
 
         from app.domain.notes import coalesce
-        from app.services.factory import make_transcriber
         from app.services.synth import drop as drops
         from app.services.synth import groove as g
         from app.services.synth import version_midi as vm
@@ -3401,8 +3559,7 @@ def version_midi(
                 drummer = vm.drummer(move_hits(g.read_hits(audio, rate), scale))
                 continue
             try:
-                found = make_transcriber(settings, StemKind(stem)).transcribe(
-                    path, StemKind(stem)).notes
+                found = _transcribe(settings, StemKind(stem), path).notes
             except Exception:
                 log.info("no notes from %s", stem, exc_info=True)
                 continue
@@ -3487,14 +3644,13 @@ def download_midi(
 
     from app.domain.midi import write_midi
     from app.domain.notes import coalesce
-    from app.services.factory import make_transcriber
 
     parts: dict[str, list] = {}
     for stem in record.separation.stems:
         if stem.kind is StemKind.DRUMS:
             continue
         try:
-            found = make_transcriber(settings, stem.kind).transcribe(stem.path, stem.kind).notes
+            found = _transcribe(settings, stem.kind, Path(stem.path)).notes
         except Exception:
             log.info("no notes from %s", stem.kind.value, exc_info=True)
             continue

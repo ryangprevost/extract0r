@@ -2617,7 +2617,40 @@ off**, not by being near it.
 
 ---
 
-### X0R-1442 · Mark the song's parts yourself · 3 · `TODO`
+### X0R-1452 · The piano roll saved to a part called "null" · 1 · `DONE` 2026-10-12 · **defect**
+Seen in the API log while Ryan edited: `PUT /parts/null/notes` 422. Closing the editor cleared
+the part it was editing, so an editor still on screen had nothing to save to. Showing and
+which part are now kept apart; Save and "Back to as played" do nothing without a part. See
+[SPRINT-14.md](sprints/SPRINT-14.md) §3.
+
+---
+
+### X0R-1451 · The site stalled while mixing · 3 · `DONE` 2026-10-12 · **defect**
+Ryan, 2026-10-12: *"i want it to not time out when im mixing things. getting a little
+frustrating."* Measured on his six-minute bounce: the MP3 took **3.5 minutes**, nearly all of
+it a per-sample Python loop (noise-shaped dither) that also held the interpreter, so every
+other request waited. Same loop on every mix applied to a version. A moving filter in the
+mixer cost 2.5-3.5 minutes the same way, and every change of sound re-transcribed the stem.
+
+**Done.** Dither and the moving filter compiled with numba (`nogil`) - identical output,
+about 150x faster - with plain fallbacks where numba is not installed; transcriptions kept
+beside the stem. See [SPRINT-14.md](sprints/SPRINT-14.md) §1.
+
+---
+
+### X0R-1450 · Velocity in the piano roll · 2 · `DONE` 2026-10-12
+**As a** person editing a part **I want** to say how hard each note is played **so that** a
+part has dynamics - accents, a crescendo - rather than every note at one level.
+
+Ryan, 2026-10-12: *"go ahead with velocity editing in the piano roll next."*
+
+**Done.** A velocity lane under the roll (drag a stick; selected notes move together; drag
+across empty space to draw), Set / Softer / Louder / Even out / Humanize, Alt+Up/Down. The
+server already kept and played velocity. See [SPRINT-14.md](sprints/SPRINT-14.md) §2.
+
+---
+
+### X0R-1442 · Mark the song's parts yourself · 3 · `DONE` 2026-10-12
 **As a** person rearranging a song **I want** to say where the verse, chorus and bridge start
 myself **so that** the arrangement editor works on the sections I hear, not the ones the
 detector guessed.
@@ -2632,6 +2665,12 @@ them by sound (Sprint 5), tuned on synthetic songs only.
 - The detected sections are the starting suggestion, never forced; the person's sections are
   kept beside the track and used everywhere sections are (arrangement, previews, MIDI).
 - Hear a section from its start while placing it.
+
+**Done.** *Mark the parts yourself* in the Arrangement panel: every bar of the song as a bar as
+tall as it is loud (bar loudness rather than a waveform - it reads at a glance where a chorus
+lifts), click a bar to start a part, name it or pick a common name, play four bars from any
+mark. Saved as `sections.user.json` beside the track (`PUT`/`DELETE /tracks/{id}/sections`) and
+used everywhere sections are. See [SPRINT-13.md](sprints/SPRINT-13.md).
 
 ---
 

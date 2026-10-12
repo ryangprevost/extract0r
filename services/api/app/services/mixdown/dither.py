@@ -99,10 +99,16 @@ def _shaped(scaled: np.ndarray, noise: np.ndarray) -> np.ndarray:
     """Quantise with error feedback, so the noise is tilted away from the midrange.
 
     Sample by sample, because each output depends on the error made by the one before it -
-    that recursion is the whole mechanism and cannot be vectorised away. At 48 kHz stereo
-    this is a few million iterations and costs a fraction of a second against a separation
-    that takes minutes, so the loop is left plain and readable rather than pushed into a
-    convolution that would not be either.
+    that recursion is the whole mechanism and cannot be vectorised away.
+
+    **Compiled when it can be.** This was a plain loop on the belief that it cost "a fraction
+    of a second against a separation that takes minutes". Measured on a six-minute remix
+    bounce (Sprint 14) it took three and a half minutes, and because it held the
+    interpreter the whole time, every other request - the mixer, the audio it streams -
+    waited behind it, which is what Ryan saw as the site timing out while he mixed. With
+    numba (installed with the ML extras) the same loop is compiled and lets go of the
+    interpreter; without it, a loop over plain floats does the same arithmetic several
+    times faster than indexing numpy arrays element by element.
     """
     if scaled.ndim == 1:
         scaled = scaled[:, None]
@@ -111,44 +117,84 @@ def _shaped(scaled: np.ndarray, noise: np.ndarray) -> np.ndarray:
     else:
         flatten = False
 
-    frames, channels = scaled.shape
-    out = np.empty((frames, channels), dtype=np.float64)
-    # One error history per channel. Sharing it across channels would couple left and
-    # right and put a correlated - therefore centred and audible - noise in the middle.
-    history = np.zeros((channels, len(SHAPER)), dtype=np.float64)
-
-    for i in range(frames):
-        for c in range(channels):
-            # Added, not subtracted. The noise that reaches the output is the error
-            # filtered by `1 + SHAPER[0]z^-1 + SHAPER[1]z^-2`, so the feedback carries the
-            # coefficients' own signs and `SHAPER` reads as the transfer function it is.
-            # Negating here instead produced `1 + 2z^-1 - z^-2`, which is a *low*-pass on
-            # the error: it piled the noise into the midrange and measured 3.9 dB worse
-            # than no shaping at all, while every other test still passed.
-            feedback = float(np.dot(SHAPER, history[c]))
-            shifted = scaled[i, c] + feedback
-            quantised = np.rint(shifted + noise[i, c])
-
-            # The error fed back is measured against the input *before* the dither, so it
-            # carries the dither as well as the quantiser's own error, and the shaper
-            # therefore works on both.
-            #
-            # Measuring it after the dither instead - the obvious reading of "the
-            # quantiser's error" - shapes only the rounding error and lets the dither
-            # through flat. TPDF dither has twice the power of the error it protects
-            # against, so two thirds of the noise then bypasses the shaper: measured
-            # -1.2 dB across 100 Hz-8 kHz where the transfer function predicts -5.3.
-            #
-            # Nothing is lost by including it. What makes dither work is that the
-            # quantiser sees a fresh, independent random value, and it still does - the
-            # feedback is a function of *past* samples only.
-            history[c, 1] = history[c, 0]
-            history[c, 0] = quantised - shifted
-            out[i, c] = quantised
+    scaled = np.ascontiguousarray(scaled, dtype=np.float64)
+    noise = np.ascontiguousarray(noise, dtype=np.float64)
+    loop = _compiled_loop() or _feedback_loop_plain
+    out = loop(scaled, noise, SHAPER[0], SHAPER[1])
 
     if flatten:
         out = out[:, 0]
     return np.clip(out, -FULL_SCALE_16, FULL_SCALE_16).astype("<i2")
+
+
+def _feedback_loop(scaled, noise, s0, s1):
+    """The error-feedback quantiser itself, written so numba can compile it.
+
+    One error history per channel. Sharing it across channels would couple left and right
+    and put a correlated - therefore centered and audible - noise in the middle.
+
+    The feedback is *added*, not subtracted: the noise that reaches the output is the error
+    filtered by `1 + s0 z^-1 + s1 z^-2`, so the feedback carries the coefficients' own signs.
+    Negating it produced `1 + 2z^-1 - z^-2`, a *low*-pass on the error that piled the noise
+    into the midrange and measured 3.9 dB worse than no shaping at all.
+
+    The error fed back is measured against the input *before* the dither, so it carries the
+    dither as well as the rounding error and the shaper works on both. Measuring it after
+    the dither shapes only the rounding error and lets two thirds of the noise through flat
+    (-1.2 dB across 100 Hz-8 kHz where the transfer function predicts -5.3). Nothing is lost
+    by including it: the quantiser still sees a fresh, independent random value, because
+    the feedback depends on past samples only.
+    """
+    frames, channels = scaled.shape
+    out = np.empty((frames, channels), dtype=np.float64)
+    for c in range(channels):
+        h0 = 0.0
+        h1 = 0.0
+        for i in range(frames):
+            shifted = scaled[i, c] + (s0 * h0 + s1 * h1)
+            quantised = np.rint(shifted + noise[i, c])
+            h1 = h0
+            h0 = quantised - shifted
+            out[i, c] = quantised
+    return out
+
+
+def _feedback_loop_plain(scaled, noise, s0, s1):
+    """`_feedback_loop` without numba: the same arithmetic over Python floats, which is
+    several times faster than reading and writing numpy arrays one element at a time.
+    Python's `round` rounds half to even, as `np.rint` does."""
+    frames, channels = scaled.shape
+    out = np.empty((frames, channels), dtype=np.float64)
+    for c in range(channels):
+        column = scaled[:, c].tolist()
+        dither = noise[:, c].tolist()
+        result = [0.0] * frames
+        h0 = 0.0
+        h1 = 0.0
+        for i in range(frames):
+            shifted = column[i] + (s0 * h0 + s1 * h1)
+            quantised = float(round(shifted + dither[i]))
+            h1 = h0
+            h0 = quantised - shifted
+            result[i] = quantised
+        out[:, c] = result
+    return out
+
+
+_COMPILED: list = []
+
+
+def _compiled_loop():
+    """`_feedback_loop` compiled by numba - `nogil`, so the server keeps answering while a
+    long file is quantised - or None where numba is not installed (the CI image)."""
+    if not _COMPILED:
+        try:
+            from numba import njit
+
+            _COMPILED.append(njit(cache=True, nogil=True)(_feedback_loop))
+        except Exception:  # noqa: BLE001 - no numba, or it cannot compile here: use the plain loop
+            _COMPILED.append(None)
+    return _COMPILED[0]
 
 
 def describe(dither: bool, noise_shaping: bool) -> str:

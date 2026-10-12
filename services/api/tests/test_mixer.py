@@ -216,3 +216,22 @@ def test_a_flat_whole_mix_strip_changes_nothing():
 def test_the_whole_mix_is_described_as_such():
     lines = mixer.describe({"master": Channel(automation={"gain_db": [[0, -60], [16, 0]]})})
     assert lines == ["Whole mix: level moving over the song."]
+
+
+def test_the_compiled_sweep_is_the_block_by_block_one():
+    """Sprint 14: the moving filter is compiled where numba is installed. Its arithmetic - run
+    here uncompiled - must match scipy's block-by-block filter it replaces."""
+    rate = 8000
+    x = np.random.default_rng(4).normal(0, 0.3, (rate, 2))
+    cutoff = np.exp(np.linspace(np.log(200), np.log(3000), len(x)))
+    saved = mixer._SWEEP[:]
+    mixer._SWEEP[:] = [None]
+    try:
+        for kind in ("lowpass", "highpass"):
+            scipy_way = mixer.sweep(x, rate, kind, cutoff)
+            starts = np.arange(0, len(x), mixer.FILTER_BLOCK)
+            b, a = mixer._biquads(kind, cutoff[starts], rate)
+            loop_way = mixer._sweep_loop(x, b, a, mixer.FILTER_BLOCK)
+            assert np.max(np.abs(loop_way - scipy_way)) < 1e-9
+    finally:
+        mixer._SWEEP[:] = saved

@@ -121,3 +121,36 @@ def test_a_bounce_follows_the_arrangement():
     assert np.max(np.abs(muted)) < 1e-6
     detail = next(p.detail for p in account if p.how == "arranged")
     assert detail == "3 blocks, 12 bars, 1 drop"
+
+
+# --- Sprint 13: sections the person marked -------------------------------------------------------
+
+
+def test_marks_become_sections_named_and_grouped_by_name():
+    beats = beat_grid(0.0, BPM, 16 * BAR + 0.5)
+    found = arrange.sections_from_marks(
+        [(1, "Verse"), (5, "chorus"), (9, "verse"), (13, "chorus")], beats, 16 * BAR + 0.5)
+    assert [(s.start_bar, s.bars, s.label, s.group) for s in found] == [
+        (1, 4, "verse", "A"), (5, 4, "chorus", "B"), (9, 4, "verse", "A"), (13, 4, "chorus", "B")]
+    assert found[1].start_s == pytest.approx(4 * BAR)
+    assert found[-1].end_s == pytest.approx(16 * BAR)
+    assert found[-1].tail_s == pytest.approx(0.5, abs=0.01)
+
+
+def test_the_song_before_the_first_mark_is_an_intro():
+    beats = beat_grid(0.0, BPM, 8 * BAR)
+    found = arrange.sections_from_marks([(3, "drop")], beats, 8 * BAR)
+    assert [(s.start_bar, s.label) for s in found] == [(1, "intro"), (3, "drop")]
+
+
+def test_a_mark_past_the_end_is_held_to_the_last_bar():
+    beats = beat_grid(0.0, BPM, 8 * BAR)
+    found = arrange.sections_from_marks([(1, "a"), (99, "b")], beats, 8 * BAR)
+    assert found[-1].start_bar == 8 and found[-1].bars == 1
+
+
+def test_bar_levels_follow_the_music():
+    audio = song()
+    levels = arrange.bar_levels(audio, SR, beat_grid(0.0, BPM, len(audio) / SR))
+    assert len(levels) >= 8
+    assert levels[5] > levels[1] + 3          # the louder second half stands taller

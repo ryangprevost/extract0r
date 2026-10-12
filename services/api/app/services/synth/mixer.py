@@ -136,7 +136,17 @@ def pan_moving(stereo: np.ndarray, position: np.ndarray) -> np.ndarray:
 def sweep(stereo: np.ndarray, sample_rate: int, kind: str, cutoff: np.ndarray) -> np.ndarray:
     """A biquad whose cutoff moves: coefficients every FILTER_BLOCK samples, the filter's
     past carried across each change as direct-form-I state (inputs and outputs), which is
-    how a BiquadFilterNode holds it."""
+    how a BiquadFilterNode holds it.
+
+    Compiled with numba where it is installed (Sprint 14): block by block through scipy was
+    about a million calls for a six-minute song, half a minute or more of holding the
+    interpreter for every moving filter, while the rest of the server waited."""
+    loop = _compiled_sweep()
+    if loop is not None:
+        starts = np.arange(0, len(stereo), FILTER_BLOCK)
+        b, a = _biquads(kind, np.asarray(cutoff, dtype=np.float64)[starts], sample_rate)
+        return loop(np.ascontiguousarray(stereo, dtype=np.float64), b, a, FILTER_BLOCK)
+
     from scipy.signal import lfilter, lfiltic
 
     out = np.empty_like(stereo)
@@ -154,6 +164,58 @@ def sweep(stereo: np.ndarray, sample_rate: int, kind: str, cutoff: np.ndarray) -
         past_x[: len(x)] = x
         past_y[: len(y)] = y
     return out
+
+
+def _biquads(kind: str, hz: np.ndarray, sample_rate: int) -> tuple[np.ndarray, np.ndarray]:
+    """`_biquad` for many cutoffs at once: (blocks, 3) numerators and denominators."""
+    w0 = 2 * np.pi * np.minimum(hz, sample_rate / 2 * 0.99) / sample_rate
+    alpha = np.sin(w0) / (2 * (1 / np.sqrt(2)))
+    cos = np.cos(w0)
+    if kind == "lowpass":
+        b = np.stack([(1 - cos) / 2, 1 - cos, (1 - cos) / 2], axis=1)
+    else:
+        b = np.stack([(1 + cos) / 2, -(1 + cos), (1 + cos) / 2], axis=1)
+    a = np.stack([1 + alpha, -2 * cos, 1 - alpha], axis=1)
+    return b / a[:, :1], a / a[:, :1]
+
+
+def _sweep_loop(stereo, b, a, block):
+    """Direct form I, new coefficients every `block` samples: the arithmetic of `sweep`,
+    written so numba can compile it."""
+    frames, channels = stereo.shape
+    out = np.empty((frames, channels), dtype=np.float64)
+    for c in range(channels):
+        x1 = 0.0
+        x2 = 0.0
+        y1 = 0.0
+        y2 = 0.0
+        for i in range(frames):
+            k = i // block
+            x0 = stereo[i, c]
+            y0 = (b[k, 0] * x0 + b[k, 1] * x1 + b[k, 2] * x2
+                  - a[k, 1] * y1 - a[k, 2] * y2)
+            out[i, c] = y0
+            x2 = x1
+            x1 = x0
+            y2 = y1
+            y1 = y0
+    return out
+
+
+_SWEEP: list = []
+
+
+def _compiled_sweep():
+    """`_sweep_loop` compiled by numba, `nogil` so the server keeps answering - or None where
+    numba is not installed (the CI image), and `sweep` uses scipy block by block."""
+    if not _SWEEP:
+        try:
+            from numba import njit
+
+            _SWEEP.append(njit(cache=True, nogil=True)(_sweep_loop))
+        except Exception:  # noqa: BLE001 - no numba, or it cannot compile here: use scipy
+            _SWEEP.append(None)
+    return _SWEEP[0]
 
 
 # --- the pieces, each the browser's arithmetic ----------------------------------------------

@@ -1725,3 +1725,27 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 
 /* -- Sprint 11: the whole-mix strip -- */
 .mix-whole { border-color: var(--accent); }
+
+/* -- Sprint 13: marking the song's parts -- */
+.marks-box { display: grid; gap: 8px; margin: 8px 0; padding: 8px; border: 1px solid var(--edge);
+  border-radius: 8px; }
+.mark-strip { display: flex; align-items: flex-end; gap: 2px; height: 80px; overflow-x: auto;
+  padding-bottom: 14px; position: relative; }
+.mark-bar { flex: 0 0 14px; min-height: 4px; border: none; border-radius: 2px 2px 0 0;
+  background: var(--edge); cursor: pointer; position: relative; padding: 0; }
+.mark-bar.start { box-shadow: -2px 0 0 var(--ink); }
+.mark-bar:focus-visible { outline: 2px solid var(--accent); }
+.mark-bar .num { position: absolute; bottom: -14px; left: 0; font-size: 9px; color: var(--muted);
+  font-family: var(--mono); }
+.mark-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.mark-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mark-row input { width: 9em; }
+.mark-row .chip { cursor: pointer; background: none; }
+.mark-bar.group-A { background: #4f8ef7; } .mark-bar.group-B { background: #f2a03d; }
+.mark-bar.group-C { background: #3fbf8a; } .mark-bar.group-D { background: #c46be0; }
+.mark-bar.group-E { background: #e05c6b; } .mark-bar.group-F { background: #9aa3ad; }
+
+/* -- Sprint 14: the piano roll's velocity lane -- */
+#notes-canvas, #notes-vel { display: block; }
+#notes-vel { border-top: 1px solid var(--edge); cursor: ns-resize; touch-action: none; }
+#notes-vel-value { width: 5em; }

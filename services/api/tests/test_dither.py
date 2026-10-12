@@ -270,3 +270,17 @@ def test_describe_says_what_was_done():
     assert "TPDF" in describe(True, False)
     assert "noise shaping" in describe(True, True)
     assert "no dither" in describe(False, False)
+
+
+def test_the_plain_loop_quantises_exactly_as_the_compiled_one():
+    """Sprint 14: the shaper is compiled with numba where it is installed and falls back to a
+    loop over Python floats where not. Both must give the same integers, to the sample - the
+    compiled one is checked here by running its source uncompiled."""
+    from app.services.mixdown import dither
+
+    rng = np.random.default_rng(3)
+    scaled = rng.normal(0, 0.3, (4000, 2)) * dither.FULL_SCALE_16
+    noise = rng.random(scaled.shape) - rng.random(scaled.shape)
+    plain = dither._feedback_loop_plain(scaled, noise, *dither.SHAPER)
+    compiled_source = dither._feedback_loop(scaled, noise, *dither.SHAPER)
+    assert np.array_equal(plain, compiled_source)

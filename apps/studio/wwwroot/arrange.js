@@ -38,6 +38,10 @@ const Arrange = (() => {
       sections = info.sections || [];
       tempo = info.tempo_bpm || 0;
       $("arrange-note").textContent = info.note || "";
+      barDb = info.bar_db || [];
+      detected = info.detected || [];
+      marks = sections.map((s) => ({ bar: s.start_bar, label: s.label }));
+      drawMarks();
     } catch (error) {
       sections = [];
       $("arrange-note").textContent = error.message || String(error);
@@ -245,6 +249,171 @@ const Arrange = (() => {
       }));
     }
     $("tempo-target")?.addEventListener("change", render);
+    wireMarks();
+  }
+
+  // --- Sprint 13: marking the song's parts yourself ----------------------------------------
+
+  const NAMES = ["intro", "verse", "pre-chorus", "chorus", "bridge", "drop", "breakdown", "outro"];
+  let barDb = [];
+  let detected = [];
+  let marks = [];             // [{bar, label}], sorted by bar
+  let listening = null;
+
+  /** Which mark a bar falls under - the last one starting at or before it. */
+  function markOf(bar) {
+    let found = null;
+    for (const m of marks) if (m.bar <= bar) found = m;
+    return found;
+  }
+
+  function groupOf(label) {
+    const names = [];
+    for (const m of marks) if (!names.includes(m.label)) names.push(m.label);
+    return String.fromCharCode(65 + Math.max(0, names.indexOf(label)));
+  }
+
+  function listen(bar, button) {
+    if (listening) {
+      listening.pause();
+      listening = null;
+    }
+    const audio = new Audio(`${API}/tracks/${state.trackId}/listen?bar=${bar}&bars=4`);
+    audio.play().catch(() => {});
+    listening = audio;
+    if (button) {
+      button.textContent = "\u25A0";
+      audio.onended = () => (button.textContent = "\u25B6");
+    }
+  }
+
+  function drawMarks() {
+    const strip = $("mark-strip");
+    const list = $("mark-list");
+    if (!strip || !list) return;
+    marks.sort((a, b) => a.bar - b.bar);
+    strip.innerHTML = "";
+    const finite = barDb.filter((v) => v > -100);
+    const lo = finite.length ? Math.min(...finite) : -60;
+    const hi = finite.length ? Math.max(...finite) : 0;
+    barDb.forEach((db, i) => {
+      const bar = i + 1;
+      const owner = markOf(bar);
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `mark-bar group-${owner ? groupOf(owner.label) : "F"}` +
+        (marks.some((m) => m.bar === bar) ? " start" : "");
+      const f = hi > lo ? (Math.max(lo, db) - lo) / (hi - lo) : 0.5;
+      b.style.height = `${8 + f * 58}px`;
+      b.title = `Bar ${bar}${owner ? ` - ${owner.label}` : ""}. Click to start a part here.`;
+      b.setAttribute("aria-label", b.title);
+      if ((bar - 1) % 4 === 0) {
+        const num = document.createElement("span");
+        num.className = "num";
+        num.textContent = bar;
+        b.appendChild(num);
+      }
+      b.addEventListener("click", () => {
+        if (!marks.some((m) => m.bar === bar)) {
+          // A new part, named after the next one a song usually has.
+          const before = markOf(bar);
+          const next = NAMES[(NAMES.indexOf(before?.label) + 1) % NAMES.length] || "verse";
+          marks.push({ bar, label: next });
+        }
+        drawMarks();
+        listen(bar);
+      });
+      strip.appendChild(b);
+    });
+
+    list.innerHTML = "";
+    for (const m of marks) {
+      const row = document.createElement("li");
+      row.className = "mark-row";
+      const where = document.createElement("span");
+      where.className = "arrange-name";
+      const next = marks.find((x) => x.bar > m.bar);
+      // The last part ends on the song's last whole bar, as the sections above do; a partial
+      // bar after it only rings out.
+      const last = sections.length ? sections.at(-1).start_bar + sections.at(-1).bars - 1 : 0;
+      const end = next ? next.bar - 1 : Math.max(m.bar, last || barDb.length);
+      where.textContent = `Bars ${m.bar}-${end}`;
+      const name = document.createElement("input");
+      name.type = "text";
+      name.maxLength = 24;
+      name.value = m.label;
+      name.setAttribute("aria-label", `Name of the part at bar ${m.bar}`);
+      name.addEventListener("input", () => { m.label = name.value; });
+      name.addEventListener("change", drawMarks);
+      const play = document.createElement("button");
+      play.type = "button";
+      play.className = "small";
+      play.textContent = "\u25B6";
+      play.setAttribute("aria-label", `Hear bar ${m.bar}`);
+      play.addEventListener("click", () => listen(m.bar, play));
+      row.append(where, play, name);
+      for (const n of NAMES) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip" + (m.label === n ? " on" : "");
+        chip.textContent = n;
+        chip.addEventListener("click", () => { m.label = n; drawMarks(); });
+        row.appendChild(chip);
+      }
+      if (m.bar !== 1) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "small";
+        remove.textContent = "\u2715";
+        remove.setAttribute("aria-label", `Remove the part at bar ${m.bar}`);
+        remove.addEventListener("click", () => {
+          marks = marks.filter((x) => x !== m);
+          drawMarks();
+        });
+        row.appendChild(remove);
+      }
+      list.appendChild(row);
+    }
+  }
+
+  async function saveMarks() {
+    const said = $("marks-said");
+    try {
+      await api(`/tracks/${state.trackId}/sections`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marks: marks.map((m) => ({ bar: m.bar, label: m.label.trim() || "section" })) }),
+      });
+      await load();
+      said.textContent = "Saved. The arrangement now uses your parts.";
+    } catch (error) {
+      said.textContent = error.message || String(error);
+    }
+  }
+
+  async function clearMarks() {
+    try {
+      await api(`/tracks/${state.trackId}/sections`, { method: "DELETE" });
+      await load();
+      $("marks-said").textContent = "Back to the detected parts.";
+    } catch (error) {
+      $("marks-said").textContent = error.message || String(error);
+    }
+  }
+
+  function wireMarks() {
+    $("marks-open")?.addEventListener("click", () => {
+      const box = $("marks-box");
+      box.hidden = !box.hidden;
+      $("marks-open").textContent = box.hidden ? "Mark the parts yourself" : "Hide";
+      drawMarks();
+    });
+    $("marks-save")?.addEventListener("click", saveMarks);
+    $("marks-clear")?.addEventListener("click", clearMarks);
+    $("marks-detected")?.addEventListener("click", () => {
+      marks = detected.map((d) => ({ ...d }));
+      drawMarks();
+    });
   }
 
   return { init, load, reset, request, render };

@@ -885,3 +885,79 @@ def test_a_part_plays_on_a_real_synth(client, separated, settings, tmp_path):
     result = finish(client, started.json()["job_id"])["result"]
     assert result["voice"] == "test-bass" and result["notes"] == 4
     assert client.get(result["url"]).status_code == 200
+
+
+# --- Sprint 13: marking the song's parts -------------------------------------------------------
+
+
+def test_the_song_s_parts_can_be_marked_and_unmarked(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    before = client.get(f"/api/v1/tracks/{separated}/sections").json()
+    assert before["source"] == "detected" and before["bar_db"] and before["detected"]
+    marked = client.put(f"/api/v1/tracks/{separated}/sections", json={"marks": [
+        {"bar": 1, "label": "verse"}, {"bar": 3, "label": "chorus"}]})
+    assert marked.status_code == 200, marked.text
+    body = client.get(f"/api/v1/tracks/{separated}/sections").json()
+    assert body["source"] == "yours"
+    assert [(s["start_bar"], s["label"]) for s in body["sections"]] == [(1, "verse"),
+                                                                       (3, "chorus")]
+    assert client.delete(f"/api/v1/tracks/{separated}/sections").status_code == 204
+    assert client.get(f"/api/v1/tracks/{separated}/sections").json()["source"] == "detected"
+
+
+def test_a_mark_past_the_end_of_the_song_is_refused(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    response = client.put(f"/api/v1/tracks/{separated}/sections",
+                          json={"marks": [{"bar": 500, "label": "outro"}]})
+    assert response.status_code == 400 and "bars" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("marks", [[], [{"bar": 0, "label": "x"}], [{"bar": 1, "label": ""}]])
+def test_marks_that_cannot_be_are_refused(client, separated, marks):
+    assert client.put(f"/api/v1/tracks/{separated}/sections",
+                      json={"marks": marks}).status_code == 422
+
+
+def test_an_arrangement_uses_the_parts_you_marked(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    client.put(f"/api/v1/tracks/{separated}/sections", json={"marks": [
+        {"bar": 1, "label": "verse"}, {"bar": 3, "label": "chorus"}]})
+    started = client.post(f"/api/v1/tracks/{separated}/bounce", json={
+        "target_bpm": 120, "arrangement": [{"section": "s2"}, {"section": "s2"}]})
+    result = finish(client, started.json()["job_id"])["result"]
+    assert any(line.startswith("Rearranged: 2 blocks") for line in result["lines"])
+
+
+def test_any_bar_can_be_heard(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    heard = client.get(f"/api/v1/tracks/{separated}/listen?bar=2&bars=1")
+    assert heard.status_code == 200 and heard.headers["content-type"] == "audio/wav"
+    assert client.get(f"/api/v1/tracks/{separated}/listen?bar=900").status_code == 404
+
+
+def test_a_stem_is_transcribed_once_and_kept(tmp_path, monkeypatch):
+    """Sprint 14: trying another sound on a part reads the kept notes instead of transcribing
+    the stem again; a changed stem file is transcribed afresh."""
+    from app.api import routes_master
+    from app.config import Settings
+    from app.domain.notes import NoteEvent, StemKind, Transcription
+    from app.services import factory
+
+    calls = []
+
+    class Counting:
+        def transcribe(self, path, kind):
+            calls.append(path)
+            return Transcription(stem=kind, notes=[NoteEvent(0.5, 1.0, 60, 90)], backend="fake")
+
+    monkeypatch.setattr(factory, "make_transcriber", lambda settings, kind: Counting())
+    stem = tmp_path / "bass.wav"
+    stem.write_bytes(b"one")
+    first = routes_master._transcribe(Settings(), StemKind.BASS, stem)
+    again = routes_master._transcribe(Settings(), StemKind.BASS, stem)
+    assert len(calls) == 1
+    assert again.notes == first.notes and again.backend == "fake"
+
+    stem.write_bytes(b"a new separation")
+    routes_master._transcribe(Settings(), StemKind.BASS, stem)
+    assert len(calls) == 2

@@ -7,14 +7,23 @@
 //
 // Saving keeps the edit and plays the part again from it. The version then says the part
 // is yours ("Edited by you ...") - an edit is never passed off as the band's playing.
+//
+// Sprint 14: velocity - how hard each note is played - has its own lane under the roll.
+// Every renderer plays a note at velocity/127 of full level, so 64 is about 6 dB quieter
+// than 127; the lane and the tools say so in those words.
 
 const Notes = (() => {
   const DRUM_ROWS = [[42, "hat"], [38, "snare"], [36, "kick"]];
   const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
   const BLACK = new Set([1, 3, 6, 8, 10]);
   const GUTTER = 44;
+  const VEL_H = 64;          // the velocity lane's height, in CSS pixels
+  const VEL_PAD = 4;
 
   let stem = null;
+  // Whether the editor is showing. Kept apart from `stem` so closing it never leaves a
+  // visible editor saving to a part called "null" (seen in the log, Sprint 14).
+  let isOpen = false;
   let label = "";
   let drums = false;
   let notes = [];            // {beat, length, pitch, velocity}
@@ -136,7 +145,163 @@ const Notes = (() => {
         g.lineWidth = 1;
       }
     });
+    drawVelocity(width);
     say();
+  }
+
+  // --- velocity ------------------------------------------------------------------------------
+
+  const velY = (v) => VEL_PAD + (1 - v / 127) * (VEL_H - 2 * VEL_PAD);
+  const velAt = (y) => Math.round(Math.max(1, Math.min(127,
+    127 * (1 - (y - VEL_PAD) / (VEL_H - 2 * VEL_PAD)))));
+
+  function drawVelocity(width) {
+    const canvas = $("notes-vel");
+    if (!canvas) return;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = width * ratio;
+    canvas.height = VEL_H * ratio;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${VEL_H}px`;
+    const g = canvas.getContext("2d");
+    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+    g.fillStyle = css("--panel-2");
+    g.fillRect(0, 0, width, VEL_H);
+    const muted = css("--muted");
+    g.font = "10px ui-monospace, monospace";
+    g.fillStyle = muted;
+    g.fillText("vel", 4, VEL_H - 6);
+    // Guides at full, half (about -6 dB) and a quarter (about -12 dB).
+    for (const v of [127, 64, 32]) {
+      g.strokeStyle = css("--edge");
+      g.globalAlpha = 0.6;
+      g.beginPath();
+      g.moveTo(GUTTER, velY(v) + 0.5);
+      g.lineTo(width, velY(v) + 0.5);
+      g.stroke();
+      g.globalAlpha = 1;
+      g.fillText(String(v), 18, velY(v) + 3);
+    }
+    const accent = css("--accent");
+    const ink = css("--ink");
+    notes.forEach((n, i) => {
+      const x = xOf(n.beat) + 1.5;
+      const on = selected.has(i);
+      g.strokeStyle = on ? ink : accent;
+      g.fillStyle = on ? ink : accent;
+      g.lineWidth = on ? 2 : 1.5;
+      g.beginPath();
+      g.moveTo(x, VEL_H - VEL_PAD);
+      g.lineTo(x, velY(n.velocity));
+      g.stroke();
+      g.beginPath();
+      g.arc(x, velY(n.velocity), on ? 3.5 : 2.5, 0, Math.PI * 2);
+      g.fill();
+    });
+    g.lineWidth = 1;
+  }
+
+  /** The note whose stick is nearest `x`, within a few pixels - a selected one first. */
+  function stickAt(x) {
+    let best = null;
+    notes.forEach((n, i) => {
+      const d = Math.abs(xOf(n.beat) + 1.5 - x);
+      if (d > 5) return;
+      const score = d - (selected.has(i) ? 3 : 0);
+      if (!best || score < best.score) best = { i, score };
+    });
+    return best ? best.i : null;
+  }
+
+  function velPoint(event) {
+    const box = $("notes-vel").getBoundingClientRect();
+    return [event.clientX - box.left, event.clientY - box.top];
+  }
+
+  let velDrag = null;
+
+  function velDown(event) {
+    const [x, y] = velPoint(event);
+    if (x < GUTTER) return;
+    $("notes-vel").setPointerCapture(event.pointerId);
+    remember();
+    const i = stickAt(x);
+    if (i !== null) {
+      if (event.shiftKey) selected.add(i);
+      else if (!selected.has(i)) selected = new Set([i]);
+      // Everything selected moves by the same amount, so their differences - the phrasing -
+      // are kept; the one under the pointer goes exactly where the pointer is.
+      velDrag = { mode: "move", i, start: new Map([...selected].map((k) => [k, notes[k].velocity])) };
+      velMove(event);
+    } else {
+      // Empty space: draw. Every note the pointer passes over takes the height it is at, so
+      // a crescendo is one stroke. Every note, unless Shift keeps it to the selected ones.
+      if (!event.shiftKey) selected = new Set();
+      velDrag = { mode: "draw", x, y, only: selected.size ? new Set(selected) : null };
+      setUnder(x, x, y, y);
+      draw();
+    }
+  }
+
+  function setUnder(x0, x1, y0, y1) {
+    const [a, b] = x0 <= x1 ? [x0, x1] : [x1, x0];
+    const limit = velDrag?.only;
+    notes.forEach((n, i) => {
+      if (limit && !limit.has(i)) return;
+      const x = xOf(n.beat) + 1.5;
+      if (x < a - 3 || x > b + 3) return;
+      const t = b - a < 1 ? 1 : (x - x0) / (x1 - x0);
+      n.velocity = velAt(y0 + (y1 - y0) * Math.max(0, Math.min(1, t)));
+    });
+  }
+
+  function velMove(event) {
+    if (!velDrag) return;
+    const [x, y] = velPoint(event);
+    if (velDrag.mode === "move") {
+      const delta = velAt(y) - velDrag.start.get(velDrag.i);
+      for (const [k, v] of velDrag.start) {
+        notes[k].velocity = Math.max(1, Math.min(127, v + delta));
+      }
+    } else {
+      setUnder(velDrag.x, x, velDrag.y, y);
+      velDrag.x = x;
+      velDrag.y = y;
+    }
+    draw();
+  }
+
+  function velUp() {
+    if (velDrag && history.length && history[history.length - 1] === JSON.stringify(notes)) {
+      history.pop();       // a click that selected, not an edit
+    }
+    velDrag = null;
+    say();
+  }
+
+  /** Change the velocity of the selected notes - or all of them - with `how(velocity, i)`. */
+  function velocities(how) {
+    const which = selected.size ? [...selected] : notes.map((_, i) => i);
+    if (!which.length) return;
+    remember();
+    for (const i of which) {
+      notes[i].velocity = Math.max(1, Math.min(127, Math.round(how(notes[i].velocity, i))));
+    }
+    draw();
+  }
+
+  function evenOut() {
+    const which = selected.size ? [...selected] : notes.map((_, i) => i);
+    if (!which.length) return;
+    const mean = which.reduce((sum, i) => sum + notes[i].velocity, 0) / which.length;
+    // Halfway to the average: steadier, still played rather than programmed.
+    velocities((v) => v + (mean - v) / 2);
+  }
+
+  function humanize() {
+    // A few steps either way, as a player's hands vary - enough to stop a programmed part
+    // sounding like a machine gun, not enough to change the phrasing.
+    velocities((v) => v + (Math.random() * 2 - 1) * 8);
   }
 
   function say() {
@@ -144,7 +309,15 @@ const Notes = (() => {
     $("notes-count").textContent =
       `${count} ${drums ? "drum hits" : "notes"}` +
       (selected.size ? ` · ${selected.size} selected` : "") +
+      (selected.size ? ` · velocity ${velocityRange()}` : "") +
       (history.length ? " · unsaved changes" : "");
+  }
+
+  function velocityRange() {
+    const vs = [...selected].map((i) => notes[i].velocity);
+    const lo = Math.min(...vs);
+    const hi = Math.max(...vs);
+    return lo === hi ? `${lo}` : `${lo}-${hi}`;
   }
 
   // --- editing --------------------------------------------------------------------------------
@@ -190,7 +363,7 @@ const Notes = (() => {
       if (!event.shiftKey) selected = new Set();
       const length = drums ? 0.25 : grid();
       notes.push({ beat: Math.max(0, snapOn() ? Math.floor(beatAt(x) / grid()) * grid() : beatAt(x)),
-        length, pitch: pitchAt(y), velocity: 100 });
+        length, pitch: pitchAt(y), velocity: newVelocity() });
       selected.add(notes.length - 1);
       drag = null;
       draw();
@@ -240,6 +413,15 @@ const Notes = (() => {
     say();
   }
 
+  /** A new note is as loud as the one picked last, else as the part's notes usually are. */
+  function newVelocity() {
+    const set = parseInt($("notes-vel-value")?.value, 10);
+    if (Number.isFinite(set)) return Math.max(1, Math.min(127, set));
+    if (!notes.length) return 100;
+    const sorted = notes.map((n) => n.velocity).sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+  }
+
   function removeSelected() {
     if (!selected.size) return;
     remember();
@@ -285,7 +467,9 @@ const Notes = (() => {
   // --- loading and saving ---------------------------------------------------------------------
 
   async function open(part, name, saved) {
+    if (!part) return;
     stem = part;
+    isOpen = true;
     label = name;
     onSaved = saved;
     const panel = $("notes-editor");
@@ -310,6 +494,7 @@ const Notes = (() => {
     selected = new Set();
     fitRange();
     $("notes-ends").closest("label").hidden = drums;
+    if ($("notes-vel-value")) $("notes-vel-value").value = "";
     for (const b of document.querySelectorAll(".notes-pitch")) b.hidden = drums;
     panel.hidden = false;
     draw();
@@ -318,6 +503,7 @@ const Notes = (() => {
   }
 
   async function save() {
+    if (!stem) return;
     const button = $("notes-save");
     button.disabled = true;
     try {
@@ -344,6 +530,7 @@ const Notes = (() => {
   }
 
   async function reset() {
+    if (!stem) return;
     try {
       await api(`/tracks/${state.trackId}/parts/${stem}/notes`, { method: "DELETE" });
       await open(stem, label, onSaved);
@@ -356,13 +543,16 @@ const Notes = (() => {
 
   function close() {
     $("notes-editor").hidden = true;
-    stem = null;
+    isOpen = false;
   }
 
   function key(event) {
-    if (!stem) return;
+    if (!isOpen) return;
     const mod = event.ctrlKey || event.metaKey;
-    if (event.key === "Delete" || event.key === "Backspace") {
+    if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      const by = (event.key === "ArrowUp" ? 1 : -1) * (event.shiftKey ? 16 : 4);
+      velocities((v) => v + by);
+    } else if (event.key === "Delete" || event.key === "Backspace") {
       removeSelected();
     } else if (mod && event.key.toLowerCase() === "z") {
       undo();
@@ -417,9 +607,29 @@ const Notes = (() => {
     $("notes-close").addEventListener("click", close);
     $("notes-zoom-in").addEventListener("click", () => { pxPerBeat = Math.min(160, pxPerBeat * 1.25); draw(); });
     $("notes-zoom-out").addEventListener("click", () => { pxPerBeat = Math.max(12, pxPerBeat / 1.25); draw(); });
+
+    const lane = $("notes-vel");
+    if (lane) {
+      lane.addEventListener("pointerdown", velDown);
+      lane.addEventListener("pointermove", velMove);
+      lane.addEventListener("pointerup", velUp);
+      lane.addEventListener("pointercancel", velUp);
+      lane.addEventListener("keydown", key);
+    }
+    $("notes-vel-set")?.addEventListener("click", () => {
+      const v = parseInt($("notes-vel-value").value, 10);
+      if (Number.isFinite(v)) velocities(() => v);
+    });
+    $("notes-vel-value")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("notes-vel-set").click();
+    });
+    $("notes-softer")?.addEventListener("click", () => velocities((v) => v * 0.85));
+    $("notes-louder")?.addEventListener("click", () => velocities((v) => v * 1.15));
+    $("notes-even")?.addEventListener("click", evenOut);
+    $("notes-humanize")?.addEventListener("click", humanize);
   }
 
-  return { init, open, close, isOpenFor: (s) => stem === s };
+  return { init, open, close, isOpenFor: (s) => isOpen && stem === s };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Notes.init());

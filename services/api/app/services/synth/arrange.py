@@ -259,3 +259,61 @@ def place_notes(notes, pieces: list[Piece], stem: str):
                 end = min(note.end_s, piece.end_s) - piece.start_s + at
                 out.append(NoteEvent(start, max(end, start + 0.01), note.pitch, note.velocity))
     return sorted(out, key=lambda n: n.start_s)
+
+
+# --- sections the person marked - Sprint 13 ---------------------------------------------------
+#
+# Ryan: "please let me determine the parts of the song instead of parsing them." A mark is a
+# bar where a section starts and a name for it. Everything that uses sections uses these when
+# they exist; the detector's guess is only a starting suggestion.
+
+#: Longest name a section may have.
+MAX_LABEL = 24
+
+
+def sections_from_marks(marks: list[tuple[int, str]], beats: np.ndarray,
+                        duration_s: float) -> list[Section]:
+    """Sections from the person's marks: each runs from its bar to the next mark, the last
+    to the end of the song's last whole bar, with the ring-out after it as its tail. Marks
+    with the same name are one group - two choruses get one letter, as the detector would
+    give two phrases that sound alike."""
+    from app.services.synth.drop import bar_times
+
+    starts = bar_times(beats)
+    period = float(np.median(np.diff(starts))) if starts.size > 1 else duration_s
+    whole = starts[starts + period <= duration_s + 0.01]
+    bars = int(whole.size)
+    if bars == 0:
+        return [Section("s1", "A", "section", 1, 0, 0.0, duration_s)]
+    edges = np.append(whole, whole[-1] + period)
+    marks = sorted({min(max(1, b), bars): label for b, label in marks}.items())
+    if marks[0][0] != 1:
+        # The song before the first mark is still the song; it gets a section of its own.
+        marks.insert(0, (1, "intro"))
+    letters: dict[str, str] = {}
+    out = []
+    for n, (bar, label) in enumerate(marks, start=1):
+        end_bar = marks[n][0] if n < len(marks) else bars + 1
+        name = label.strip().lower()[:MAX_LABEL] or "section"
+        group = letters.setdefault(name, chr(ord("A") + len(letters)))
+        out.append(Section(f"s{n}", group, name, bar, end_bar - bar,
+                           float(edges[bar - 1]), float(edges[end_bar - 1])))
+    out[-1].tail_s = max(0.0, duration_s - out[-1].end_s)
+    return out
+
+
+def bar_levels(audio: np.ndarray, sample_rate: int, beats: np.ndarray) -> list[float]:
+    """Loudness of every bar, in dB - the strip the person marks sections on, where a chorus
+    usually stands taller than a verse."""
+    from app.services.synth.drop import bar_times
+
+    mono = audio.mean(axis=1) if audio.ndim > 1 else np.asarray(audio, dtype=np.float64)
+    starts = bar_times(beats)
+    period = float(np.median(np.diff(starts))) if starts.size > 1 else mono.size / sample_rate
+    out = []
+    for start in starts:
+        piece = mono[int(start * sample_rate): int((start + period) * sample_rate)]
+        if piece.size == 0:
+            break
+        out.append(round(float(10 * np.log10(np.mean(piece**2) + 1e-12)), 1))
+    return out

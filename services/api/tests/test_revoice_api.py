@@ -367,3 +367,86 @@ def test_a_drop_with_no_room_for_a_build_is_refused_before_any_work(client, sepa
 def test_bar_zero_is_not_a_bar(client, separated):
     response = client.post(f"/api/v1/tracks/{separated}/bounce", json={"drop_bar": 0})
     assert response.status_code == 422
+
+
+# --- Sprint 4: beats, grooves and a reference's recipe ------------------------------------
+
+
+def test_the_built_in_beats_are_listed_as_drum_machine_rows(client):
+    body = client.get("/api/v1/tracks/grooves").json()
+    names = [g["name"] for g in body["grooves"]]
+    assert "house" in names and "four on the floor" in names
+    for groove in body["grooves"]:
+        assert all(len(row) == 16 for row in groove["grid"].values())
+    assert "alongside" in body["note"]
+
+
+def test_a_recipe_without_a_reference_says_what_to_do(client, separated):
+    response = client.post(f"/api/v1/tracks/{separated}/reference/recipe")
+    assert response.status_code == 409
+    assert "reference" in response.json()["detail"]
+
+
+def test_your_drummer_s_groove_is_described_or_the_missing_piece_named(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    response = client.get(f"/api/v1/tracks/{separated}/beat")
+    if response.status_code == 409:
+        assert "ML extras" in response.json()["detail"]
+        return
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body["grid"]) == {"kick", "snare", "hihat"}
+    assert 50 <= body["swing_percent"] <= 67
+
+
+def test_an_unknown_beat_is_refused(client, separated):
+    response = client.post(f"/api/v1/tracks/{separated}/bounce", json={"beat": "polka"})
+    assert response.status_code == 400
+
+
+def test_the_reference_beat_needs_the_reference_read_first(client, separated):
+    response = client.post(f"/api/v1/tracks/{separated}/bounce", json={"beat": "reference"})
+    assert response.status_code == 409
+    assert "Read the reference first" in response.json()["detail"]
+
+
+def test_leaving_out_a_stem_that_is_not_there_is_refused(client, separated):
+    response = client.post(f"/api/v1/tracks/{separated}/bounce", json={"leave_out": ["tuba"]})
+    assert response.status_code == 400
+
+
+def test_a_built_in_beat_instead_of_the_drummer_is_owned_up_to(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    started = client.post(
+        f"/api/v1/tracks/{separated}/bounce",
+        json={"target_bpm": 120, "beat": "house", "swing": 0.3, "leave_out": ["drums"]},
+    )
+    body = finish(client, started.json()["job_id"])
+    assert body["state"] == "succeeded", body
+    lines = " ".join(body["result"]["lines"])
+    assert "a house beat, swung at" in lines and "not from your recording" in lines
+    assert "Left out, by your choice: drums" in lines
+
+
+# --- X0R-1342: the version as MIDI ---------------------------------------------------------
+
+
+def test_a_midi_version_needs_something_to_play(client, separated):
+    response = client.post(f"/api/v1/tracks/{separated}/version/midi", json={})
+    assert response.status_code == 409
+
+
+def test_a_midi_version_of_a_beat_comes_back_as_a_file(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    started = client.post(f"/api/v1/tracks/{separated}/version/midi",
+                          json={"target_bpm": 120, "beat": "house"})
+    body = finish(client, started.json()["job_id"])
+    assert body["state"] == "succeeded", body
+    result = body["result"]
+    assert [t["name"] for t in result["tracks"]] == ["house beat (added)"]
+    assert result["tracks"][0]["notes"] > 0
+    midi = client.get(result["midi"])
+    assert midi.status_code == 200
+    assert midi.headers["content-type"] == "audio/midi"
+    assert midi.content.startswith(b"MThd")
+    assert any("riser" in note for note in result["notes"])

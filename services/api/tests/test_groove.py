@@ -1,0 +1,150 @@
+"""A groove, read and played. Sprint 4.
+
+The claims worth holding: a pattern read off strokes is the pattern that was played; swing
+and a laid-back snare come back as numbers a person can be told; and a groove played on a
+kit and read back again survives the round trip through audio - which is the only test
+that says the reading works on sound rather than on lists.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from app.services.drums.detect import Hit
+from app.services.synth import groove as g
+from app.services.synth.retempo import beat_grid
+
+SR = 44100
+BPM = 120.0
+
+try:
+    import librosa  # noqa: F401
+
+    HAVE_LIBROSA = True
+except ImportError:
+    HAVE_LIBROSA = False
+#: The hit detector is librosa's onset detector, which comes with the ML extras.
+needs_detector = pytest.mark.skipif(not HAVE_LIBROSA, reason="hit detection needs librosa")
+BEAT = 60.0 / BPM
+SIXTEENTH = BEAT / 4
+
+
+def played(pattern: dict[str, str], bars: int = 4, swing: float = 0.0,
+           late_ms: dict[str, float] | None = None, skip: dict[str, set] | None = None
+           ) -> list[Hit]:
+    hits = []
+    for bar in range(bars):
+        for kind, row in pattern.items():
+            for step, ch in enumerate(row):
+                if ch != "x" or (skip and (bar, step) in skip.get(kind, set())):
+                    continue
+                t = (bar * 16 + step) * SIXTEENTH
+                if step % 2 == 1:
+                    t += swing * g.TRIPLET * SIXTEENTH
+                t += (late_ms or {}).get(kind, 0.0) / 1000
+                hits.append(Hit(time_s=t, kinds=[kind], strength=1.0))
+    return sorted(hits, key=lambda h: h.time_s)
+
+
+def test_the_pattern_read_is_the_pattern_played():
+    rows = {"kick": "x...x...x...x...", "snare": "....x.......x...", "hihat": "x.x.x.x.x.x.x.x."}
+    read = g.extract(played(rows), beat_grid(0.0, BPM, 4 * 4 * BEAT + 0.01), bpm=BPM)
+    assert read.bars == 4
+    assert read.grid() == rows
+
+
+def test_swing_comes_back_as_a_drum_machine_number():
+    rows = {"hihat": "xxxxxxxxxxxxxxxx"}
+    read = g.extract(played(rows, swing=0.5), beat_grid(0.0, BPM, 16 * BEAT + 0.01), bpm=BPM)
+    assert read.swing == pytest.approx(0.5, abs=0.02)
+    assert read.swing_percent == 58
+
+
+def test_a_laid_back_snare_is_measured_in_milliseconds():
+    rows = {"kick": "x.......x.......", "snare": "....x.......x..."}
+    read = g.extract(played(rows, late_ms={"snare": 12.0}), beat_grid(0.0, BPM, 16 * BEAT + .01),
+                     bpm=BPM)
+    assert read.push_ms("snare") == pytest.approx(12.0, abs=0.5)
+    assert abs(read.push_ms("kick")) < 0.5
+    assert any("12 ms behind" in line for line in g.describe(read))
+
+
+def test_a_note_in_one_bar_of_four_is_a_ghost_not_a_hit():
+    rows = {"snare": "....x.......x..x"}
+    skip = {"snare": {(0, 15), (1, 15), (2, 15)}}
+    read = g.extract(played(rows, skip=skip), beat_grid(0.0, BPM, 16 * BEAT + .01), bpm=BPM)
+    assert read.steps["snare"][15].rate == 0.25
+    assert read.grid()["snare"] == "....x.......x..o"
+
+
+@needs_detector
+@pytest.mark.parametrize("kit", ["tight", "edm", "punchy"])
+def test_a_kick_s_click_is_not_read_as_a_hat(kit):
+    """Every kick of a rendered four-on-the-floor came back labelled hat as well."""
+    beats = beat_grid(0.0, BPM, 16 * BEAT)
+    audio = g.render(g.BUILT_IN["four on the floor"], beats, SR, int(9 * SR), kit=kit)
+    read = g.from_audio(audio, SR, beat_grid(0.0, BPM, 16 * BEAT + .01), "x", "test", BPM)
+    assert read.plays("hihat") == [2, 6, 10, 14]
+    # And the overlapping dance kicks the detector heard only the click of are kicks.
+    assert read.plays("kick") == [0, 4, 8, 12]
+
+
+@needs_detector
+@pytest.mark.parametrize("kit", ["tight", "edm", "punchy"])
+def test_a_hat_struck_with_the_kick_is_kept(kit):
+    beats = beat_grid(0.0, BPM, 16 * BEAT)
+    audio = g.render(g.BUILT_IN["techno"], beats, SR, int(9 * SR), kit=kit)
+    read = g.from_audio(audio, SR, beat_grid(0.0, BPM, 16 * BEAT + .01), "x", "test", BPM)
+    assert {0, 4, 8, 12} <= set(read.plays("hihat"))
+
+
+def test_cymbals_are_read_as_hats():
+    hits = [Hit(time_s=i * BEAT, kinds=["cymbals"], strength=1.0) for i in range(8)]
+    read = g.extract(hits, beat_grid(0.0, BPM, 8 * BEAT + .01))
+    assert read.plays("hihat") == [0, 4, 8, 12]
+
+
+@needs_detector
+def test_a_groove_survives_a_round_trip_through_audio():
+    """Played on a kit, found again by the hit detector, read again: the same beat, the same
+    swing. Kicks and hats only - a snare and kick together are one stroke to a detector."""
+    source = g.Groove.from_dict(g.BUILT_IN["four on the floor"].to_dict())
+    bars = 4
+    beats = beat_grid(0.0, BPM, bars * 4 * BEAT)
+    audio = g.render(source, beats, SR, int((bars * 4 * BEAT + 1) * SR), kit="tight",
+                     swing=0.4)
+    read = g.from_audio(audio, SR, beat_grid(0.0, BPM, bars * 4 * BEAT + .01), "x", "t", BPM)
+    assert read.plays("kick") == [0, 4, 8, 12]
+    # The open hats sit on the "and", an even step: unswung by definition.
+    assert read.plays("hihat") == [2, 6, 10, 14]
+
+
+def test_swing_moves_only_the_off_sixteenths():
+    straight = g.render(g.BUILT_IN["techno"], beat_grid(0.0, BPM, 4 * BEAT), SR, SR * 3,
+                        kit="tight", swing=0.0)
+    swung = g.render(g.BUILT_IN["techno"], beat_grid(0.0, BPM, 4 * BEAT), SR, SR * 3,
+                     kit="tight", swing=1.0)
+    on_beat = slice(0, int(0.02 * SR))
+    assert np.allclose(straight[on_beat], swung[on_beat])
+    assert not np.allclose(straight, swung)
+
+
+def test_the_build_is_left_empty():
+    out = g.render(g.BUILT_IN["house"], beat_grid(0.0, BPM, 8 * BEAT), SR, int(5 * SR),
+                   kit="edm", rest=(4 * BEAT, 8 * BEAT))
+    assert not np.any(out[int((4 * BEAT + 0.5) * SR): int(8 * BEAT * SR) - 1])
+
+
+def test_every_built_in_beat_has_a_kick():
+    for name, beat in g.BUILT_IN.items():
+        assert beat.plays("kick"), name
+        assert all(len(row) == g.STEPS for row in beat.grid().values()), name
+
+
+def test_a_groove_survives_being_saved():
+    rows = {"kick": "x...x...x...x...", "hihat": "..x...x...x...x."}
+    read = g.extract(played(rows, swing=0.3), beat_grid(0.0, BPM, 16 * BEAT + .01), bpm=BPM)
+    again = g.Groove.from_dict(read.to_dict())
+    assert again.grid() == read.grid()
+    assert again.swing == read.swing

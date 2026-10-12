@@ -59,6 +59,13 @@ AFTER_MS = 25.0
 #: Two onsets closer than this are the same hit found twice.
 MIN_SPACING_S = 0.045
 
+#: Silence put in front of the audio before detecting, and taken off the times after. An
+#: onset detector measures each frame against the one before it, so a stroke on the very
+#: first sample - a song that starts on the downbeat, which most do - has nothing to rise
+#: from and was never found. Found by exporting a remix as MIDI: the drummer's first kick
+#: was missing, which meant every re-played drum part had been losing its first downbeat.
+LEAD_IN_S = 0.1
+
 
 @dataclass(slots=True)
 class Hit:
@@ -155,7 +162,8 @@ def find_hits(
     import librosa
 
     mono = samples.mean(axis=1) if samples.ndim > 1 else np.asarray(samples)
-    mono = np.asarray(mono, dtype=np.float32)
+    lead = int(LEAD_IN_S * sample_rate)
+    mono = np.concatenate([np.zeros(lead, dtype=np.float32), np.asarray(mono, dtype=np.float32)])
 
     spectrum = np.abs(librosa.stft(mono, n_fft=n_fft, hop_length=hop))
     freqs = librosa.fft_frequencies(sr=sample_rate, n_fft=n_fft)
@@ -221,7 +229,9 @@ def find_hits(
         window = mono[start : start + int(0.03 * sample_rate)]
         hits.append(
             Hit(
-                time_s=float(time_s),
+                # Back on the caller's clock. A stroke found in the lead-in is the first
+                # sample's, a hair early from backtracking - it is at zero.
+                time_s=max(0.0, float(time_s) - lead / sample_rate),
                 kinds=kinds,
                 strength=float(np.abs(window).max()) if window.size else 0.0,
                 rises={k: round(v, 1) for k, v in rises.items()},

@@ -215,6 +215,23 @@ def _impact(sample_rate: int) -> np.ndarray:
     return 0.55 * boom + 0.18 * splash
 
 
+def roll(beats: np.ndarray, bpm: float, drop_bar: int) -> list[tuple[float, float]]:
+    """The snare roll into a drop, as (time, gain): eighths for the first bar, sixteenths for
+    the second, louder all the way. Shared by the audio and the MIDI export."""
+    build_s, drop_s = _window(beats, drop_bar)
+    beat_s = 60.0 / bpm
+    bar_s = BEATS_PER_BAR * beat_s
+    out = []
+    for bar in range(BUILD_BARS):
+        step = beat_s / (2 ** (bar + 1))
+        t = build_s + bar * bar_s
+        while t < build_s + (bar + 1) * bar_s - 1e-6:
+            progress = (t - build_s) / (drop_s - build_s)
+            out.append((t, 0.15 + 0.55 * progress**1.5))
+            t += step
+    return out
+
+
 def build_and_drop(beats: np.ndarray, bpm: float, sample_rate: int, length: int,
                    drop_bar: int) -> np.ndarray:
     """The riser, the snare roll and the impact, as stereo audio to add to the mix.
@@ -225,7 +242,6 @@ def build_and_drop(beats: np.ndarray, bpm: float, sample_rate: int, length: int,
     """
     out = np.zeros((length, 2))
     build_s, drop_s = _window(beats, drop_bar)
-    beat_s = 60.0 / bpm
 
     def lay(sample: np.ndarray, time_s: float, gain: float) -> None:
         at = int(round(time_s * sample_rate))
@@ -238,17 +254,8 @@ def build_and_drop(beats: np.ndarray, bpm: float, sample_rate: int, length: int,
     lay(riser, build_s, 1.0)
 
     snare = render_voice(KITS["tight"]["snare"], sample_rate, seed=1335)
-    hits = []
-    bar_s = BEATS_PER_BAR * beat_s
-    for bar in range(BUILD_BARS):
-        step = beat_s / (2 ** (bar + 1))
-        t = build_s + bar * bar_s
-        while t < build_s + (bar + 1) * bar_s - 1e-6:
-            hits.append(t)
-            t += step
-    for t in hits:
-        progress = (t - build_s) / (drop_s - build_s)
-        lay(snare, t, 0.15 + 0.55 * progress**1.5)
+    for t, gain in roll(beats, bpm, drop_bar):
+        lay(snare, t, gain)
 
     lay(_impact(sample_rate), drop_s, 1.0)
     return out

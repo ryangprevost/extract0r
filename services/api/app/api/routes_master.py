@@ -1880,6 +1880,41 @@ class BounceRequest(BaseModel):
     four_on_the_floor: bool = False
     #: Build up into this bar and drop there, counted from 1. X0R-1335. Null for none.
     drop_bar: int | None = Field(None, ge=1)
+    #: A beat to add alongside the band: a built-in name from `/grooves`, or "reference" for
+    #: the one read off the reference by `/reference/recipe`. Sprint 4. Overrides
+    #: `four_on_the_floor` when set.
+    beat: str | None = None
+    #: Which kit plays the added beat.
+    beat_kit: str = "edm"
+    #: Swing on the added beat's off-sixteenths, 0 straight to 1 full triplet. Null keeps the
+    #: beat's own feel - which for a reference's beat is the swing it was played with.
+    swing: float | None = Field(None, ge=0.0, le=1.0)
+    #: How deep the pump goes, in dB, when `pump` is on. Null is the house default (8 dB);
+    #: a recipe sets it to the depth measured on the reference.
+    pump_db: float | None = Field(None, ge=0.0, le=12.0)
+    #: Stems to leave out of this version entirely - a mute, the user's choice.
+    leave_out: list[str] = Field(default_factory=list)
+
+
+def _resolve_beat(body: BounceRequest, out_dir: Path):
+    """The groove a version adds, from its name - or None. Raises the reason when there is
+    none by that name, or when it is the reference's and the reference has not been read."""
+    if body.beat:
+        from app.services.synth.groove import BUILT_IN, Groove
+
+        if body.beat == "reference":
+            saved = out_dir / "reference.recipe.json"
+            if not saved.exists():
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Read the reference first (Remix like your reference), so there is a beat "
+                    "to take from it.",
+                )
+            return Groove.from_dict(json.loads(saved.read_text("utf-8"))["groove_full"])
+        if body.beat in BUILT_IN:
+            return BUILT_IN[body.beat]
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No beat called {body.beat!r}.")
+    return None
 
 
 @router.post("/{track_id}/bounce", response_model=JobResponse)
@@ -1942,6 +1977,20 @@ def bounce_version(
             "Play these parts first, so there is something to put in the version: "
             + ", ".join(missing) + ".",
         )
+    for stem in body.leave_out:
+        if stem not in stems:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"There is no {stem} stem.")
+        stems.pop(stem)
+        renders.pop(stem, None)
+    if not stems and not body.beat and not body.four_on_the_floor:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "Every part is left out, so there is nothing to put in the version.")
+    added_beat = _resolve_beat(body, out_dir)
+    from app.services.drums.kit import KITS
+
+    if body.beat_kit not in KITS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No kit called {body.beat_kit!r}.")
+
     from app.services.synth.retempo import stretcher_available
 
     unplayed = [stem for stem in stems if stem not in renders]
@@ -2005,7 +2054,7 @@ def bounce_version(
         # downbeats rather than on a grid of its own that happens to share a tempo.
         beats = None
         target = body.target_bpm or (getattr(record.timing, "tempo_bpm", 0.0) or 0.0)
-        if (body.pump or body.four_on_the_floor or body.drop_bar) and target:
+        if (body.pump or body.four_on_the_floor or body.drop_bar or added_beat) and target:
             from app.services.synth.retempo import beat_grid
 
             first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
@@ -2015,9 +2064,13 @@ def bounce_version(
             mix, account = bounce(
                 audio, rate, scale, replays,
                 beats=beats, bpm=target,
-                pump_db=8.0 if body.pump else 0.0,
+                pump_db=(8.0 if body.pump_db is None else body.pump_db) if body.pump else 0.0,
                 floor_kick=body.four_on_the_floor,
                 drop_bar=body.drop_bar or 0,
+                added_beat=added_beat,
+                beat_kit=body.beat_kit,
+                swing=body.swing,
+                left_out=tuple(body.leave_out),
             )
         except StaleRender as exc:
             return {"ok": False, "why": str(exc), "stem": exc.stem}
@@ -2045,6 +2098,163 @@ def bounce_version(
         }
 
     return to_response(jobs.submit("bounce", track_id, work))
+
+
+def _have_detector() -> bool:
+    """Reading strokes needs librosa's onset detector, which ships with the ML extras."""
+    try:
+        import librosa  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+NO_DETECTOR = ("Reading a beat needs the hit detector, which comes with the ML extras "
+               "(requirements-ml.txt). Built-in beats still work without it.")
+
+
+@router.get("/grooves")
+def list_grooves() -> dict:
+    """The built-in beats, as a drum machine would show them. Sprint 4."""
+    from app.services.synth.groove import BUILT_IN
+
+    return {
+        "grooves": [{"name": name, "grid": beat.grid()} for name, beat in BUILT_IN.items()],
+        "note": "Each is added alongside your band, never instead of it - leave the drums out "
+        "of the version if you want the beat on its own.",
+    }
+
+
+@router.get("/{track_id}/beat")
+def track_groove(
+    track_id: str,
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """How your drummer plays: the pattern, the swing, and who pushes or lays back.
+
+    A description, not a control. Sentences like "your snare sits 11 ms behind the beat"
+    are how somebody learns what their own record is doing - the confidence half of the
+    brief - and nothing here moves a hit.
+    """
+    try:
+        bpm = _tempo_of(track_id, registry)
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    drums = _stem_path(record.separation, StemKind.DRUMS) if record.separation else None
+    if drums is None or not Path(drums).exists():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Separate the track first.")
+    if not bpm:
+        raise HTTPException(status.HTTP_409_CONFLICT, "The tempo could not be read.")
+    if not _have_detector():
+        raise HTTPException(status.HTTP_409_CONFLICT, NO_DETECTOR)
+
+    import soundfile as sf
+
+    from app.services.synth import groove as g
+    from app.services.synth.retempo import beat_grid
+
+    audio, rate = sf.read(str(drums), dtype="float64", always_2d=True)
+    first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+    read = g.from_audio(audio, rate, beat_grid(first, bpm, len(audio) / rate),
+                        "your drummer", "your drummer", bpm)
+    push = {kind: read.push_ms(kind) for kind in g.KINDS}
+    return {
+        "grid": read.grid(),
+        "swing_percent": read.swing_percent,
+        "push_ms": {k: (round(v, 1) if v is not None else None) for k, v in push.items()},
+        "bars": read.bars,
+        "lines": g.describe(read),
+    }
+
+
+@router.post("/{track_id}/reference/recipe", response_model=JobResponse)
+def reference_recipe(
+    track_id: str,
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """Read the essential elements of a reference remix, as a recipe for this song. Sprint 4.
+
+    Tempo, beat, pump, kick and bass - each reduced to numbers and matched to this
+    application's own sounds. Nothing of the reference's audio is used in the remix; see
+    `synth/recipe.py`. Saved beside the exports so a bounce can add the reference's beat.
+    """
+    try:
+        record = registry.require(track_id)
+        source_bpm = _tempo_of(track_id, registry)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    theirs = record.reference_stems or {}
+    drums = _stem_path(theirs, StemKind.DRUMS)
+    if drums is None or not Path(drums).exists():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Add a reference and split it first - its drums are where the beat is read from.",
+        )
+    if not _have_detector():
+        raise HTTPException(status.HTTP_409_CONFLICT, NO_DETECTOR)
+    out_dir = storage.exports_dir(track_id)
+    bass_path = _stem_path(theirs, StemKind.BASS)
+    other_path = _stem_path(theirs, StemKind.OTHER)
+
+    def work(handle: JobHandle) -> dict:
+        import soundfile as sf
+
+        from app.services.analysis.timing import TimingAnalyser
+        from app.services.synth import groove as g
+        from app.services.synth import recipe as r
+        from app.services.synth.retempo import beat_grid, plan
+
+        handle.update(JobState.RUNNING, 0.1, "finding their tempo")
+        audio, rate = sf.read(str(drums), dtype="float64", always_2d=True)
+        estimate = TimingAnalyser().analyse(Path(drums)).tempo_bpm
+        # Every multiple the estimator gets wrong, checked against the kick. See dance_tempo.
+        bpm, first = r.dance_tempo(audio, rate, estimate)
+        if not bpm:
+            bpm, first = estimate, 0.0
+        beats = beat_grid(first, bpm, len(audio) / rate)
+
+        handle.update(JobState.RUNNING, 0.35, "reading their beat")
+        hits = g.read_hits(audio, rate)
+        groove = g.extract(hits, beats, "your reference", "your reference", bpm)
+
+        handle.update(JobState.RUNNING, 0.6, "measuring the pump")
+        pump = 0.0
+        for path in (bass_path, other_path):
+            if path is not None and Path(path).exists():
+                part, part_rate = sf.read(str(path), dtype="float64", always_2d=True)
+                pump = max(pump, r.measure_pump(part, part_rate, beats))
+
+        handle.update(JobState.RUNNING, 0.8, "matching their kick and bass")
+        kicks = [h.time_s for h in hits if "kick" in h.kinds and "snare" not in h.kinds]
+        features = r.reference_kick(audio, rate, kicks)
+        kit, kit_line = (r.nearest_kit(features, rate) if features
+                         else ("edm", "No clear kick to match, so the edm kit."))
+        bass, bass_line = "808", "No bass stem to match, so the 808."
+        if bass_path is not None and Path(bass_path).exists():
+            part, part_rate = sf.read(str(bass_path), dtype="float64", always_2d=True)
+            bass, bass_line = r.nearest_bass(r.bass_features(part.mean(axis=1), part_rate),
+                                             part_rate)
+
+        # Their tempo if this song can be moved there; otherwise the same groove at half or
+        # double, which a dance producer would call the same tempo anyway.
+        target = next((t for t in (bpm, bpm / 2, bpm * 2)
+                       if source_bpm and plan(source_bpm, t, 0.0) is not None), bpm)
+        lines = [r.tempo_line(bpm, source_bpm, target)]
+        lines += [f"Their beat: {line}" for line in g.describe(groove)]
+        lines += [r.pump_line(pump), kit_line, bass_line]
+        recipe = r.Recipe(tempo_bpm=bpm, groove=groove, pump_db=pump, kit=kit,
+                          bass_voice=bass, lines=lines)
+        result = {**recipe.to_dict(), "target_bpm": round(target, 1)}
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "reference.recipe.json").write_text(
+            json.dumps({**result, "groove_full": groove.to_dict()}), "utf-8")
+        return result
+
+    return to_response(jobs.submit("recipe", track_id, work))
 
 
 @router.get("/{track_id}/drops")
@@ -2091,13 +2301,135 @@ def version_file(
     track_id: str, name: str, storage: TrackStorage = Depends(get_storage)
 ) -> FileResponse:
     """A bounced version. The name is checked against the only shape a bounce writes."""
-    if not re.fullmatch(r"version\.(\d{2,3}|same)\.(wav|mp3)", name):
+    if not re.fullmatch(r"version\.(\d{2,3}|same)\.(wav|mp3|mid)", name):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such version.")
     path = storage.exports_dir(track_id) / name
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not bounced yet.")
-    kind = "audio/mpeg" if name.endswith(".mp3") else "audio/wav"
+    kind = {"mp3": "audio/mpeg", "mid": "audio/midi"}.get(name.rsplit(".", 1)[1], "audio/wav")
     return FileResponse(path, media_type=kind, filename=name)
+
+
+@router.post("/{track_id}/version/midi", response_model=JobResponse)
+def version_midi(
+    track_id: str,
+    body: BounceRequest,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """The version as a multi-track MIDI file at its tempo. Sprint 4, X0R-1342.
+
+    Takes the same request as a bounce, so the file is the version that was heard: the
+    re-played parts as notes, the drummer's strokes, the added beat and the roll into the
+    drop. Transcribes as it goes, which is why it is a job. See `synth/version_midi.py`.
+    """
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if record.separation is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Separate the track first.")
+
+    from app.services.synth.retempo import plan
+
+    source_bpm = _tempo_of(track_id, registry)
+    tempo = body.target_bpm or source_bpm or 120.0
+    scale = 1.0
+    move = None
+    if body.target_bpm and source_bpm:
+        move = plan(source_bpm, body.target_bpm, 0.0)
+        if move is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{source_bpm:.0f} to {body.target_bpm:.0f} BPM is further than this moves a "
+                f"performance.",
+            )
+        scale = move.scale
+    out_dir = storage.exports_dir(track_id)
+    stems = {stem.kind.value: stem.path for stem in record.separation.stems}
+    wanted = [s for s in body.parts if s in stems and s not in body.leave_out]
+    if not wanted and not body.beat and not body.four_on_the_floor:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Choose something to play first - a part on a voice, or a beat - so there are "
+            "notes to write.",
+        )
+    added = _resolve_beat(body, out_dir)
+    first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+
+    def work(handle: JobHandle) -> dict:
+        import soundfile as sf
+
+        from app.domain.notes import coalesce
+        from app.services.factory import make_transcriber
+        from app.services.synth import drop as drops
+        from app.services.synth import groove as g
+        from app.services.synth import version_midi as vm
+        from app.services.synth.retempo import beat_grid, move_hits, move_notes
+
+        pitched: dict[str, list] = {}
+        drummer = None
+        for i, stem in enumerate(wanted):
+            handle.update(JobState.RUNNING, 0.1 + 0.6 * i / max(1, len(wanted)),
+                          f"reading the notes out of the {stem}")
+            path = Path(stems[stem])
+            if stem == StemKind.DRUMS.value:
+                if not _have_detector():
+                    continue
+                audio, rate = sf.read(str(path), dtype="float64", always_2d=True)
+                drummer = vm.drummer(move_hits(g.read_hits(audio, rate), scale))
+                continue
+            try:
+                found = make_transcriber(settings, StemKind(stem)).transcribe(
+                    path, StemKind(stem)).notes
+            except Exception:
+                log.info("no notes from %s", stem, exc_info=True)
+                continue
+            pitched[stem] = move_notes(coalesce(list(found)), scale)
+
+        handle.update(JobState.RUNNING, 0.8, "laying out the beat and the build")
+        longest = max(sf.info(str(p)).duration for p in stems.values()) * scale
+        beats = beat_grid(first * scale, tempo, longest)
+        rest = None
+        roll_notes = None
+        if body.drop_bar:
+            try:
+                rest = drops._window(beats, body.drop_bar)
+                roll_notes = vm.build(drops.roll(beats, tempo, body.drop_bar), rest[1])
+            except ValueError:
+                rest = None
+        beat_notes = None
+        beat_name = "beat"
+        if added is not None:
+            beat_notes = vm.added_beat(g.events(added, beats, rest, body.swing))
+            beat_name = ("your reference's beat" if added.source == "your reference"
+                         else f"{added.name} beat")
+        elif body.four_on_the_floor:
+            beat_notes = vm.added_beat(g.events(g.BUILT_IN["four on the floor"], beats, rest))
+            beat_name = "four on the floor"
+
+        data, contents = vm.write(tempo, pitched, drummer, beat_notes, beat_name, roll_notes)
+        bpm = round(body.target_bpm) if body.target_bpm else "same"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"version.{bpm}.mid"
+        path.write_bytes(data)
+        missing = [s for s in wanted if s not in pitched and s != StemKind.DRUMS.value]
+        notes = []
+        if missing:
+            notes.append(f"Nothing pitched came back from: {', '.join(missing)}.")
+        notes.append("Not in the file because they are sounds rather than notes: the riser, "
+                     "the impact and the pump - your DAW's sidechain and FX do those.")
+        return {
+            "ok": True,
+            "tempo_bpm": round(tempo, 2),
+            "tracks": [{"name": n, "notes": c} for n, c in contents],
+            "midi": f"/api/v1/tracks/{track_id}/version/{path.name}",
+            "notes": notes,
+        }
+
+    return to_response(jobs.submit("version-midi", track_id, work))
 
 
 @router.get("/{track_id}/midi")

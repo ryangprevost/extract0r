@@ -2617,6 +2617,79 @@ off**, not by being near it.
 
 ---
 
+### X0R-1342 · The version as MIDI · 3 · `DONE` 2026-10-11
+**As a** person who made a remix here **I want** it as a MIDI file **so that** I can open it in
+my DAW and keep going - swap a synth, move a note, re-sequence a drum myself.
+
+`POST /tracks/{id}/version/midi` takes the same request as a bounce, so the file is the
+version that was heard: re-played parts as notes at the new tempo, the drummer's strokes as
+General MIDI drums, the added beat, and the roll into the drop with a crash where it lands.
+`synth/version_midi.py`.
+
+**Acceptance criteria**
+- One track per part, named as the page names it; drums on channel 10; added parts say
+  "(added)" in the track name. ✅
+- The added beat's strokes are exactly where the audio put them - one function,
+  `groove.events`, decides both. ✅
+- What cannot be notes is said: the riser, the impact and the pump. ✅
+- *Get it as MIDI* beside *Make the version*. ✅
+
+**Found while building it - every re-played drum part was losing its first downbeat.** The
+drummer track in the first export started on a hat. An onset detector measures each frame
+against the one before, so a stroke on the very first sample has nothing to rise from; most
+songs start on the downbeat. `find_hits` now detects with 100 ms of silence in front. And a
+reference's kick played a few ms ahead of its first beat came out before zero and was
+dropped from the added beat - now it is the downbeat.
+
+---
+
+### X0R-1341 · Remix like your reference · 5 · `DONE` 2026-10-11
+**As a** person with a dance track I love **I want** my song remixed in its style **so that**
+I get the sound I am after without knowing how to name what makes it.
+
+Ryan: *"applying elements of the reference remix track to the source and allowing it to
+extract the essential elements."* The five a producer would name, read off the reference's
+stems by `POST /tracks/{id}/reference/recipe` (`synth/recipe.py`): **tempo** (kick-locked,
+with the estimator's multiples checked), **beat** (pattern, accents, swing - X0R-1340),
+**pump** depth, **kick** character matched to the nearest kit, **bass** character matched to
+the nearest voice. Analysed, never sampled: each is reduced to numbers and rebuilt from this
+application's own sounds.
+
+**Acceptance criteria**
+- One button, *Remix like your reference*: shows the recipe as a beat grid and a sentence per
+  element, sets the tempo, each row's voice, the beat, its kit and the pump depth, leaves the
+  drummer out (ticked where it can be seen), and builds the version. ✅
+- If this song cannot move to the reference's tempo, the same groove at half or double, said
+  so. ✅
+- Measured on a reference built here with known ingredients - see
+  [SPRINT-4.md](sprints/SPRINT-4.md): tempo, pattern and swing exact; pump 4.4 dB against 6;
+  the kit wrong for a recorded reason. ✅
+- The remix read back: 123.99 BPM, 54% swing against the reference's 55%. ✅
+
+---
+
+### X0R-1340 · Grooves: a beat's pattern, accents and feel · 5 · `DONE` 2026-10-11
+**As a** person remixing **I want** to pick a beat and its feel **so that** the remix grooves
+the way dance music does, and to see how my own drummer plays.
+
+`synth/groove.py`. A groove is sixteen steps per drum, each with how often it plays (so a
+ghost note in one bar of four reads 0.25), how hard, and how far off the grid. Swing and
+push/drag come out of the offsets as a drum-machine percentage and milliseconds.
+
+**Acceptance criteria**
+- Six built-in beats - four on the floor, house, techno, breakbeat, drum and bass, trap -
+  added alongside the band on any kit, with a swing control. ✅
+- *How your drummer plays*: the pattern as a grid and sentences ("the snare sits 12 ms behind
+  the beat - laid back"). Read on the pop punk demo: kick, snare and hats exactly as
+  programmed. A description only; no hit moves. ✅
+- Leave the drummer out of a version - a mute the account names. ✅
+- **The detector's labels checked against the audio**, the work this card was mostly made
+  of: kicks heard only by their click, snares hidden by a hat struck with them, and kick
+  clicks read as hats. Each check is a band-energy measurement, numbers in the code. ✅
+- Swing read on sixteenths only - an eighth-note shuffle reads straight. Said in the module. ✅
+
+---
+
 ### X0R-1335 · The build and the drop · 3 · `DONE` 2026-10-11
 **As a** person turning a song into a dance version **I want** the chorus to arrive as a drop
 **so that** it sounds like a dance record with a shape, not one long verse at 128.

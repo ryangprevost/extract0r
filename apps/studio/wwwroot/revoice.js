@@ -50,6 +50,9 @@ const Revoice = (() => {
   let sourceBpm = 0;
   let targetBpm = null;
 
+  //: The pump depth a reference recipe measured, in dB. Null is the house default.
+  let pumpDb = null;
+
   function show() {
     const panel = $("revoice");
     if (!panel) return;
@@ -504,20 +507,11 @@ const Revoice = (() => {
     button.disabled = true;
     host.innerHTML = "";
 
-    const replayed = {};
-    for (const [stem, held] of parts) if (held.url) replayed[stem] = held.voice;
-
     try {
       const started = await api(`/tracks/${state.trackId}/bounce`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          target_bpm: targetBpm,
-          parts: replayed,
-          pump: !!$("opt-pump")?.checked,
-          four_on_the_floor: !!$("opt-floor")?.checked,
-          drop_bar: $("opt-drop")?.checked ? parseInt($("drop-bar").value, 10) || null : null,
-        }),
+        body: JSON.stringify(versionRequest()),
       });
       const result = (await pollJobQuietly(started.job_id, wait.stage)) || {};
 
@@ -570,6 +564,68 @@ const Revoice = (() => {
     }
   }
 
+  /** Everything the controls say about the version, as one request. The bounce and the
+   *  MIDI export take the same one, so the file a DAW opens is the version that was heard. */
+  function versionRequest() {
+    const replayed = {};
+    for (const [stem, held] of parts) if (held.url) replayed[stem] = held.voice;
+    return {
+      target_bpm: targetBpm,
+      parts: replayed,
+      pump: !!$("opt-pump")?.checked,
+      pump_db: pumpDb,
+      beat: $("beat-select")?.value || null,
+      beat_kit: $("beat-kit")?.value || "edm",
+      swing: $("beat-swing")?.value === "" ? null : parseFloat($("beat-swing").value),
+      leave_out: $("opt-leave-drums")?.checked ? ["drums"] : [],
+      drop_bar: $("opt-drop")?.checked ? parseInt($("drop-bar").value, 10) || null : null,
+    };
+  }
+
+  /** The version as MIDI: one track per part, drums on channel 10, added parts named. */
+  async function versionMidi() {
+    const button = $("midi-version-btn");
+    const host = $("bounce-result");
+    const wait = Waiting.begin($("revoice-working"), {
+      headline: "Writing every part out as notes.",
+      estimateSeconds: 0,
+    });
+    $("revoice-error").hidden = true;
+    button.disabled = true;
+    try {
+      const started = await api(`/tracks/${state.trackId}/version/midi`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(versionRequest()),
+      });
+      const result = (await pollJobQuietly(started.job_id, wait.stage)) || {};
+      if (!result.ok) throw new Error(result.why || "The MIDI file could not be written.");
+      const box = document.createElement("div");
+      box.className = "midi-result";
+      const head = document.createElement("p");
+      head.className = "bounce-head";
+      head.textContent = `MIDI at ${result.tempo_bpm} BPM`;
+      box.appendChild(head);
+      box.appendChild(lines(result.tracks.map((t) => `${t.name}: ${t.notes} notes`)));
+      for (const text of result.notes || []) {
+        const note = document.createElement("p");
+        note.className = "muted tiny";
+        note.textContent = text;
+        box.appendChild(note);
+      }
+      const link = document.createElement("p");
+      link.className = "small";
+      link.innerHTML = `<a href="${result.midi}" download>Download the MIDI file</a>`;
+      box.appendChild(link);
+      host.prepend(box);
+    } catch (error) {
+      fail("revoice-error", error);
+    } finally {
+      wait.done();
+      button.disabled = false;
+    }
+  }
+
   // --- one press to a remix ----------------------------------------------------------
 
   //: What "make it EDM" chooses for each part. Every choice lands in its row afterwards, so
@@ -602,11 +658,150 @@ const Revoice = (() => {
         await run(stem);
       }
       $("opt-pump").checked = true;
-      $("opt-floor").checked = true;
+      pumpDb = null;
+      $("beat-select").value = "four on the floor";
+      $("beat-kit").value = "edm";
+      $("beat-swing").value = "";
+      $("opt-leave-drums").checked = false;
       // The drop only if the song has room for one - a short loop has nowhere to build.
       if (!$("opt-drop").disabled) $("opt-drop").checked = true;
       button.textContent = "Putting it together…";
       await makeVersion();
+    } finally {
+      button.disabled = false;
+      button.textContent = was;
+    }
+  }
+
+  // --- beats: built in, your drummer's, and your reference's ---------------------------
+
+  /** A beat as a drum machine shows it: sixteen cells a row, the beats marked. */
+  function beatGrid(grid) {
+    const box = document.createElement("div");
+    box.className = "beat-grid";
+    for (const [kind, label] of [["kick", "kick"], ["snare", "snare"], ["hihat", "hats"]]) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = label;
+      row.appendChild(name);
+      [...(grid[kind] || "................")].forEach((ch, i) => {
+        const cell = document.createElement("span");
+        cell.className = "cell" + (i % 4 === 0 ? " beat" : "") +
+          (ch === "x" ? " x" : ch === "o" ? " o" : "");
+        cell.title = `${label}, step ${i + 1}` + (ch === "o" ? " (sometimes)" : "");
+        row.appendChild(cell);
+      });
+      box.appendChild(row);
+    }
+    return box;
+  }
+
+  function lines(items) {
+    const list = document.createElement("ul");
+    list.className = "recipe-lines small";
+    for (const text of items || []) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      list.appendChild(item);
+    }
+    return list;
+  }
+
+  async function loadBeats() {
+    const select = $("beat-select");
+    if (!select || select.dataset.loaded) return;
+    select.dataset.loaded = "yes";
+    const kit = $("beat-kit");
+    for (const name of KITS) kit.appendChild(new Option(name, name));
+    try {
+      const info = await api("/tracks/grooves");
+      for (const groove of info.grooves || []) {
+        select.appendChild(new Option(groove.name, groove.name));
+      }
+    } catch {
+      select.appendChild(new Option("four on the floor", "four on the floor"));
+    }
+    const theirs = new Option("your reference's beat", "reference");
+    theirs.disabled = true;
+    select.appendChild(theirs);
+  }
+
+  /** Your drummer's pattern and feel, read once when the panel is opened. */
+  async function loadMyGroove() {
+    const host = $("groove-mine");
+    if (!host || host.dataset.loaded === state.trackId) return;
+    host.dataset.loaded = state.trackId;
+    try {
+      const info = await api(`/tracks/${state.trackId}/beat`);
+      host.innerHTML = "";
+      host.appendChild(beatGrid(info.grid));
+      host.appendChild(lines(info.lines));
+    } catch (error) {
+      host.innerHTML = "";
+      const note = document.createElement("p");
+      note.className = "muted small";
+      note.textContent = error.message || String(error);
+      host.appendChild(note);
+      host.dataset.loaded = "";
+    }
+  }
+
+  /**
+   * Read the reference's essential elements and set every control to match, then build it.
+   *
+   * Everything the recipe chose lands in the ordinary controls - the tempo box, each row's
+   * voice, the beat, the kit, the pump - so it teaches rather than hides, the same promise
+   * "Make it EDM" makes. The drummer is left out so the reference's beat can take over,
+   * and that box is ticked where it can be seen and unticked in one click.
+   */
+  async function remixLikeReference() {
+    const button = $("preset-reference");
+    const host = $("recipe-result");
+    button.disabled = true;
+    const was = button.textContent;
+    host.innerHTML = "";
+    $("revoice-error").hidden = true;
+    try {
+      button.textContent = "Reading your reference…";
+      const started = await api(`/tracks/${state.trackId}/reference/recipe`, { method: "POST" });
+      const recipe = (await pollJobQuietly(started.job_id, () => {})) || {};
+      if (!recipe.tempo_bpm) throw new Error("The reference could not be read.");
+
+      const head = document.createElement("p");
+      head.className = "bounce-head";
+      head.textContent = "What your reference is made of";
+      host.appendChild(head);
+      host.appendChild(beatGrid(recipe.groove.grid));
+      host.appendChild(lines(recipe.lines));
+
+      setTempo(Math.round(recipe.target_bpm));
+      const choice = {
+        bass: recipe.bass_voice, guitar: "pluck", piano: "pad", other: "pad",
+      };
+      parts.delete("drums");
+      for (const [stem, voice] of Object.entries(choice)) parts.set(stem, { voice });
+      render();
+      for (const stem of Object.keys(choice)) {
+        button.textContent = `Playing the ${stem}…`;
+        await run(stem);
+      }
+
+      const theirs = [...$("beat-select").options].find((o) => o.value === "reference");
+      if (theirs) theirs.disabled = false;
+      $("beat-select").value = "reference";
+      $("beat-kit").value = recipe.kit;
+      $("beat-swing").value = "";
+      $("opt-leave-drums").checked = true;
+      pumpDb = recipe.pump_db;
+      $("opt-pump").checked = recipe.pump_db > 0;
+      if (!$("opt-drop").disabled) $("opt-drop").checked = true;
+
+      button.textContent = "Putting it together…";
+      await makeVersion();
+    } catch (error) {
+      fail("revoice-error", error);
     } finally {
       button.disabled = false;
       button.textContent = was;
@@ -625,6 +820,12 @@ const Revoice = (() => {
   /** A new track is a new version; nothing from the last one should survive into it. */
   function reset() {
     parts.clear();
+    pumpDb = null;
+    // The last track's reference is not this one's.
+    if ($("recipe-result")) $("recipe-result").innerHTML = "";
+    const theirs = [...($("beat-select")?.options || [])].find((o) => o.value === "reference");
+    if (theirs) theirs.disabled = true;
+    if ($("beat-select")?.value === "reference") $("beat-select").value = "";
     render();
   }
 
@@ -640,7 +841,13 @@ const Revoice = (() => {
     );
     $("tempo-clear")?.addEventListener("click", () => setTempo(null));
     $("bounce-btn")?.addEventListener("click", makeVersion);
+    $("midi-version-btn")?.addEventListener("click", versionMidi);
     $("preset-edm")?.addEventListener("click", makeItEdm);
+    $("preset-reference")?.addEventListener("click", remixLikeReference);
+    $("groove-box")?.addEventListener("toggle", (e) => {
+      if (e.target.open) loadMyGroove();
+    });
+    await loadBeats();
     for (const chip of document.querySelectorAll("#tempo-fix .chip")) {
       chip.addEventListener("click", () => correctTempo(parseFloat(chip.dataset.times)));
     }

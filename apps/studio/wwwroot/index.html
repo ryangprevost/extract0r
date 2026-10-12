@@ -763,12 +763,29 @@
            changed. The confidence goal in one control: somebody who has never made a dance
            track hears one immediately, and learns what made it by looking at the rows. -->
       <div class="preset-box" id="preset-box">
-        <button class="primary" id="preset-edm">Make it EDM</button>
-        <span class="muted small">
-          128 BPM, dance drums, an 808 bass, plucked synths for the guitars, the pump, and a
-          four-on-the-floor kick &mdash; then change anything you like below.
-        </span>
+        <div class="preset-row">
+          <button class="primary" id="preset-edm">Make it EDM</button>
+          <span class="muted small">
+            128 BPM, dance drums, an 808 bass, plucked synths for the guitars, the pump, and a
+            four-on-the-floor kick &mdash; then change anything you like below.
+          </span>
+        </div>
+        <!-- Sprint 4. Reads the reference's tempo, beat, swing, pump, kick and bass and sets
+             every control below to match. Analysed, never sampled. -->
+        <div class="preset-row">
+          <button id="preset-reference">Remix like your reference</button>
+          <span class="muted small">
+            Reads the tempo, beat, swing, pump, kick and bass of the reference you added, and
+            sets everything below to match. Nothing of its audio is used &mdash; it is
+            measured, then rebuilt from this app's own sounds.
+          </span>
+        </div>
+        <div id="recipe-result"></div>
       </div>
+      <details class="groove-box" id="groove-box">
+        <summary>How your drummer plays</summary>
+        <div id="groove-mine"><p class="muted small">Reading the beat&hellip;</p></div>
+      </details>
       <div class="tempo-box" id="tempo-box" hidden>
         <div class="revoice-row">
           <span id="tempo-now" class="muted small"></span>
@@ -832,9 +849,31 @@
           <input type="checkbox" id="opt-pump" />
           Pump on every beat
         </label>
+        <!-- Sprint 4: any beat, added alongside the band. "Four on the floor" is the old
+             checkbox; the reference's beat appears once the reference has been read. -->
+        <label>
+          Add a beat
+          <select id="beat-select" aria-label="beat to add"><option value="">none</option></select>
+        </label>
+        <label>
+          on the
+          <select id="beat-kit" aria-label="kit for the added beat"></select>
+          kit
+        </label>
+        <label>
+          swing
+          <select id="beat-swing" aria-label="swing on the added beat">
+            <option value="">its own feel</option>
+            <option value="0">straight · 50%</option>
+            <option value="0.25">light · 54%</option>
+            <option value="0.5">medium · 58%</option>
+            <option value="0.75">heavy · 63%</option>
+            <option value="1">triplet · 67%</option>
+          </select>
+        </label>
         <label class="check">
-          <input type="checkbox" id="opt-floor" />
-          Add a four-on-the-floor kick
+          <input type="checkbox" id="opt-leave-drums" />
+          Leave out your drummer
         </label>
         <!-- X0R-1335. The bar is a suggestion read from where the song changes most; the
              list holds the alternatives so a wrong guess is one click to fix. -->
@@ -847,6 +886,9 @@
       </div>
       <div class="bounce-box">
         <button class="primary" id="bounce-btn">Make the version</button>
+        <button id="midi-version-btn" title="Every part as notes, at this tempo, for your DAW">
+          Get it as MIDI
+        </button>
         <span class="muted small" id="bounce-hint">
           Everything above, at the tempo you chose, as one file.
         </span>

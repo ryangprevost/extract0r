@@ -311,6 +311,10 @@ def bounce(
     pump_db: float = 0.0,
     floor_kick: bool = False,
     drop_bar: int = 0,
+    added_beat=None,
+    beat_kit: str = "edm",
+    swing: float | None = None,
+    left_out: tuple[str, ...] = (),
 ) -> tuple[np.ndarray, list[Part]]:
     """Every part of the song at the new tempo, summed. Returns the audio and the account.
 
@@ -376,11 +380,20 @@ def bounce(
         from app.services.synth.drop import _window
 
         rest = _window(beats, drop_bar)
-    if floor_kick and beats is not None and bpm > 0:
+    if added_beat is not None and beats is not None and bpm > 0:
+        # Any groove - built in, or read off a reference - added alongside the band. Sprint 4.
+        from app.services.synth.groove import render as play_groove
+
+        mix += play_groove(added_beat, beats, sample_rate, length, kit=beat_kit, rest=rest,
+                           swing=swing)
+        account.append(Part("beat", "added", _beat_detail(added_beat, swing)))
+    elif floor_kick and beats is not None and bpm > 0:
         # The added kick sits out the build, so the drop is where it arrives.
         mix += four_on_the_floor(beats, bpm, sample_rate, length, rest=rest)
         account.append(Part("four on the floor", "added",
                             "a kick on every beat and hats between — not from your recording"))
+    for stem in left_out:
+        account.append(Part(stem, "left out", "muted in this version - still in your stems"))
     if rest is not None:
         from app.services.synth.drop import build_and_drop, describe
 
@@ -396,6 +409,18 @@ def bounce(
     if peak > ceiling:
         mix *= ceiling / peak
     return mix, account
+
+
+def _beat_detail(groove, swing: float | None) -> str:
+    """How the account names an added beat: whose it is, and that it is not the band's."""
+    whose = ("the beat from your reference" if groove.source == "your reference"
+             else f"a {groove.name} beat")
+    feel = ""
+    if swing is not None and swing > 0.02:
+        feel = f", swung at {int(round(50 + 50 * swing / 3))}%"
+    elif groove.source == "your reference" and groove.swing_percent >= 54:
+        feel = f", with its swing ({groove.swing_percent}%)"
+    return f"{whose}{feel} — not from your recording"
 
 
 #: Stems whose character lives in their attacks. Stretching softens attacks - measured at
@@ -421,6 +446,7 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
     stretched = [p.stem for p in account if p.how == "stretched"]
     added = [p for p in account if p.how == "added"]
     pumped = [p for p in account if p.how == "pumped"]
+    left_out = [p.stem for p in account if p.how == "left out"]
 
     if move is None or abs(move.scale - 1.0) < 1e-6:
         headline = "Same tempo — every part as you chose it."
@@ -441,6 +467,9 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
         lines.append(f"Pumping on every beat, like a dance record: {part.detail}.")
     for part in added:
         lines.append(f"Added: {part.detail}.")
+    if left_out:
+        lines.append(f"Left out, by your choice: {', '.join(left_out)}. They are still in "
+                     f"your stems and come back the moment you tick them.")
 
     tip = ""
     soft = [s for s in stretched if s in PERCUSSIVE]

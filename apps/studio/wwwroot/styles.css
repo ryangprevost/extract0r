@@ -1624,3 +1624,20 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .dance-row { margin-top: 14px; }
 #drop-bar { margin-left: 2px; }
 #drop-why { flex-basis: 100%; }
+
+/* ── Sprint 4: beats as a drum machine shows them ── */
+.preset-box { display: grid; gap: 10px; }
+.preset-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.groove-box { margin: 12px 0; }
+.groove-box summary { cursor: pointer; font-weight: 600; }
+.beat-grid { display: grid; gap: 4px; margin: 10px 0; max-width: min(100%, 560px); overflow-x: auto; }
+.beat-grid .row { display: grid; grid-template-columns: 52px repeat(16, minmax(10px, 1fr)); gap: 3px;
+  align-items: center; }
+.beat-grid .name { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.beat-grid .cell { height: 16px; border-radius: 3px; background: var(--panel-2);
+  border: 1px solid var(--edge); }
+.beat-grid .cell.beat { border-left-color: var(--muted); }
+.beat-grid .cell.x { background: var(--accent); border-color: var(--accent); }
+.beat-grid .cell.o { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.recipe-lines { margin: 6px 0 0; padding-left: 18px; }
+.recipe-lines li { margin: 3px 0; }

@@ -777,3 +777,52 @@ def test_a_lane_that_cannot_be_is_refused(client, separated, lane):
     response = client.post(f"/api/v1/tracks/{separated}/version/120/mix",
                            json={"channels": {"beat": {"automation": lane}}})
     assert response.status_code == 422
+
+
+# --- Sprint 10: saved mixes ----------------------------------------------------------------------
+
+
+def test_a_mix_is_saved_listed_and_put_on_a_version(client, separated):
+    bounced(client, separated)
+    saved = client.post("/api/v1/tracks/mixes", json={
+        "name": "my club", "beats": 16, "tempo_bpm": 120,
+        "channels": {"beat": {"gain_db": -3, "automation": {"pan": [[0, -1], [8, 1]]}},
+                     "vocals": {"reverb": 0.5}}})
+    assert saved.status_code == 201, saved.text
+    listed = client.get("/api/v1/tracks/mixes").json()
+    assert {m["name"] for m in listed["starters"]} == set(
+        __import__("app.services.synth.mixes", fromlist=["x"]).STARTERS)
+    assert listed["yours"][0]["about"] == "2 parts, 1 moving setting"
+    applied = client.post(f"/api/v1/tracks/{separated}/version/120/mix/apply",
+                          json={"name": "my club"}).json()
+    assert applied["channels"]["beat"]["gain_db"] == -3
+    assert applied["channels"]["beat"]["automation"]["pan"][1] == [8, 1]
+    assert client.delete("/api/v1/tracks/mixes/my club").status_code == 204
+
+
+def test_a_starter_mix_can_be_put_on_a_version(client, separated):
+    bounced(client, separated)
+    applied = client.post(f"/api/v1/tracks/{separated}/version/120/mix/apply",
+                          json={"name": "Tight and dry"})
+    assert applied.status_code == 200
+    assert applied.json()["channels"]["bass"]["gain_db"] == 1.5
+
+
+def test_a_bounced_mix_comes_back_after_a_reload(client, separated):
+    bounced(client, separated)
+    assert client.get(f"/api/v1/tracks/{separated}/version/120/mix").json() == {"channels": {}}
+    finish(client, client.post(f"/api/v1/tracks/{separated}/version/120/mix",
+                               json={"channels": {"beat": {"gain_db": -4}}}).json()["job_id"])
+    kept = client.get(f"/api/v1/tracks/{separated}/version/120/mix").json()["channels"]
+    assert kept["beat"]["gain_db"] == -4
+
+
+@pytest.mark.parametrize("name, code", [("Wide and spacious", 409), ("../x", 400)])
+def test_a_mix_name_that_cannot_be_is_refused(client, name, code):
+    assert client.post("/api/v1/tracks/mixes", json={"name": name}).status_code == code
+
+
+def test_putting_an_unknown_mix_on_a_version_is_a_404(client, separated):
+    bounced(client, separated)
+    assert client.post(f"/api/v1/tracks/{separated}/version/120/mix/apply",
+                       json={"name": "nope"}).status_code == 404

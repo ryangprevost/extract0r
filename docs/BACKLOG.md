@@ -2617,6 +2617,21 @@ off**, not by being near it.
 
 ---
 
+### X0R-1400 · Saved mixes · 3 · `DONE` 2026-10-12
+**As a** person who made a mix I like **I want** to keep it and put it on another version
+**so that** I do not start every remix from a flat mixer.
+
+See [SPRINT-10.md](sprints/SPRINT-10.md).
+
+**Acceptance criteria**
+- Save a mix by name, automation included, in `samples/mixes/` outside the repository. ✅
+- Use it on another version - as saved, or fitted to the version's length - heard before it
+  is bounced; anything that did not carry over is said in a sentence. ✅
+- Three starter mixes, each valid for the mixer and saying what it does. ✅
+- A version restores the mix it was last bounced with. ✅
+
+---
+
 ### X0R-1390 · Automation · 5 · `DONE` 2026-10-12
 **As a** person mixing a remix **I want** settings to move over the song - a filter opening
 into the drop, a part fading in **so that** the version has motion, not one fixed balance.

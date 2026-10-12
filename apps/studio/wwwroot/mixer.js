@@ -163,7 +163,7 @@ const Mixer = (() => {
 
     const where = document.createElement("span");
     where.className = "muted tiny";
-    const sayPan = () => (where.textContent = Math.abs(c.pan) < 0.02 ? "centre"
+    const sayPan = () => (where.textContent = Math.abs(c.pan) < 0.02 ? "center"
       : `${Math.round(Math.abs(c.pan) * 100)}% ${c.pan < 0 ? "left" : "right"}`);
     sayPan();
     box.appendChild(knob("Pan", range(-1, 1, 0.01, c.pan, (v) => {
@@ -388,7 +388,7 @@ const Mixer = (() => {
   function said(setting, v) {
     const m = MOVES[setting];
     if (setting === "gain_db") return v <= -60 ? "off" : `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
-    if (setting === "pan") return Math.abs(v) < 0.02 ? "centre" : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? "left" : "right"}`;
+    if (setting === "pan") return Math.abs(v) < 0.02 ? "center" : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? "left" : "right"}`;
     if (m.unit === "Hz") return v >= 1000 ? `${(v / 1000).toFixed(1)} kHz` : `${Math.round(v)} Hz`;
     return `${Math.round(v * 100)}%`;
   }
@@ -720,6 +720,130 @@ const Mixer = (() => {
 
   // --- the outside -------------------------------------------------------------------------
 
+  // --- Sprint 10: saved mixes --------------------------------------------------------------
+
+  let mixList = { starters: [], yours: [] };
+
+  async function loadMixes() {
+    try {
+      mixList = await api("/tracks/mixes");
+    } catch {
+      return;
+    }
+    const pick = $("mix-pick");
+    const was = pick.value;
+    pick.innerHTML = "";
+    const group = (label, items, yours) => {
+      if (!items.length) return;
+      const g = document.createElement("optgroup");
+      g.label = label;
+      for (const m of items) {
+        const option = new Option(m.name, m.name);
+        option.dataset.about = m.about;
+        option.dataset.yours = yours ? "1" : "";
+        g.appendChild(option);
+      }
+      pick.appendChild(g);
+    };
+    group("Starter mixes", mixList.starters, false);
+    group("Your mixes", mixList.yours, true);
+    if ([...pick.options].some((o) => o.value === was)) pick.value = was;
+    sayMix();
+  }
+
+  function sayMix() {
+    const option = $("mix-pick").selectedOptions[0];
+    $("mix-about").textContent = option?.dataset.about || "";
+    $("mix-delete").hidden = !option?.dataset.yours;
+  }
+
+  /** Every strip and lane set from a mix: its parts as it says, everything else flat. */
+  function useChannels(channels) {
+    for (const name of Object.keys(settings)) {
+      settings[name] = channels[name] ? { ...flat(), ...channels[name],
+        automation: { ...(channels[name].automation || {}) } } : flat();
+    }
+    lanes = [];
+    for (const [name, c] of Object.entries(settings)) {
+      for (const [setting, points] of Object.entries(c.automation || {})) {
+        if (points.length && MOVES[setting]) lanes.push({ layer: name, setting });
+      }
+    }
+    draw();
+    drawLanes();
+    schedule();
+  }
+
+  async function useMix() {
+    const said = $("mix-said");
+    const name = $("mix-pick").value;
+    if (!version || !name) return;
+    try {
+      const fitted = await api(`/tracks/${state.trackId}/version/${version.label}/mix/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, stretch: $("mix-fit").checked }),
+      });
+      useChannels(fitted.channels);
+      said.textContent = [`"${name}" is on the strips - play it, change anything, then bounce.`,
+        ...fitted.notes].join(" ");
+    } catch (error) {
+      said.textContent = error.message || String(error);
+    }
+  }
+
+  async function saveMix() {
+    const said = $("mix-said");
+    const name = $("mix-name").value.trim();
+    const channels = {};
+    for (const [layer, c] of Object.entries(settings)) {
+      const lanesOf = Object.fromEntries(Object.entries(c.automation || {}).filter(([, p]) => p.length));
+      const body = { ...c, automation: lanesOf };
+      if (JSON.stringify(body) !== JSON.stringify(flat())) channels[layer] = body;
+    }
+    const seconds = version?.duration_s || duration || 0;
+    const beats = Math.max(0, (seconds - (version?.first_beat_s || 0)) * (version?.tempo_bpm || 0) / 60);
+    try {
+      const saved = await api("/tracks/mixes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, channels, beats, tempo_bpm: version?.tempo_bpm || 0 }),
+      });
+      said.textContent = `Saved "${saved.name}" (${saved.about}). Pick it on any version.`;
+      await loadMixes();
+      $("mix-pick").value = saved.name;
+      sayMix();
+    } catch (error) {
+      said.textContent = error.message || String(error);
+    }
+  }
+
+  async function deleteMix() {
+    const name = $("mix-pick").value;
+    try {
+      await api(`/tracks/mixes/${encodeURIComponent(name)}`, { method: "DELETE" });
+      $("mix-said").textContent = `Deleted "${name}".`;
+      await loadMixes();
+    } catch (error) {
+      $("mix-said").textContent = error.message || String(error);
+    }
+  }
+
+  /** A version opened fresh - after a reload - gets back the mix it was last bounced with. */
+  async function restore() {
+    const untouched = Object.values(settings).every((c) => JSON.stringify(c) === JSON.stringify(flat()));
+    if (!version || !untouched) return;
+    try {
+      const kept = await api(`/tracks/${state.trackId}/version/${version.label}/mix`);
+      if (Object.keys(kept.channels || {}).length) {
+        useChannels(kept.channels);
+        $("mix-said").textContent = "This is the mix the version was last bounced with.";
+      }
+    } catch {
+      /* nothing kept - a flat mix */
+    }
+  }
+
   /** A new version was made: mix its layers, keeping the settings of any layer it still has. */
   function load(result) {
     if (!result?.layers?.length) return;
@@ -737,6 +861,7 @@ const Mixer = (() => {
     draw();
     fillLanePickers();
     drawLanes();
+    restore();
   }
 
   function reset() {
@@ -767,6 +892,11 @@ const Mixer = (() => {
     });
     $("mixer-bounce").addEventListener("click", bounce);
     $("auto-add").addEventListener("click", addLane);
+    $("mix-pick").addEventListener("change", sayMix);
+    $("mix-use").addEventListener("click", useMix);
+    $("mix-save").addEventListener("click", saveMix);
+    $("mix-delete").addEventListener("click", deleteMix);
+    loadMixes();
     $("mixer-reset").addEventListener("click", () => {
       for (const name of Object.keys(settings)) settings[name] = flat();
       lanes = [];

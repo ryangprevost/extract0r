@@ -1719,3 +1719,6 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .auto-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .auto-scroll { overflow-x: auto; border: 1px solid var(--edge); border-radius: 6px; }
 .auto-canvas { display: block; touch-action: none; cursor: crosshair; }
+
+/* -- Sprint 10: saved mixes -- */
+.mixes-box { display: grid; gap: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--edge); }

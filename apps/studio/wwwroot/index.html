@@ -753,8 +753,9 @@
         app's own separation, every note of a part comes back and the pitches are as
         accurate as a clean DI &mdash; what separation adds is <em>extra</em> notes, by
         breaking held ones into pieces, and those are put back together before anything is
-        played. <strong>Nothing is quantised or re-timed</strong>: the notes land where you
-        played them.
+        played. <strong>Nothing is quantized or re-timed unless you choose to</strong>: the
+        notes land where you played them, and <em>Edit notes</em> is there for when you want
+        them somewhere else.
       </p>
       <!-- Sprint 3 B/C: the tempo the version is being built at. Above the parts because
            it applies to all of them, and because deciding "this is a 128 BPM record now"
@@ -836,8 +837,8 @@
             </select>
           </label>
           <label class="check"><input type="checkbox" id="notes-ends" /> ends too</label>
-          <button class="small" id="notes-quantise" title="Pull notes towards the grid - the selected ones, or all">Quantise</button>
-          <button class="small" id="notes-swing" title="Quantise, then swing the off-sixteenths like the added beat">Quantise with swing</button>
+          <button class="small" id="notes-quantise" title="Pull notes toward the grid - the selected ones, or all">Quantize</button>
+          <button class="small" id="notes-swing" title="Quantize, then swing the off-sixteenths like the added beat">Quantize with swing</button>
           <button class="small notes-pitch" id="notes-oct-down" title="Down an octave">-12</button>
           <button class="small notes-pitch" id="notes-down" title="Down a semitone">-1</button>
           <button class="small notes-pitch" id="notes-up" title="Up a semitone">+1</button>
@@ -1042,6 +1043,26 @@
           hear is what <em>Bounce this mix</em> writes. Reverb and delay are shared, like on
           a desk: each strip decides how much it sends to them.
         </p>
+        <!-- Sprint 10: mixes kept by name and put on another version. -->
+        <div class="mixes-box">
+          <div class="mixer-top">
+            <strong>Mixes</strong>
+            <select id="mix-pick" aria-label="a mix to use"></select>
+            <label class="check" title="Stretch moving settings to this version's length, instead of keeping their bars">
+              <input type="checkbox" id="mix-fit" /> fit to this version
+            </label>
+            <button class="small" id="mix-use" type="button">Use this mix</button>
+            <span class="muted tiny" id="mix-about"></span>
+          </div>
+          <div class="mixer-top">
+            <label>Save this mix as
+              <input type="text" id="mix-name" maxlength="32" placeholder="my club mix" />
+            </label>
+            <button class="small" id="mix-save" type="button">Save it</button>
+            <button class="small" id="mix-delete" type="button" hidden>Delete the chosen mix</button>
+          </div>
+          <p class="muted small" id="mix-said"></p>
+        </div>
         <div class="mixer-strips" id="mixer-strips"></div>
         <!-- Sprint 9: settings that move over the song. -->
         <div class="auto-box">

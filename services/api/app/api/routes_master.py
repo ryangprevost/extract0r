@@ -2741,6 +2741,125 @@ def version_layer(track_id: str, label: str, name: str,
     return FileResponse(path, media_type="audio/wav", filename=path.name)
 
 
+# --- Sprint 10: saved mixes --------------------------------------------------------------------
+
+
+class SaveMixRequest(BaseModel):
+    name: str
+    channels: dict[str, ChannelIn] = Field(default_factory=dict)
+    #: How long the version it was made on is, in beats - so its lanes can be fitted later.
+    beats: float = Field(0.0, ge=0.0)
+    tempo_bpm: float = Field(0.0, ge=0.0)
+
+
+class ApplyMixRequest(BaseModel):
+    name: str
+    #: Stretch the moving settings to this version's length, rather than keep their bars.
+    stretch: bool = False
+
+
+def _version_meta(storage: TrackStorage, track_id: str, label: str) -> tuple[Path, dict]:
+    if not _LABEL.fullmatch(label):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such version.")
+    out_dir = storage.exports_dir(track_id)
+    meta_path = out_dir / f"layer.{label}.json"
+    if not meta_path.exists():
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Make the version first - a mix is put on its parts.")
+    return out_dir, json.loads(meta_path.read_text("utf-8"))
+
+
+def _version_beats(out_dir: Path, label: str, meta: dict) -> float:
+    """How long a version is, in beats from its first beat."""
+    import soundfile as sf
+
+    longest = max((sf.info(str(out_dir / f"layer.{label}.{n}.wav")).duration
+                   for n in meta["layers"]), default=0.0)
+    bpm = meta.get("bpm") or 0.0
+    return max(0.0, (longest - (meta.get("first_beat_s") or 0.0)) * bpm / 60.0) if bpm else 0.0
+
+
+@router.get("/mixes")
+def list_mixes(settings: Settings = Depends(get_config)) -> dict:
+    """Starter mixes, and the mixes you have saved. Sprint 10."""
+    from app.services.synth import mixes
+
+    return {
+        "starters": [{"name": n, "about": m["about"]} for n, m in mixes.STARTERS.items()],
+        "yours": [{"name": n, "about": mixes.describe(m["channels"]),
+                   "bars": round((m.get("beats") or 0) / 4)}
+                  for n, m in mixes.saved_mixes(settings.sample_dir).items()],
+    }
+
+
+@router.post("/mixes", status_code=status.HTTP_201_CREATED)
+def save_mix(body: SaveMixRequest, settings: Settings = Depends(get_config)) -> dict:
+    """Keep a mix under a name, to put on another version."""
+    from app.services.synth import mixes
+
+    name = body.name.strip()
+    if not mixes.SAFE_NAME.match(name):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "A mix's name can hold letters, numbers, spaces, hyphens and "
+                            "underscores, up to 32 of them.")
+    if name in mixes.STARTERS:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"{name!r} is a starter mix. Call yours something else.")
+    channels = {n: c.model_dump() for n, c in body.channels.items()}
+    mixes.save_mix(settings.sample_dir, name, channels, body.beats, body.tempo_bpm)
+    return {"name": name, "about": mixes.describe(channels)}
+
+
+@router.delete("/mixes/{name}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_mix(name: str, settings: Settings = Depends(get_config)) -> Response:
+    from app.services.synth import mixes
+
+    if not mixes.SAFE_NAME.match(name) or not mixes.delete_mix(settings.sample_dir, name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No mix of yours called {name!r}.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{track_id}/version/{label}/mix/apply")
+def apply_mix(
+    track_id: str,
+    label: str,
+    body: ApplyMixRequest,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+) -> dict:
+    """A saved or starter mix, made ready for this version - its parts, its length - with a
+    sentence for whatever did not carry over. Nothing is bounced: the page puts it on the
+    strips, so it is heard before it is kept."""
+    from app.services.synth import mixes
+
+    out_dir, meta = _version_meta(storage, track_id, label)
+    if body.name in mixes.STARTERS:
+        saved = {"channels": mixes.STARTERS[body.name]["channels"], "beats": None}
+    else:
+        saved = mixes.saved_mixes(settings.sample_dir).get(body.name)
+        if saved is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No mix called {body.name!r}.")
+    beats = _version_beats(out_dir, label, meta)
+    channels, notes = mixes.fit(saved["channels"], meta["layers"], beats,
+                                saved.get("beats"), body.stretch)
+    # Through the same validation a bounce uses, so anything out of range is held to it.
+    checked = {}
+    for name, channel in channels.items():
+        try:
+            checked[name] = ChannelIn(**{**ChannelIn().model_dump(), **channel}).model_dump()
+        except Exception as exc:  # noqa: BLE001 - a damaged saved mix is reported, not raised
+            notes.append(f"The {name} settings could not be read and were left out ({exc}).")
+    return {"channels": checked, "notes": notes, "beats": round(beats, 2)}
+
+
+@router.get("/{track_id}/version/{label}/mix")
+def version_mix(track_id: str, label: str,
+                storage: TrackStorage = Depends(get_storage)) -> dict:
+    """The mix this version was last bounced with, so a reload does not lose it."""
+    _, meta = _version_meta(storage, track_id, label)
+    return {"channels": meta.get("mix") or {}}
+
+
 @router.post("/{track_id}/version/{label}/mix", response_model=JobResponse)
 def mix_version(
     track_id: str,

@@ -187,6 +187,50 @@ VOICES: dict[str, PitchedVoice] = {
         release_s=0.35,
         brightness_decay=3.5,
     ),
+    # --- Sprint 4, X0R-1343: the rest of a dance producer's first palette.
+    #: Two detuned saws, low and wide - the moving, growling bass of drum and bass and
+    #: bass house. The beating between the copies is the "movement"; no LFO needed.
+    "reese": PitchedVoice(
+        partials=_saw(16, rolloff=1.1),
+        attack_s=0.01,
+        decay_s=0.4,
+        sustain=0.9,
+        release_s=0.1,
+        stack=2,
+        detune_cents=22.0,
+        brightness_decay=0.6,
+        drive=0.25,
+    ),
+    #: Short, bright and hard-edged: a chord hit on the offbeat, the piano-house and
+    #: rave sound. Closes fast like the pluck, but a squarer, hollower tone.
+    "stab": PitchedVoice(
+        partials=(1.0, 0.0, 0.42, 0.0, 0.3, 0.0, 0.2, 0.0, 0.14, 0.0, 0.1),
+        attack_s=0.002,
+        decay_s=0.11,
+        sustain=0.0,
+        release_s=0.04,
+        stack=2,
+        detune_cents=6.0,
+        brightness_decay=6.0,
+    ),
+    #: Sparse upper partials and a long ring - a bell or mallet for a top line over the drop.
+    "bell": PitchedVoice(
+        partials=(1.0, 0.0, 0.0, 0.45, 0.0, 0.0, 0.0, 0.0, 0.2),
+        attack_s=0.002,
+        decay_s=1.2,
+        sustain=0.0,
+        release_s=0.5,
+        brightness_decay=2.5,
+    ),
+    #: Odd harmonics, held: the hollow, bright square of chiptune and old-school rave leads.
+    "square": PitchedVoice(
+        partials=tuple(1.0 / n if n % 2 else 0.0 for n in range(1, 16)),
+        attack_s=0.004,
+        decay_s=0.2,
+        sustain=0.7,
+        release_s=0.06,
+        drive=0.1,
+    ),
 }
 
 

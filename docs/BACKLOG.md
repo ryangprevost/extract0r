@@ -2617,6 +2617,31 @@ off**, not by being near it.
 
 ---
 
+### X0R-1343 · The sound library · 5 · `DONE` 2026-10-11
+**As a** person choosing sounds **I want** to hear every kit and voice before I use it, and to
+use my own drum hits **so that** the remix sounds like the style I am going for.
+
+Ryan asked for a *"sample library for synth and drums"*. Bounded by `kit.py`'s rule -
+nothing recorded ships - so it is the built-in sounds, previewed, plus kits of the user's
+own one-shots. `synth/library.py`.
+
+**Acceptance criteria**
+- Five new kits named for their styles - house, techno, trap, lofi, drum and bass - nine in
+  all; each kick still matches itself in the reference recipe's kit matcher. ✅
+- Four new voices - reese, stab, bell, square - ten in all; each plays the pitch it is asked
+  for under the pitch tracker (`test_synth`). ✅
+- *Sound library* panel: every kit on the same two-bar beat, every voice on the same
+  phrase, one press each. ✅
+- One-shots you upload are sorted into kick, snare and hat by listening (energy under 150 Hz,
+  and under 3 kHz); every hit of every built-in kit is sorted correctly. The first rule
+  ("most energy above 5 kHz is a hat") called five of the nine snares hats. ✅
+- *Make a kit from your one-shots*: saved in `samples/kits/`, outside the repository and
+  retention; plays on a drum part or an added beat anywhere a built-in kit does; a drum
+  left empty plays the edm kit's; a hit at another sample rate is rate-converted, not
+  repitched. ✅
+
+---
+
 ### X0R-1342 · The version as MIDI · 3 · `DONE` 2026-10-11
 **As a** person who made a remix here **I want** it as a MIDI file **so that** I can open it in
 my DAW and keep going - swap a synth, move a note, re-sequence a drum myself.

@@ -31,7 +31,7 @@ reduced to numbers and rebuilt from this application's own synthesis.
 | X0R-1340 | Grooves: read a beat's pattern, accents and feel; six built-in beats; add any of them | 5 | **done** |
 | X0R-1341 | Remix like your reference: tempo, beat, swing, pump, kick and bass as a recipe | 5 | **done** |
 | X0R-1342 | The version as MIDI, at the new tempo, drums and added parts included | 3 | **done** |
-| X0R-1343 | A sample library: more kits and voices, and kits built from your own one-shots | 5 | next |
+| X0R-1343 | A sample library: more kits and voices, and kits built from your own one-shots | 5 | **done** |
 
 ---
 

@@ -442,12 +442,15 @@ def events(groove: Groove, beats: np.ndarray, rest: tuple[float, float] | None =
 def render(groove: Groove, beats: np.ndarray, sample_rate: int, length: int,
            kit: str = "edm", rest: tuple[float, float] | None = None,
            swing: float | None = None, feel: bool = True,
-           threshold: float = PLAYS_FROM) -> np.ndarray:
-    """The groove as stereo audio on a kit, bar after bar along `beats`. See `events`."""
+           threshold: float = PLAYS_FROM,
+           sounds: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    """The groove as stereo audio on a kit, bar after bar along `beats`. See `events`.
+    `sounds` is a kit already loaded - the library's, possibly the user's own hits."""
     out = np.zeros((length, 2))
-    voices = KITS.get(kit) or KITS["edm"]
-    sounds = {k: render_voice(voices[k], sample_rate, seed=20 + i)
-              for i, k in enumerate(KINDS) if k in voices}
+    if sounds is None:
+        voices = KITS.get(kit) or KITS["edm"]
+        sounds = {k: render_voice(voices[k], sample_rate, seed=20 + i)
+                  for i, k in enumerate(KINDS) if k in voices}
     for t, kind, velocity in events(groove, beats, rest, swing, feel, threshold):
         sound = sounds.get(kind)
         at = int(round(t * sample_rate))

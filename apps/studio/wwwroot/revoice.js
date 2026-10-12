@@ -43,8 +43,9 @@ const Revoice = (() => {
     ["other", "The rest"],
   ];
 
-  //: The three kits, which is what the drums row offers instead of voices.
-  const KITS = ["edm", "tight", "roomy", "punchy"];
+  //: Every kit, which is what the drums row offers instead of voices: the built-in ones,
+  //: then the user's own (X0R-1343). Filled from `/library`; this is the fallback.
+  let KITS = ["edm", "tight", "roomy", "punchy"];
 
   //: The tempo this version is being built at, and the one it started from.
   let sourceBpm = 0;
@@ -400,6 +401,8 @@ const Revoice = (() => {
       ? `On this machine: ${samples.map((s) => s.name).join(", ")}.`
       : "";
     render();
+    // A new one-shot is a new choice in the make-a-kit form.
+    if ($("library-kits")?.children.length) loadLibrary();
   }
 
   async function uploadSample() {
@@ -713,8 +716,7 @@ const Revoice = (() => {
     const select = $("beat-select");
     if (!select || select.dataset.loaded) return;
     select.dataset.loaded = "yes";
-    const kit = $("beat-kit");
-    for (const name of KITS) kit.appendChild(new Option(name, name));
+    fillKits();
     try {
       const info = await api("/tracks/grooves");
       for (const groove of info.grooves || []) {
@@ -726,6 +728,113 @@ const Revoice = (() => {
     const theirs = new Option("your reference's beat", "reference");
     theirs.disabled = true;
     select.appendChild(theirs);
+  }
+
+  /** Every kit select on the page, refilled from the current list, keeping each choice. */
+  function fillKits() {
+    const kit = $("beat-kit");
+    if (kit) {
+      const was = kit.value;
+      kit.innerHTML = "";
+      for (const name of KITS) kit.appendChild(new Option(name, name));
+      if (KITS.includes(was)) kit.value = was;
+    }
+    render();
+  }
+
+  /** A row in the library: a play button, a name, a sentence. */
+  function libraryItem(name, about, url) {
+    const row = document.createElement("div");
+    row.className = "library-item";
+    const play = document.createElement("button");
+    play.className = "small play";
+    play.type = "button";
+    play.textContent = "\u25B6";
+    play.setAttribute("aria-label", "Play " + name);
+    let audio = null;
+    play.addEventListener("click", () => {
+      if (audio && !audio.paused) {
+        audio.pause();
+        play.textContent = "\u25B6";
+        return;
+      }
+      audio = audio || new Audio(url);
+      audio.currentTime = 0;
+      audio.play();
+      play.textContent = "\u25A0";
+      audio.onended = () => (play.textContent = "\u25B6");
+    });
+    const label = document.createElement("span");
+    label.className = "name";
+    label.textContent = name;
+    const text = document.createElement("span");
+    text.className = "about muted small";
+    text.textContent = about;
+    row.append(play, label, text);
+    return row;
+  }
+
+  /** The library: kits and voices with previews, and the make-a-kit form. */
+  async function loadLibrary() {
+    let info;
+    try {
+      info = await api("/tracks/library");
+    } catch {
+      return;
+    }
+    KITS = (info.kits || []).map((k) => k.name);
+    fillKits();
+    const base = API + "/tracks/library";
+    const kits = $("library-kits");
+    const voicesHost = $("library-voices");
+    if (!kits || !voicesHost) return;
+    kits.innerHTML = "";
+    for (const kit of info.kits || []) {
+      kits.appendChild(libraryItem(kit.name, kit.about,
+        base + "/kits/" + encodeURIComponent(kit.name) + "/preview"));
+    }
+    voicesHost.innerHTML = "";
+    for (const voice of info.voices || []) {
+      voicesHost.appendChild(libraryItem(voice.name, voice.about,
+        base + "/voices/" + encodeURIComponent(voice.name) + "/preview"));
+    }
+    const shots = info.one_shots || [];
+    for (const drum of ["kick", "snare", "hihat"]) {
+      const pick = $("mykit-" + drum);
+      pick.innerHTML = "";
+      pick.appendChild(new Option("(the edm kit's)", ""));
+      // The ones that sound like this drum first, so the obvious choice is the default.
+      const ordered = [...shots].sort((a, b) =>
+        (b.sounds_like === drum) - (a.sounds_like === drum));
+      const word = drum === "hihat" ? "hat" : drum;
+      for (const shot of ordered) {
+        const label = shot.sounds_like === drum
+          ? shot.name + " (sounds like a " + word + ")" : shot.name;
+        const option = new Option(label, shot.name);
+        option.title = shot.why;
+        pick.appendChild(option);
+      }
+      const best = shots.find((s) => s.sounds_like === drum);
+      pick.value = best ? best.name : "";
+    }
+    $("library-make").hidden = !shots.length;
+  }
+
+  async function saveMyKit() {
+    const said = $("mykit-said");
+    const body = { name: $("mykit-name").value.trim() };
+    for (const drum of ["kick", "snare", "hihat"]) body[drum] = $("mykit-" + drum).value || null;
+    try {
+      await api("/tracks/library/kits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      said.textContent = "Saved. \u201C" + body.name + "\u201D is now in every kit list on this page.";
+      await loadLibrary();
+    } catch (error) {
+      said.textContent = error.message || String(error);
+    }
   }
 
   /** Your drummer's pattern and feel, read once when the panel is opened. */
@@ -848,6 +957,8 @@ const Revoice = (() => {
       if (e.target.open) loadMyGroove();
     });
     await loadBeats();
+    $("mykit-save")?.addEventListener("click", saveMyKit);
+    await loadLibrary();
     for (const chip of document.querySelectorAll("#tempo-fix .chip")) {
       chip.addEventListener("click", () => correctTempo(parseFloat(chip.dataset.times)));
     }

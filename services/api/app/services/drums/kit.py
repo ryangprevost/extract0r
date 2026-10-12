@@ -110,6 +110,52 @@ KITS: dict[str, dict[str, Voice]] = {
         "hihat": Voice(0.035, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=130.0,
                        noise_highpass=8000.0, body_level=0.0),
     },
+    # --- Sprint 4, X0R-1343: a kit per style, so a remix can sound like where it is going.
+    # Each is named for the music it is the textbook sound of, synthesised like the rest.
+    #: Round and warm: a kick with a soft front, a clap with some body, an airy hat.
+    "house": {
+        "kick": Voice(0.38, 120.0, 52.0, 30.0, 6.0, noise_level=0.05, noise_decay=800.0),
+        "snare": Voice(0.22, 190.0, 180.0, 40.0, 30.0, noise_level=0.9, noise_decay=20.0,
+                       noise_highpass=1000.0, noise_lowpass=5000.0, body_level=0.25,
+                       bursts=3),
+        "hihat": Voice(0.09, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=45.0,
+                       noise_highpass=7000.0, body_level=0.0),
+    },
+    #: Long and dark: a rumbling kick that holds, a narrow clap, a metallic tick of a hat.
+    "techno": {
+        "kick": Voice(0.62, 140.0, 42.0, 40.0, 3.2, noise_level=0.18, noise_decay=300.0),
+        "snare": Voice(0.18, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=24.0,
+                       noise_highpass=1200.0, noise_lowpass=2600.0, body_level=0.0,
+                       bursts=3, burst_gap_s=0.008),
+        "hihat": Voice(0.05, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=95.0,
+                       noise_highpass=9500.0, body_level=0.0),
+    },
+    #: Hard and short: a kick with a click on the front - the 808 bass carries the sub in
+    #: trap - a crisp snare with a high body, and a very short bright hat for the rolls.
+    "trap": {
+        "kick": Voice(0.2, 160.0, 58.0, 70.0, 14.0, noise_level=0.4, noise_decay=900.0),
+        "snare": Voice(0.16, 260.0, 240.0, 60.0, 38.0, noise_level=0.85, noise_decay=34.0,
+                       noise_highpass=2200.0, body_level=0.5),
+        "hihat": Voice(0.025, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=190.0,
+                       noise_highpass=9000.0, body_level=0.0),
+    },
+    #: Soft and dusty: every drum band-limited, nothing with a sharp edge.
+    "lofi": {
+        "kick": Voice(0.3, 85.0, 48.0, 25.0, 9.0, noise_level=0.03, noise_decay=400.0),
+        "snare": Voice(0.17, 180.0, 175.0, 30.0, 26.0, noise_level=0.6, noise_decay=26.0,
+                       noise_highpass=700.0, noise_lowpass=3200.0, body_level=0.5),
+        "hihat": Voice(0.06, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=80.0,
+                       noise_highpass=5000.0, noise_lowpass=9000.0, body_level=0.0),
+    },
+    #: Tight and bright: a short kick that stays out of the bass's way and a high, cracking
+    #: snare - the backbeat a drum and bass break is built around.
+    "dnb": {
+        "kick": Voice(0.16, 150.0, 60.0, 80.0, 18.0, noise_level=0.22, noise_decay=700.0),
+        "snare": Voice(0.15, 300.0, 280.0, 60.0, 30.0, noise_level=0.9, noise_decay=30.0,
+                       noise_highpass=2500.0, body_level=0.55),
+        "hihat": Voice(0.03, 0.0, 0.0, 0.0, 0.0, noise_level=1.0, noise_decay=160.0,
+                       noise_highpass=8500.0, body_level=0.0),
+    },
 }
 
 DRUMS = ("kick", "snare", "hihat")

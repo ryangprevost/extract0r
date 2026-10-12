@@ -841,6 +841,32 @@
         </div>
         <p class="muted small" id="sample-list"></p>
       </details>
+      <!-- X0R-1343. Every kit and voice, heard before chosen; and kits built from the
+           user's own one-shots, sorted into drums by listening to them. -->
+      <details class="library-box" id="library-box">
+        <summary>Sound library</summary>
+        <p class="muted small">
+          Press play to hear any kit or voice before you use it. Kits are compared on the
+          same two-bar beat, voices on the same short phrase.
+        </p>
+        <h4 class="library-head">Kits</h4>
+        <div class="library-list" id="library-kits"></div>
+        <h4 class="library-head">Voices</h4>
+        <div class="library-list" id="library-voices"></div>
+        <h4 class="library-head">Make a kit from your one-shots</h4>
+        <p class="muted small" id="library-shots-note">
+          Upload hits above, and they are sorted into kick, snare and hat by how they
+          sound. Pick one for each drum - any left empty plays the edm kit's.
+        </p>
+        <div class="revoice-row" id="library-make" hidden>
+          <label>Kick <select id="mykit-kick"></select></label>
+          <label>Snare <select id="mykit-snare"></select></label>
+          <label>Hat <select id="mykit-hihat"></select></label>
+          <label>Call it <input type="text" id="mykit-name" maxlength="32" placeholder="my kit" /></label>
+          <button class="small" id="mykit-save">Save the kit</button>
+        </div>
+        <p class="muted small" id="mykit-said"></p>
+      </details>
       <p class="muted small" id="revoice-summary"></p>
       <!-- The whole song at the new tempo, as one file you can play and keep. The thing
            all of the rows above are building towards. -->

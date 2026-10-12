@@ -142,6 +142,7 @@ def rebuild_drums(
     duration_s: float,
     kit: str = "tight",
     drums: tuple[str, ...] = ("kick", "snare", "hihat"),
+    sounds: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
     """A drum part, synthesised at these positions, with nothing underneath it.
 
@@ -155,12 +156,16 @@ def rebuild_drums(
     part with no hats at 128 BPM is not a drum part.
     """
     out = np.zeros((int(duration_s * sample_rate) + sample_rate, 2))
-    voices = KITS.get(kit) or KITS["tight"]
-    rendered = {
-        name: render_voice(voices[name], sample_rate, seed=index)
-        for index, name in enumerate(DRUMS)
-        if name in drums and name in voices
-    }
+    if sounds is not None:
+        # A kit from the library - possibly the user's own one-shots. X0R-1343.
+        rendered = {name: hit for name, hit in sounds.items() if name in drums}
+    else:
+        voices = KITS.get(kit) or KITS["tight"]
+        rendered = {
+            name: render_voice(voices[name], sample_rate, seed=index)
+            for index, name in enumerate(DRUMS)
+            if name in drums and name in voices
+        }
     if not rendered:
         return out[: int(duration_s * sample_rate)]
 
@@ -315,6 +320,7 @@ def bounce(
     beat_kit: str = "edm",
     swing: float | None = None,
     left_out: tuple[str, ...] = (),
+    beat_sounds: dict[str, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, list[Part]]:
     """Every part of the song at the new tempo, summed. Returns the audio and the account.
 
@@ -385,7 +391,7 @@ def bounce(
         from app.services.synth.groove import render as play_groove
 
         mix += play_groove(added_beat, beats, sample_rate, length, kit=beat_kit, rest=rest,
-                           swing=swing)
+                           swing=swing, sounds=beat_sounds)
         account.append(Part("beat", "added", _beat_detail(added_beat, swing)))
     elif floor_kick and beats is not None and bpm > 0:
         # The added kick sits out the build, so the drop is where it arrives.

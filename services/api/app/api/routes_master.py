@@ -1351,6 +1351,10 @@ def list_voices() -> dict:
         "a dance version.",
         "pad": "Slow in, wide and held — chords turned into a wash under the drop.",
         "808": "A falling, gritty sub — the bass of most modern dance and hip hop.",
+        "reese": "Two detuned saws, low and growling — the moving bass of drum and bass.",
+        "stab": "A short, hollow chord hit — piano house and rave offbeats.",
+        "bell": "Sparse and ringing — a bell or mallet top line over the drop.",
+        "square": "Hollow and bright — chiptune and old-school rave leads.",
     }
     return {
         "voices": [
@@ -1359,6 +1363,109 @@ def list_voices() -> dict:
             for name, voice in sorted(VOICES.items())
         ]
     }
+
+
+class KitRequest(BaseModel):
+    """A kit made of the user's own one-shots, by sample name."""
+
+    name: str
+    kick: str | None = None
+    snare: str | None = None
+    hihat: str | None = None
+
+
+@router.get("/library")
+def sound_library(settings: Settings = Depends(get_config)) -> dict:
+    """Every kit and voice there is to choose from, and your one-shots sorted into drums.
+    Sprint 4, X0R-1343. Previews at `/library/kits/{kit}/preview` and
+    `/library/voices/{voice}/preview`. Nothing recorded ships - see `synth/library.py`."""
+    import soundfile as sf
+
+    from app.services.drums.kit import KITS
+    from app.services.synth import library
+    from app.services.synth.voice import VOICES
+
+    mine = library.user_kits(settings.sample_dir)
+    shots = []
+    if settings.sample_dir.exists():
+        for path in sorted(settings.sample_dir.glob("*.wav")):
+            try:
+                data, rate = sf.read(str(path), dtype="float64", always_2d=True)
+            except Exception:  # noqa: BLE001 - an unreadable file is skipped, not fatal
+                continue
+            if len(data) / rate > 2.5:
+                continue  # longer than a one-shot: a phrase or a loop, not a drum hit
+            kind, why = library.classify(data, rate)
+            shots.append({"name": path.stem, "sounds_like": kind, "why": why})
+    blurbs = list_voices()["voices"]
+    return {
+        "kits": [{"name": k, "yours": False, "about": library.KIT_ABOUT.get(k, "")}
+                 for k in KITS]
+        + [{"name": k, "yours": True, "about": "Your kit: " + ", ".join(
+            f"{d} - {n}" for d, n in v.items())} for k, v in mine.items()],
+        "voices": [{"name": v["id"], "about": v["about"]} for v in blurbs if v["id"] in VOICES],
+        "one_shots": shots,
+        "note": "Built-in sounds are synthesised here, so nothing anybody else recorded ships. "
+        "Your kits are made of samples you uploaded and stay on this machine.",
+    }
+
+
+@router.get("/library/kits/{kit}/preview")
+def preview_kit(kit: str, settings: Settings = Depends(get_config)) -> Response:
+    """Two bars of the same plain beat on this kit, so kits are compared like for like."""
+    from app.services.synth import library
+
+    if not library.exists(kit, settings.sample_dir):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No kit called {kit!r}.")
+    rate = 44100
+    audio = library.preview_kit(library.sounds(kit, rate, settings.sample_dir), rate)
+    return Response(library.wav_bytes(audio, rate), media_type="audio/wav")
+
+
+@router.get("/library/voices/{voice}/preview")
+def preview_voice(voice: str) -> Response:
+    """A short phrase on this voice, in its own register."""
+    from app.services.synth import library
+    from app.services.synth.voice import VOICES
+
+    if voice not in VOICES:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No voice called {voice!r}.")
+    rate = 44100
+    return Response(library.wav_bytes(library.preview_voice(voice, rate), rate),
+                    media_type="audio/wav")
+
+
+@router.post("/library/kits", status_code=status.HTTP_201_CREATED)
+def save_kit(body: KitRequest, settings: Settings = Depends(get_config)) -> dict:
+    """Save a kit made of your own one-shots. Any drum left empty plays the edm kit's."""
+    from app.services.drums.kit import KITS
+    from app.services.synth import library
+
+    if not library.SAFE_NAME.match(body.name):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "A kit name can hold letters, numbers, spaces, hyphens and "
+                            "underscores, up to 32 of them.")
+    if body.name in KITS:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"{body.name!r} is a built-in kit. Call yours something else.")
+    drums = {d: getattr(body, d) for d in ("kick", "snare", "hihat") if getattr(body, d)}
+    if not drums:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose at least one sample.")
+    for drum, sample in drums.items():
+        if not _sample_path(settings, sample).exists():
+            raise HTTPException(status.HTTP_404_NOT_FOUND,
+                                f"No sample called {sample!r} for the {drum}.")
+    library.save_kit(settings.sample_dir, body.name, drums)
+    return {"name": body.name, "drums": drums}
+
+
+@router.delete("/library/kits/{name}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_kit(name: str, settings: Settings = Depends(get_config)) -> Response:
+    from app.services.synth import library
+
+    if not library.SAFE_NAME.match(name) or not library.delete_kit(settings.sample_dir, name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No kit of yours called {name!r}.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 #: What a sample may be named once it is on disk. A name from a form becomes a filename,
@@ -1678,8 +1785,11 @@ def revoice(
     except KeyError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
 
+    from app.services.synth import library
     from app.services.synth.voice import VOICES
 
+    if stem is StemKind.DRUMS and not library.exists(kit, settings.sample_dir):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No kit called {kit!r}.")
     sample_path = None
     if sample:
         sample_path = _sample_path(settings, sample)
@@ -1750,8 +1860,11 @@ def revoice(
             handle.update(
                 JobState.RUNNING, 0.7, f"re-playing {len(hits)} strokes on the {kit} kit"
             )
+            from app.services.synth import library
+
             audio = rebuild_drums(
-                move_hits(hits, move.scale if move else 1.0), rate, stretched, kit=kit
+                move_hits(hits, move.scale if move else 1.0), rate, stretched, kit=kit,
+                sounds=library.sounds(kit, rate, settings.sample_dir),
             )
             out_dir.mkdir(parents=True, exist_ok=True)
             wav = out_dir / f"drums.{kit}.wav"
@@ -1853,11 +1966,13 @@ def revoiced_audio(
     # are struck rather than pitched - a kit. Each of those is a closed list, which is the
     # point: the name is rebuilt from known parts rather than taken from the URL.
     from app.services.drums.kit import KITS
+    from app.services.synth import library
 
     known = (
         voice in VOICES
         or voice in KITS
         or (settings.sample_dir / f"{voice}.wav").exists()
+        or library.exists(voice, settings.sample_dir)
     )
     if extension != "wav" or not known or stem not in {k.value for k in StemKind}:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such render.")
@@ -1986,10 +2101,11 @@ def bounce_version(
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             "Every part is left out, so there is nothing to put in the version.")
     added_beat = _resolve_beat(body, out_dir)
-    from app.services.drums.kit import KITS
+    from app.services.synth import library
 
-    if body.beat_kit not in KITS:
+    if not library.exists(body.beat_kit, settings.sample_dir):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No kit called {body.beat_kit!r}.")
+    sample_dir = settings.sample_dir
 
     from app.services.synth.retempo import stretcher_available
 
@@ -2071,6 +2187,7 @@ def bounce_version(
                 beat_kit=body.beat_kit,
                 swing=body.swing,
                 left_out=tuple(body.leave_out),
+                beat_sounds=library.sounds(body.beat_kit, rate, sample_dir) if added_beat else None,
             )
         except StaleRender as exc:
             return {"ok": False, "why": str(exc), "stem": exc.stem}

@@ -58,7 +58,7 @@ def test_the_voices_are_listed_with_something_to_choose_between(client):
     body = client.get("/api/v1/tracks/voices").json()
 
     assert {v["id"] for v in body["voices"]} == {
-        "supersaw", "subbass", "epiano", "pluck", "pad", "808"
+        "supersaw", "subbass", "epiano", "pluck", "pad", "808", "reese", "stab", "bell", "square"
     }
     assert all(v["about"] for v in body["voices"]), "a picker needs more than three nouns"
 
@@ -450,3 +450,27 @@ def test_a_midi_version_of_a_beat_comes_back_as_a_file(client, separated):
     assert midi.headers["content-type"] == "audio/midi"
     assert midi.content.startswith(b"MThd")
     assert any("riser" in note for note in result["notes"])
+
+
+def test_an_added_beat_can_play_on_your_own_kit(client, separated):
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    from app.services.drums.kit import KITS, render_voice
+
+    buffer = io.BytesIO()
+    hit = render_voice(KITS["techno"]["kick"], 44100)
+    sf.write(buffer, np.stack([hit, hit], axis=1), 44100, format="WAV")
+    client.post("/api/v1/tracks/samples",
+                files={"file": ("k.wav", buffer.getvalue(), "audio/wav")},
+                data={"owns_or_licensed": "true", "name": "my kick"})
+    client.post("/api/v1/tracks/library/kits", json={"name": "mine", "kick": "my kick"})
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    started = client.post(f"/api/v1/tracks/{separated}/bounce",
+                          json={"target_bpm": 120, "beat": "house", "beat_kit": "mine"})
+    assert finish(client, started.json()["job_id"])["state"] == "succeeded"
+    refused = client.post(f"/api/v1/tracks/{separated}/bounce",
+                          json={"beat": "house", "beat_kit": "nobody's"})
+    assert refused.status_code == 400

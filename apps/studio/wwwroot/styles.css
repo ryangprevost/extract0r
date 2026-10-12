@@ -1641,3 +1641,16 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .beat-grid .cell.o { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .recipe-lines { margin: 6px 0 0; padding-left: 18px; }
 .recipe-lines li { margin: 3px 0; }
+
+/* -- X0R-1343: the sound library -- */
+.library-box { margin: 12px 0; }
+.library-box summary { cursor: pointer; font-weight: 600; }
+.library-head { margin: 12px 0 4px; font-size: 13px; }
+.library-list { display: grid; gap: 6px; }
+.library-item { display: grid; grid-template-columns: 34px 90px 1fr; gap: 8px; align-items: center; }
+.library-item .name { font-family: var(--mono); font-size: 12px; }
+.library-item .play { width: 30px; height: 26px; padding: 0; }
+@media (max-width: 560px) {
+  .library-item { grid-template-columns: 34px 1fr; }
+  .library-item .about { grid-column: 1 / -1; }
+}

@@ -400,6 +400,41 @@ BUILT_IN: dict[str, Groove] = {
 }
 
 
+# --- your own ---------------------------------------------------------------------------
+
+#: How hard a step marked "o" plays in a beat you wrote: a ghost note, heard but under the rest.
+SOFT = 0.45
+
+
+def from_rows(rows: dict[str, str], base: Groove | None = None, name: str = "your beat"
+              ) -> Groove:
+    """A beat written on a step grid: per drum, sixteen characters - "x" plays, "o" plays
+    softly, "." rests. Sprint 6.
+
+    Started from `base`, and each step it already played keeps its feel - its distance from
+    the grid and its accent - so editing the reference's beat to add a kick keeps the
+    reference's swing on every hat. A step you add plays on the grid; a step you remove is
+    gone.
+    """
+    steps = {}
+    for kind in KINDS:
+        row = (rows.get(kind) or "").ljust(STEPS, ".")[:STEPS]
+        was = (base.steps.get(kind) if base else None) or [Step() for _ in range(STEPS)]
+        steps[kind] = []
+        for i, ch in enumerate(row):
+            before = was[i]
+            if ch == "x":
+                velocity = before.velocity if before.rate >= PLAYS_FROM else 1.0
+                steps[kind].append(Step(1.0, before.offset, max(velocity, SOFT + 0.1)))
+            elif ch == "o":
+                steps[kind].append(Step(1.0, before.offset, SOFT))
+            else:
+                steps[kind].append(Step())
+    based = f" (from {base.name})" if base is not None and base.source != "you" else ""
+    return Groove(name=name + based, source="you", steps=steps,
+                  bars=base.bars if base else 0, bpm=base.bpm if base else 0.0)
+
+
 # --- playing one -------------------------------------------------------------------------
 
 

@@ -1754,6 +1754,156 @@ def correct_tempo(
     return {"tempo_bpm": round(float(bpm), 1), "set_by": "you"}
 
 
+# --- Sprint 6: a part's notes, to edit ------------------------------------------------------
+
+
+def _notes_file(out_dir: Path, stem: str, which: str) -> Path:
+    return out_dir / f"{stem}.{which}.json"
+
+
+def _read_notes(path: Path) -> list | None:
+    from app.services.synth.edit import BeatNote
+
+    if not path.exists():
+        return None
+    try:
+        return [BeatNote.from_dict(n) for n in json.loads(path.read_text("utf-8"))["notes"]]
+    except Exception:  # noqa: BLE001 - a damaged file is treated as absent, and logged
+        log.info("unreadable notes file %s", path, exc_info=True)
+        return None
+
+
+def _edited_notes(out_dir: Path, stem: str) -> list | None:
+    """The part's notes as the user edited them, or None for a part played as transcribed."""
+    return _read_notes(_notes_file(out_dir, stem, "edited"))
+
+
+def _save_played(out_dir: Path, stem: str, notes: list) -> None:
+    """The part's notes as played, in beats - what the editor opens and resets to."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _notes_file(out_dir, stem, "played").write_text(
+        json.dumps({"notes": [n.to_dict() for n in notes]}), "utf-8")
+
+
+class NoteIn(BaseModel):
+    beat: float
+    length: float = Field(gt=0)
+    pitch: int = Field(ge=0, le=127)
+    velocity: int = Field(100, ge=1, le=127)
+
+
+class NotesRequest(BaseModel):
+    notes: list[NoteIn] = Field(max_length=20000)
+
+
+class QuantizeRequest(NotesRequest):
+    #: A grid by name: "1/4", "1/8", "1/16", "1/8 triplet", "1/16 triplet".
+    grid: str = "1/16"
+    #: How far towards the grid, 0..1. 1 is hard quantise; 0.5 halves every distance.
+    strength: float = Field(1.0, ge=0.0, le=1.0)
+    #: Snap where notes end as well as where they start.
+    ends: bool = False
+    #: Then swing the off-sixteenths by this much, 0..1 of a triplet. Null leaves them.
+    swing: float | None = Field(None, ge=0.0, le=1.0)
+    #: Then move every note this many semitones.
+    transpose: int = Field(0, ge=-48, le=48)
+
+
+@router.get("/{track_id}/parts/{stem}/notes")
+def part_notes(
+    track_id: str,
+    stem: StemKind,
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """A played part's notes in beats, for the editor: the edits if there are any, else as
+    played. Drums come as General MIDI kick 36, snare 38, hat 42. Sprint 6."""
+    from app.services.synth.edit import GRIDS
+
+    try:
+        bpm = _tempo_of(track_id, registry)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    out_dir = storage.exports_dir(track_id)
+    played = _read_notes(_notes_file(out_dir, stem.value, "played"))
+    if played is None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"Play the {stem.value} on something first - its notes are read "
+                            f"when it is played, and that is what you edit.")
+    edited = _edited_notes(out_dir, stem.value)
+    notes = edited if edited is not None else played
+    end = max((n.beat + n.length for n in notes), default=0.0)
+    return {
+        "stem": stem.value,
+        "drums": stem is StemKind.DRUMS,
+        "notes": [n.to_dict() for n in notes],
+        "edited": edited is not None,
+        "played_count": len(played),
+        "bars": int(end // 4) + 1,
+        "tempo_bpm": round(bpm, 2),
+        "grids": list(GRIDS),
+    }
+
+
+@router.put("/{track_id}/parts/{stem}/notes")
+def save_part_notes(
+    track_id: str,
+    stem: StemKind,
+    body: NotesRequest,
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Keep your edits to a part. Play it again to hear them. Saving notes identical to the
+    played ones clears the edit, so "as you edited it" is only ever said when it is true."""
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    from app.services.synth.edit import BeatNote, differs
+
+    out_dir = storage.exports_dir(track_id)
+    played = _read_notes(_notes_file(out_dir, stem.value, "played"))
+    if played is None:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"Play the {stem.value} on something first.")
+    notes = [BeatNote.from_dict(n.model_dump()) for n in body.notes]
+    path = _notes_file(out_dir, stem.value, "edited")
+    if not differs(notes, played):
+        path.unlink(missing_ok=True)
+        return {"edited": False, "notes": len(notes)}
+    path.write_text(json.dumps({"notes": [n.to_dict() for n in notes]}), "utf-8")
+    return {"edited": True, "notes": len(notes)}
+
+
+@router.delete("/{track_id}/parts/{stem}/notes", status_code=status.HTTP_204_NO_CONTENT)
+def reset_part_notes(
+    track_id: str,
+    stem: StemKind,
+    storage: TrackStorage = Depends(get_storage),
+) -> Response:
+    """Back to as played."""
+    _notes_file(storage.exports_dir(track_id), stem.value, "edited").unlink(missing_ok=True)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/notes/quantize")
+def quantize_notes(body: QuantizeRequest) -> dict:
+    """Quantise, swing and transpose a list of notes - the editor's tools, done here so they
+    are the same every time and tested. Nothing is saved."""
+    from app.services.synth import edit
+
+    if body.grid not in edit.GRIDS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"No grid called {body.grid!r}. Try one of {', '.join(edit.GRIDS)}.")
+    notes = [edit.BeatNote.from_dict(n.model_dump()) for n in body.notes]
+    notes = edit.quantize(notes, edit.GRIDS[body.grid], body.strength, body.ends)
+    if body.swing is not None:
+        notes = edit.groove(notes, body.swing)
+    if body.transpose:
+        notes = edit.transpose(notes, body.transpose)
+    return {"notes": [n.to_dict() for n in notes]}
+
+
 @router.post("/{track_id}/revoice", response_model=JobResponse)
 def revoice(
     track_id: str,
@@ -1827,6 +1977,11 @@ def revoice(
             )
 
     out_dir = storage.exports_dir(track_id)
+    # Sprint 6: the grid a part's notes are kept on, so they can be edited and survive a
+    # change of tempo. Without a tempo there is no grid, and the part plays as before.
+    grid_bpm = _tempo_of(track_id, registry)
+    grid_first = getattr(registry.require(track_id).timing, "first_beat_s", 0.0) or 0.0
+    edited = _edited_notes(out_dir, stem.value) if grid_bpm else None
 
     def work(handle: JobHandle) -> dict:
         import numpy as np
@@ -1834,6 +1989,7 @@ def revoice(
 
         from app.domain.notes import coalesce
         from app.services.factory import make_transcriber
+        from app.services.synth import edit
         from app.services.synth.voice import render_notes
 
         probe_in = sf.info(str(path))
@@ -1843,17 +1999,25 @@ def revoice(
         # strokes, and `kit.py` already synthesises at whatever positions it is handed - so
         # at a new tempo they are re-struck rather than re-pitched, and nothing is stretched.
         if stem is StemKind.DRUMS:
-            from app.services.drums.detect import find_hits
             from app.services.synth.retempo import move_hits, rebuild_drums
 
             handle.update(JobState.RUNNING, 0.2, "finding every stroke in the drums")
             samples, rate = sf.read(str(path), dtype="float64", always_2d=True)
-            # Refined to where each stroke really begins before anything is placed on it.
-            # `find_hits` lands a median 10.5 ms late, which was harmless while a hit only
-            # labelled a stroke and is a flam once a sample is triggered there. X0R-412.
-            from app.services.synth.retempo import refine_hit_times
+            if edited is not None:
+                # Your strokes, as you edited them, at this tempo. Sprint 6.
+                hits = edit.notes_to_hits(edit.to_seconds(edited, grid_first, grid_bpm))
+            else:
+                # Placed where each stroke really begins (X0R-412) and with every label
+                # checked against the audio (Sprint 4's `read_hits`). Found while building
+                # the stroke editor: the bare detector found 3 of the pop punk demo's 16
+                # snares - a hat struck with the snare hid it - and 13 of 24 kicks, so the
+                # re-played drummer had been missing most of the backbeat. Checked: 16 and 21.
+                from app.services.synth.groove import read_hits
 
-            hits = refine_hit_times(samples, rate, find_hits(samples.mean(axis=1), rate))
+                hits = read_hits(samples, rate)
+                if grid_bpm:
+                    _save_played(out_dir, "drums", edit.to_beats(
+                        edit.hits_to_notes(hits), grid_first, grid_bpm))
             if not hits:
                 return {"notes": 0, "why": "no drum strokes came back from that stem."}
 
@@ -1880,12 +2044,21 @@ def revoice(
                 "backend": "kit",
                 "moved": move.describe() if move else "",
                 "duration_s": round(stretched, 1),
+                "edited": edited is not None,
             }
 
-        handle.update(JobState.RUNNING, 0.1, f"reading the notes out of the {stem.value}")
-        transcription = make_transcriber(settings, stem).transcribe(Path(path), stem)
-        found = list(transcription.notes)
-        merged = coalesce(found) if clean else found
+        if edited is not None:
+            # Your notes, as you edited them - no transcription, no cleaning. Sprint 6.
+            found = merged = edit.to_seconds(edited, grid_first, grid_bpm)
+            backend = "your edits"
+        else:
+            handle.update(JobState.RUNNING, 0.1, f"reading the notes out of the {stem.value}")
+            transcription = make_transcriber(settings, stem).transcribe(Path(path), stem)
+            found = list(transcription.notes)
+            merged = coalesce(found) if clean else found
+            backend = transcription.backend
+            if grid_bpm and merged:
+                _save_played(out_dir, stem.value, edit.to_beats(merged, grid_first, grid_bpm))
 
         if not merged:
             return {"notes": 0, "why": "nothing pitched came back from that stem."}
@@ -1937,9 +2110,10 @@ def revoice(
             # worth keeping, and nobody can hear a precision figure.
             "fragments_merged": len(found) - len(merged),
             "url": f"/api/v1/tracks/{track_id}/revoiced/{wav.name}",
-            "backend": transcription.backend,
+            "backend": backend,
             "moved": move.describe() if move else "",
             "duration_s": round(stretched, 1),
+            "edited": edited is not None,
         }
 
     return to_response(jobs.submit("revoice", track_id, work))
@@ -1994,6 +2168,13 @@ class ArrangeItem(BaseModel):
     drop: bool = False
 
 
+class CustomBeat(BaseModel):
+    """A beat written on the step grid. Each row is sixteen of x (plays), o (soft), . (rest)."""
+
+    based_on: str | None = None
+    rows: dict[str, str] = Field(default_factory=dict)
+
+
 class BounceRequest(BaseModel):
     #: Null keeps the track's own tempo, which makes this a plain mixdown of the version.
     target_bpm: float | None = None
@@ -2023,6 +2204,9 @@ class BounceRequest(BaseModel):
     #: How much the added beat is nudged off the grid and varied in level, 0..1. A built-in
     #: beat is programmed dead straight; this is what makes it sound played.
     humanize: float = Field(0.0, ge=0.0, le=1.0)
+    #: Sprint 6: a beat you wrote on the step grid - {"based_on": a beat name or "reference"
+    #: or null, "rows": {"kick": "x...x...", ...}}. Takes over from `beat` when set.
+    custom_beat: CustomBeat | None = None
     #: Sprint 5: the song's sections in any order - repeated, left out, with parts muted and
     #: drops placed per block. Null plays the song as it was written.
     arrangement: list[ArrangeItem] | None = Field(None, max_length=64)
@@ -2095,6 +2279,22 @@ def _arrangement(record, body: BounceRequest, source_bpm: float, scale: float,
 def _resolve_beat(body: BounceRequest, out_dir: Path):
     """The groove a version adds, from its name - or None. Raises the reason when there is
     none by that name, or when it is the reference's and the reference has not been read."""
+    if body.custom_beat is not None:
+        import re as _re
+
+        from app.services.synth.groove import KINDS, from_rows
+
+        rows = body.custom_beat.rows
+        for kind, row in rows.items():
+            if kind not in KINDS or not _re.fullmatch(r"[xo.]{1,16}", row):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"A beat row is a drum ({', '.join(KINDS)}) and up to sixteen of x, o "
+                    f"and . - not {kind!r}: {row!r}.")
+        base = None
+        if body.custom_beat.based_on:
+            base = _resolve_beat(BounceRequest(beat=body.custom_beat.based_on), out_dir)
+        return from_rows(rows, base)
     if body.beat:
         from app.services.synth.groove import BUILT_IN, Groove
 
@@ -2178,7 +2378,7 @@ def bounce_version(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"There is no {stem} stem.")
         stems.pop(stem)
         renders.pop(stem, None)
-    if not stems and not body.beat and not body.four_on_the_floor:
+    if not stems and not body.beat and not body.custom_beat and not body.four_on_the_floor:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             "Every part is left out, so there is nothing to put in the version.")
     added_beat = _resolve_beat(body, out_dir)
@@ -2239,7 +2439,10 @@ def bounce_version(
         replays = {}
         for stem, path in renders.items():
             data, _ = sf.read(str(path), dtype="float64", always_2d=True)
-            replays[stem] = (data, body.parts[stem])
+            label = body.parts[stem]
+            if _edited_notes(out_dir, stem) is not None:
+                label = f"{label}, as you edited it"
+            replays[stem] = (data, label)
 
         stretching = [s for s in audio if s not in replays and abs(scale - 1.0) > 1e-6]
         handle.update(
@@ -2602,7 +2805,7 @@ def version_midi(
     out_dir = storage.exports_dir(track_id)
     stems = {stem.kind.value: stem.path for stem in record.separation.stems}
     wanted = [s for s in body.parts if s in stems and s not in body.leave_out]
-    if not wanted and not body.beat and not body.four_on_the_floor:
+    if not wanted and not body.beat and not body.custom_beat and not body.four_on_the_floor:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "Choose something to play first - a part on a voice, or a beat - so there are "

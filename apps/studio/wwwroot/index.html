@@ -818,6 +818,50 @@
         <span class="muted small" id="sample-root-name"></span>
         <button class="small" id="sample-root-set">Set it</button>
       </div>
+      <!-- Sprint 6: a part's notes, editable once it has been played. -->
+      <section class="notes-editor" id="notes-editor" hidden>
+        <div class="notes-top">
+          <strong id="notes-title">Editing</strong>
+          <span class="chip" id="notes-state">as played</span>
+          <span class="muted small" id="notes-count"></span>
+          <button class="small" id="notes-close" aria-label="Close the editor">Close</button>
+        </div>
+        <div class="notes-tools">
+          <label>Grid <select id="notes-grid"></select></label>
+          <label class="check"><input type="checkbox" id="notes-snap" checked /> snap</label>
+          <label>Strength
+            <select id="notes-strength">
+              <option value="1">100%</option><option value="0.75">75%</option>
+              <option value="0.5">50%</option><option value="0.25">25%</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="notes-ends" /> ends too</label>
+          <button class="small" id="notes-quantise" title="Pull notes towards the grid - the selected ones, or all">Quantise</button>
+          <button class="small" id="notes-swing" title="Quantise, then swing the off-sixteenths like the added beat">Quantise with swing</button>
+          <button class="small notes-pitch" id="notes-oct-down" title="Down an octave">-12</button>
+          <button class="small notes-pitch" id="notes-down" title="Down a semitone">-1</button>
+          <button class="small notes-pitch" id="notes-up" title="Up a semitone">+1</button>
+          <button class="small notes-pitch" id="notes-oct-up" title="Up an octave">+12</button>
+          <button class="small" id="notes-all">Select all</button>
+          <button class="small" id="notes-delete">Delete</button>
+          <button class="small" id="notes-undo">Undo</button>
+          <button class="small" id="notes-zoom-out" aria-label="Zoom out">&minus;</button>
+          <button class="small" id="notes-zoom-in" aria-label="Zoom in">+</button>
+        </div>
+        <div class="notes-scroll">
+          <canvas id="notes-canvas" tabindex="0" aria-label="Piano roll"></canvas>
+        </div>
+        <p class="muted tiny">
+          Click empty space to add a note. Drag a note to move it, its right edge to make it
+          longer. Shift-click to pick several; Delete removes, the arrow keys move and
+          transpose, Ctrl+Z undoes, double-click deletes one.
+        </p>
+        <div class="notes-tools">
+          <button class="primary small" id="notes-save">Save and play it</button>
+          <button class="small" id="notes-reset">Back to as played</button>
+          <span class="muted small" id="notes-said"></span>
+        </div>
+      </section>
       <details class="sample-box" id="sample-box">
         <summary>Use a sample of your own</summary>
         <p class="muted small">
@@ -905,10 +949,19 @@
             <option value="0.8">played</option>
           </select>
         </label>
+        <button class="small" id="beat-edit" type="button">Edit the beat</button>
         <label class="check">
           <input type="checkbox" id="opt-leave-drums" />
           Leave out your drummer
         </label>
+        <div class="beat-editor" id="beat-editor" hidden>
+          <p class="muted small" id="beat-editor-note">
+            Click a step to play it, again to play it softly, again to rest. It keeps the
+            feel of the beat it started from on every step that beat already played.
+          </p>
+          <div class="beat-grid" id="beat-editor-grid"></div>
+          <button class="small" id="beat-editor-reset" type="button">Start again from the chosen beat</button>
+        </div>
         <!-- X0R-1335. The bar is a suggestion read from where the song changes most; the
              list holds the alternatives so a wrong guess is one click to fix. -->
         <label class="check">
@@ -1066,6 +1119,7 @@
 <script src="resume.js"></script>
 <script src="revoice.js"></script>
 <script src="arrange.js"></script>
+<script src="notes.js"></script>
 <script src="dropzone.js"></script>
 <script src="spectrum.js"></script>
 <script src="groups.js"></script>

@@ -193,3 +193,43 @@ def test_the_pump_follows_the_added_beat_s_kick_not_every_beat():
     assert level(dry, two) < level(dry, two + BEAT * 0.8) - 4     # every-beat pump dips
     assert level(mix, one) < level(mix, one + BEAT * 0.8) - 4     # dips on the kick
     assert abs(level(mix, two) - level(mix, two + BEAT * 0.8)) < 1  # and not where none is
+
+
+# --- Sprint 6: a beat you wrote ----------------------------------------------------------------
+
+
+def test_a_beat_written_on_the_grid_plays_what_was_written():
+    mine = g.from_rows({"kick": "x...x...x...x...", "snare": "....x..o....x..."})
+    assert mine.plays("kick") == [0, 4, 8, 12]
+    assert mine.plays("snare") == [4, 7, 12]
+    assert mine.steps["snare"][7].velocity == g.SOFT
+    assert mine.source == "you" and mine.name == "your beat"
+
+
+def test_editing_a_beat_keeps_its_feel_on_the_steps_it_already_played():
+    swung = g.Groove.from_dict(g.BUILT_IN["techno"].to_dict())
+    for i in range(1, 16, 2):
+        swung.steps["hihat"][i].offset = 0.2
+    edited = g.from_rows({"kick": "x...x...x...x..x", "snare": "....x.......x...",
+                          "hihat": "xxxxxxxxxxxxxxxx"}, swung)
+    assert edited.steps["hihat"][3].offset == 0.2      # kept
+    assert edited.steps["kick"][15].offset == 0.0      # added, on the grid
+    assert edited.name == "your beat (from techno)"
+
+
+def test_a_short_row_is_padded_with_rests():
+    assert g.from_rows({"kick": "x"}).plays("kick") == [0]
+
+
+@needs_detector
+@pytest.mark.parametrize("kit", ["tight", "punchy", "edm"])
+def test_a_snare_struck_with_a_hat_is_still_a_snare(kit):
+    """The pop punk backbeat: a hat on every eighth, the snare on 2 and 4 with one. The bare
+    detector found 3 of the demo's 16 snares, so the re-played drummer lost the backbeat."""
+    rows = {"kick": "x.....x.x.......", "snare": "....x.......x...",
+            "hihat": "x.x.x.x.x.x.x.x."}
+    beats = beat_grid(0.0, BPM, 16 * BEAT)
+    audio = g.render(g.from_rows(rows), beats, SR, int(9 * SR), kit=kit)
+    hits = g.read_hits(audio, SR)
+    snares = sorted(round(h.time_s / BEAT, 1) for h in hits if "snare" in h.kinds)
+    assert snares == [1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0]

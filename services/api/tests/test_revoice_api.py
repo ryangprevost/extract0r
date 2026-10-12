@@ -566,3 +566,105 @@ def test_a_section_can_be_heard_before_it_is_placed(client, separated):
     heard = client.get(f"/api/v1/tracks/{separated}/sections/{first['id']}/preview")
     assert heard.status_code == 200 and heard.headers["content-type"] == "audio/wav"
     assert client.get(f"/api/v1/tracks/{separated}/sections/s99/preview").status_code == 404
+
+
+# --- Sprint 6: editing a part's notes ----------------------------------------------------------
+
+
+def played(client, track, stem, notes):
+    """Put a part into the state "played": its notes as transcribed, in beats."""
+    import json
+
+    out = client.storage.exports_dir(track)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{stem}.played.json").write_text(json.dumps({"notes": notes}), "utf-8")
+
+
+PLAYED = [{"beat": 0.0, "length": 0.5, "pitch": 40, "velocity": 100},
+          {"beat": 1.04, "length": 0.5, "pitch": 43, "velocity": 90}]
+
+
+def test_notes_before_the_part_is_played_say_what_to_do(client, separated):
+    response = client.get(f"/api/v1/tracks/{separated}/parts/bass/notes")
+    assert response.status_code == 409
+    assert "Play the bass" in response.json()["detail"]
+
+
+def test_a_played_part_opens_as_played(client, separated):
+    played(client, separated, "bass", PLAYED)
+    body = client.get(f"/api/v1/tracks/{separated}/parts/bass/notes").json()
+    assert body["edited"] is False and body["drums"] is False
+    assert [n["pitch"] for n in body["notes"]] == [40, 43]
+    assert "1/16" in body["grids"]
+
+
+def test_an_edit_is_kept_and_an_unchanged_save_is_not_an_edit(client, separated):
+    played(client, separated, "bass", PLAYED)
+    url = f"/api/v1/tracks/{separated}/parts/bass/notes"
+    same = client.put(url, json={"notes": PLAYED}).json()
+    assert same["edited"] is False
+    changed = [dict(PLAYED[0]), {**PLAYED[1], "pitch": 45}]
+    assert client.put(url, json={"notes": changed}).json()["edited"] is True
+    body = client.get(url).json()
+    assert body["edited"] is True and body["notes"][1]["pitch"] == 45
+    assert client.delete(url).status_code == 204
+    assert client.get(url).json()["edited"] is False
+
+
+@pytest.mark.parametrize("note", [{"beat": 0, "length": 0, "pitch": 40},
+                                  {"beat": 0, "length": 1, "pitch": 200}])
+def test_impossible_notes_are_refused(client, separated, note):
+    played(client, separated, "bass", PLAYED)
+    response = client.put(f"/api/v1/tracks/{separated}/parts/bass/notes",
+                          json={"notes": [note]})
+    assert response.status_code == 422
+
+
+def test_quantise_swing_and_transpose_in_one_call(client):
+    body = client.post("/api/v1/tracks/notes/quantize", json={
+        "notes": [{"beat": 0.27, "length": 0.2, "pitch": 60}], "grid": "1/16",
+        "strength": 1.0, "swing": 1.0, "transpose": 12}).json()
+    note = body["notes"][0]
+    assert note["pitch"] == 72
+    assert note["beat"] == pytest.approx(0.25 + 1 / 12, abs=1e-3)
+
+
+def test_an_unknown_grid_names_the_real_ones(client):
+    response = client.post("/api/v1/tracks/notes/quantize",
+                           json={"notes": [], "grid": "1/7"})
+    assert response.status_code == 400 and "1/16" in response.json()["detail"]
+
+
+def test_an_edited_part_is_played_from_your_notes_and_named_as_yours(client, separated):
+    """With an edit saved, re-playing the part skips transcription and plays the edit - and
+    the version says the part is yours."""
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    played(client, separated, "bass", PLAYED)
+    mine = [{"beat": b, "length": 0.5, "pitch": 40 + b, "velocity": 100} for b in range(8)]
+    client.put(f"/api/v1/tracks/{separated}/parts/bass/notes", json={"notes": mine})
+    started = client.post(f"/api/v1/tracks/{separated}/revoice?stem=bass&voice=808")
+    result = finish(client, started.json()["job_id"])["result"]
+    assert result["edited"] is True and result["backend"] == "your edits"
+    assert result["notes"] == 8
+    bounced = finish(client, client.post(f"/api/v1/tracks/{separated}/bounce",
+                                         json={"parts": {"bass": "808"}}).json()["job_id"])
+    lines = " ".join(bounced["result"]["lines"])
+    assert "Edited by you, so these play your notes rather than the band's: bass" in lines
+
+
+def test_a_beat_you_wrote_is_added_and_named_as_yours(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    started = client.post(f"/api/v1/tracks/{separated}/bounce", json={
+        "target_bpm": 120,
+        "custom_beat": {"based_on": "house",
+                        "rows": {"kick": "x..x..x...x.....", "hihat": "..x...x...x...x."}}})
+    body = finish(client, started.json()["job_id"])
+    assert body["state"] == "succeeded", body
+    assert "Added: your beat (from house) — not from your recording." in body["result"]["lines"]
+
+
+@pytest.mark.parametrize("rows", [{"cowbell": "x..."}, {"kick": "x..y"}, {"kick": "x" * 17}])
+def test_a_beat_row_that_is_not_a_row_is_refused(client, separated, rows):
+    response = client.post(f"/api/v1/tracks/{separated}/bounce",
+                           json={"custom_beat": {"rows": rows}})
+    assert response.status_code == 400

@@ -479,6 +479,7 @@ def _arrangement_detail(pieces: list, beats) -> str:
 def _beat_detail(groove, swing: float | None, humanize: float = 0.0) -> str:
     """How the account names an added beat: whose it is, and that it is not the band's."""
     whose = ("the beat from your reference" if groove.source == "your reference"
+             else groove.name if groove.source == "you"
              else f"a {groove.name} beat")
     feel = ""
     if swing is not None and swing > 0.02:
@@ -529,6 +530,12 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
         lines.append(
             f"Re-played at the new tempo, so as crisp as the original: {', '.join(replayed)}."
         )
+    edited = [p.stem for p in account
+              if p.how == "re-played" and p.detail.endswith("as you edited it")]
+    if edited:
+        # Sprint 6: an edit is the user's, and is never passed off as the band's playing.
+        lines.append(f"Edited by you, so these play your notes rather than the band's: "
+                     f"{', '.join(edited)}.")
     if stretched:
         lines.append(f"Stretched to fit: {', '.join(stretched)}.")
     for part in pumped:

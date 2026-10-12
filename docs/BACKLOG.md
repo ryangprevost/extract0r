@@ -2617,6 +2617,25 @@ off**, not by being near it.
 
 ---
 
+### X0R-1360 · Edit notes and beats · 8 · `DONE` 2026-10-12
+**As a** person remixing **I want** to change the notes of a part and write my own beat **so
+that** the remix is mine, not only a re-voicing of the band.
+
+Ryan reopened re-sequencing for this: *"yes, go ahead with editing notes and beats"*. See
+[SPRINT-6.md](sprints/SPRINT-6.md).
+
+**Acceptance criteria**
+- Notes kept in beats, so edits survive a tempo change; unedited parts play exactly as
+  before (tested equal to the `move_notes` path). ✅
+- A piano roll for every played part, strokes on three lanes for drums: add, move, resize,
+  delete, transpose, quantise (grid, strength, ends), quantise with swing, undo. ✅
+- A step editor for the added beat that keeps its starting beat's feel. ✅
+- Edits are named in the version's account; a save that changes nothing is not an edit. ✅
+- Found and fixed: re-played drums read with the checked reader - 16 of 16 snares on the
+  demo where the bare detector found 3. ✅
+
+---
+
 ### X0R-1350 · Rearrange the song · 8 · `DONE` 2026-10-12
 **As a** person remixing **I want** to put the song's sections in my own order - an intro,
 the chorus twice, a breakdown - **so that** the remix has the shape of a dance track rather

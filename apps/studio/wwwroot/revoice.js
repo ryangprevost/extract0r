@@ -54,6 +54,12 @@ const Revoice = (() => {
   //: The pump depth a reference recipe measured, in dB. Null is the house default.
   let pumpDb = null;
 
+  //: Sprint 6: a beat written on the step grid, and the beat it started from.
+  let customRows = null;
+  let customBase = null;
+  //: Each beat's grid, as the server shows it, for starting the step editor from.
+  const beatGrids = {};
+
   function show() {
     const panel = $("revoice");
     if (!panel) return;
@@ -118,6 +124,15 @@ const Revoice = (() => {
     play.disabled = !pick.value;
     play.addEventListener("click", () => run(stem));
     line.appendChild(play);
+
+    // Sprint 6: once played, its notes can be edited.
+    if (held.url && typeof Notes !== "undefined") {
+      const edit = document.createElement("button");
+      edit.className = "small";
+      edit.textContent = stem === "drums" ? "Edit strokes" : "Edit notes";
+      edit.addEventListener("click", () => Notes.open(stem, label, run));
+      line.appendChild(edit);
+    }
 
     const inMaster = document.createElement("label");
     inMaster.className = "check";
@@ -233,7 +248,8 @@ const Revoice = (() => {
           `${result.notes} ${stem === "drums" ? "strokes" : "notes"}` +
           (result.fragments_merged ? `, ${result.fragments_merged} pieces rejoined` : "") +
           (result.out_of_range ? `, ${result.out_of_range} out of reach` : "") +
-          (result.moved ? ` — ${result.moved}` : "");
+          (result.moved ? ` — ${result.moved}` : "") +
+          (result.edited ? " · your edit" : "");
         // Ticked by default only at the original tempo. At a new one the box is disabled,
         // and ticking it here anyway would slip a part into the master request that the
         // pipeline cannot use.
@@ -582,7 +598,9 @@ const Revoice = (() => {
       parts: replayed,
       pump: !!$("opt-pump")?.checked,
       pump_db: pumpDb,
-      beat: $("beat-select")?.value || null,
+      beat: ($("beat-select")?.value !== "custom" && $("beat-select")?.value) || null,
+      custom_beat: $("beat-select")?.value === "custom" && customRows
+        ? { based_on: customBase, rows: customRows } : null,
       beat_kit: $("beat-kit")?.value || "edm",
       swing: $("beat-swing")?.value === "" ? null : parseFloat($("beat-swing").value),
       leave_out: $("opt-leave-drums")?.checked ? ["drums"] : [],
@@ -733,6 +751,7 @@ const Revoice = (() => {
       const info = await api("/tracks/grooves");
       for (const groove of info.grooves || []) {
         select.appendChild(new Option(groove.name, groove.name));
+        beatGrids[groove.name] = groove.grid;
       }
     } catch {
       select.appendChild(new Option("four on the floor", "four on the floor"));
@@ -911,6 +930,7 @@ const Revoice = (() => {
 
       const theirs = [...$("beat-select").options].find((o) => o.value === "reference");
       if (theirs) theirs.disabled = false;
+      beatGrids.reference = recipe.groove.grid;
       $("beat-select").value = "reference";
       $("beat-kit").value = recipe.kit;
       $("beat-swing").value = "";
@@ -926,6 +946,77 @@ const Revoice = (() => {
     } finally {
       button.disabled = false;
       button.textContent = was;
+    }
+  }
+
+  // --- Sprint 6: the step editor ------------------------------------------------------------
+
+  const STEP_DRUMS = [["kick", "kick"], ["snare", "snare"], ["hihat", "hats"]];
+
+  /** A grid as the server shows it, as rows for writing: ghosts there ("o", sometimes
+   *  plays) do not play here, where "o" means a step that plays softly. */
+  function rowsFrom(grid) {
+    const out = {};
+    for (const [kind] of STEP_DRUMS) {
+      out[kind] = (grid?.[kind] || "................").replace(/o/g, ".");
+    }
+    return out;
+  }
+
+  function startFrom() {
+    const chosen = $("beat-select").value;
+    customBase = chosen && chosen !== "custom" ? chosen : customBase;
+    customRows = rowsFrom(customBase ? beatGrids[customBase] : null);
+  }
+
+  function useCustom() {
+    const select = $("beat-select");
+    let mine = [...select.options].find((o) => o.value === "custom");
+    if (!mine) {
+      mine = new Option("your beat", "custom");
+      select.appendChild(mine);
+    }
+    mine.textContent = customBase ? `your beat (from ${customBase === "reference" ? "the reference" : customBase})` : "your beat";
+    select.value = "custom";
+  }
+
+  function drawSteps() {
+    const host = $("beat-editor-grid");
+    if (!host || !customRows) return;
+    host.innerHTML = "";
+    for (const [kind, label] of STEP_DRUMS) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = label;
+      row.appendChild(name);
+      [...customRows[kind]].forEach((ch, i) => {
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.className = "cell" + (i % 4 === 0 ? " beat" : "") +
+          (ch === "x" ? " x" : ch === "o" ? " o" : "");
+        const state = ch === "x" ? "plays" : ch === "o" ? "plays softly" : "rests";
+        cell.setAttribute("aria-label", `${label}, step ${i + 1}: ${state}`);
+        cell.addEventListener("click", () => {
+          const next = { ".": "x", x: "o", o: "." }[ch];
+          const r = customRows[kind];
+          customRows[kind] = r.slice(0, i) + next + r.slice(i + 1);
+          useCustom();
+          drawSteps();
+        });
+        row.appendChild(cell);
+      });
+      host.appendChild(row);
+    }
+  }
+
+  function toggleStepEditor() {
+    const box = $("beat-editor");
+    box.hidden = !box.hidden;
+    if (!box.hidden) {
+      if (!customRows || $("beat-select").value !== "custom") startFrom();
+      drawSteps();
     }
   }
 
@@ -948,6 +1039,10 @@ const Revoice = (() => {
     if (theirs) theirs.disabled = true;
     if ($("beat-select")?.value === "reference") $("beat-select").value = "";
     if (typeof Arrange !== "undefined") Arrange.reset();
+    if (typeof Notes !== "undefined") Notes.close();
+    customRows = null;
+    customBase = null;
+    if ($("beat-select")?.value === "custom") $("beat-select").value = "";
     render();
   }
 
@@ -971,6 +1066,13 @@ const Revoice = (() => {
     });
     await loadBeats();
     $("mykit-save")?.addEventListener("click", saveMyKit);
+    $("beat-edit")?.addEventListener("click", toggleStepEditor);
+    $("beat-editor-reset")?.addEventListener("click", () => {
+      const select = $("beat-select");
+      if (select.value === "custom" && customBase) select.value = customBase;
+      startFrom();
+      drawSteps();
+    });
     await loadLibrary();
     for (const chip of document.querySelectorAll("#tempo-fix .chip")) {
       chip.addEventListener("click", () => correctTempo(parseFloat(chip.dataset.times)));

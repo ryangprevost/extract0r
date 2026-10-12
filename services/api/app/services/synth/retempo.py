@@ -322,6 +322,7 @@ def bounce(
     left_out: tuple[str, ...] = (),
     beat_sounds: dict[str, np.ndarray] | None = None,
     humanize: float = 0.0,
+    pieces: list | None = None,
 ) -> tuple[np.ndarray, list[Part]]:
     """Every part of the song at the new tempo, summed. Returns the audio and the account.
 
@@ -339,15 +340,33 @@ def bounce(
 
     longest = max(len(audio) for audio in stems.values())
     length = int(round(longest * scale))
+    # Sprint 5: an arrangement. Every part is cut at the same bar lines and laid end to end
+    # (`arrange.assemble`), and everything added afterwards is laid on that new timeline.
+    if pieces:
+        from app.services.synth.arrange import arranged_beats
+
+        if beats is not None:
+            beats = arranged_beats(beats, pieces)
+        length = int(round(sum(p.end_s - p.start_s for p in pieces) * sample_rate))
     mix = np.zeros((length, 2))
     account: list[Part] = []
     engine = stretcher_available()
 
-    rest = None
-    if drop_bar and beats is not None and bpm > 0:
+    drops: list[int] = [drop_bar] if drop_bar else []
+    if pieces and beats is not None:
+        from app.services.synth.arrange import drop_bars
+
+        drops = sorted({*drops, *drop_bars(pieces, beats)})
+    builds: list[tuple[float, float]] = []
+    if drops and beats is not None and bpm > 0:
         from app.services.synth.drop import _window
 
-        rest = _window(beats, drop_bar)
+        builds = [_window(beats, bar) for bar in drops]
+    beat_rests = list(builds)
+    if pieces:
+        from app.services.synth.arrange import muted_spans
+
+        beat_rests += muted_spans(pieces, "beat")
 
     # The pump follows the kick. On every beat is right for a four-on-the-floor; under a
     # breakbeat or a trap pattern, whose kick is not on every beat, ducking on the beat
@@ -356,14 +375,15 @@ def bounce(
     if added_beat is not None and beats is not None and bpm > 0 and pump_db > 0:
         from app.services.synth.groove import events
 
-        kicks = [t for t, kind, _ in events(added_beat, beats, rest, swing,
+        kicks = [t for t, kind, _ in events(added_beat, beats, beat_rests, swing,
                                              humanize=humanize) if kind == "kick"]
         if kicks:
             pump_at = np.asarray(kicks)
     # And it rests through a build, with the kick, so the drop is where the pump arrives.
-    if rest is not None and pump_at is not None:
-        pump_at = np.asarray(pump_at)
-        pump_at = pump_at[(pump_at < rest[0] - 1e-3) | (pump_at >= rest[1] - 1e-3)]
+    if builds and pump_at is not None:
+        from app.services.synth.groove import resting
+
+        pump_at = np.asarray([t for t in np.asarray(pump_at) if not resting(t, builds)])
 
     for stem, audio in stems.items():
         audio = np.asarray(audio, dtype=np.float64)
@@ -387,14 +407,20 @@ def bounce(
             part = stretch(audio, sample_rate, scale)
             account.append(Part(stem, "stretched", f"with {engine}"))
 
+        if pieces:
+            from app.services.synth.arrange import assemble
+
+            part = assemble(part, sample_rate, pieces, stem)
+
         # The pump goes on everything except the drums: ducking the kick to itself is
         # silence on every beat, which is the opposite of the effect.
         if pump_db > 0 and beats is not None and bpm > 0 and stem != "drums":
             part = pump(part, sample_rate, pump_at, bpm, pump_db)
-        if drop_bar and beats is not None and stem != "drums":
+        if drops and beats is not None and stem != "drums":
             from app.services.synth.drop import sweep
 
-            part = sweep(part, sample_rate, beats, drop_bar)
+            for bar in drops:
+                part = sweep(part, sample_rate, beats, bar)
 
         take = min(len(part), length)
         mix[:take] += part[:take]
@@ -403,30 +429,33 @@ def bounce(
         pumped = [p.stem for p in account if p.stem != "drums"]
         if pumped:
             # Named for what it follows, because that is what is heard.
-            follows = "kick" if pump_at is not beats else "beat"
+            follows = "kick" if added_beat is not None and pump_at is not beats else "beat"
             account.append(Part(f"pump on the {follows}", "pumped", ", ".join(pumped)))
 
     if added_beat is not None and beats is not None and bpm > 0:
         # Any groove - built in, or read off a reference - added alongside the band. Sprint 4.
         from app.services.synth.groove import render as play_groove
 
-        mix += play_groove(added_beat, beats, sample_rate, length, kit=beat_kit, rest=rest,
-                           swing=swing, sounds=beat_sounds, humanize=humanize)
+        mix += play_groove(added_beat, beats, sample_rate, length, kit=beat_kit,
+                           rest=beat_rests, swing=swing, sounds=beat_sounds, humanize=humanize)
         account.append(Part("beat", "added", _beat_detail(added_beat, swing, humanize)))
     elif floor_kick and beats is not None and bpm > 0:
         # The added kick sits out the build, so the drop is where it arrives.
-        mix += four_on_the_floor(beats, bpm, sample_rate, length, rest=rest)
+        mix += four_on_the_floor(beats, bpm, sample_rate, length, rest=beat_rests)
         account.append(Part("four on the floor", "added",
                             "a kick on every beat and hats between — not from your recording"))
     for stem in left_out:
         account.append(Part(stem, "left out", "muted in this version - still in your stems"))
-    if rest is not None:
+    if drops and beats is not None and bpm > 0:
         from app.services.synth.drop import build_and_drop, describe
 
-        mix += build_and_drop(beats, bpm, sample_rate, length, drop_bar)
-        build, impact = describe(drop_bar)
-        account.append(Part("build", "added", build))
-        account.append(Part("drop", "added", impact))
+        for bar in drops:
+            mix += build_and_drop(beats, bpm, sample_rate, length, bar)
+            build, impact = describe(bar)
+            account.append(Part("build", "added", build))
+            account.append(Part("drop", "added", impact))
+    if pieces:
+        account.append(Part("arrangement", "arranged", _arrangement_detail(pieces, beats)))
 
     # Down to -1 dBFS if the sum went over. Not a limiter - this is a sketch of a version,
     # and the mastering page is where loudness is decided. It only stops the file clipping.
@@ -435,6 +464,16 @@ def bounce(
     if peak > ceiling:
         mix *= ceiling / peak
     return mix, account
+
+
+def _arrangement_detail(pieces: list, beats) -> str:
+    """"6 blocks, 28 bars, 2 drops" - what the arrangement made, counted."""
+    bars = len(beats) // 4 if beats is not None else 0       # whole bars only
+    drops = sum(1 for p in pieces if p.drop)
+    text = f"{len(pieces)} block{'s' if len(pieces) != 1 else ''}, {bars} bars"
+    if drops:
+        text += f", {drops} drop{'s' if drops != 1 else ''}"
+    return text
 
 
 def _beat_detail(groove, swing: float | None, humanize: float = 0.0) -> str:
@@ -475,6 +514,7 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
     added = [p for p in account if p.how == "added"]
     pumped = [p for p in account if p.how == "pumped"]
     left_out = [p.stem for p in account if p.how == "left out"]
+    arranged = [p for p in account if p.how == "arranged"]
 
     if move is None or abs(move.scale - 1.0) < 1e-6:
         headline = "Same tempo — every part as you chose it."
@@ -499,6 +539,9 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
             lines.append(f"Pumping on every beat, like a dance record: {part.detail}.")
     for part in added:
         lines.append(f"Added: {part.detail}.")
+    for part in arranged:
+        lines.append(f"Rearranged: {part.detail}, cut on the bar lines so the beat carries "
+                     f"straight through.")
     if left_out:
         lines.append(f"Left out, by your choice: {', '.join(left_out)}. They are still in "
                      f"your stems and come back the moment you tick them.")
@@ -602,7 +645,7 @@ def pump(audio: np.ndarray, sample_rate: int, beats: np.ndarray, bpm: float,
 
 
 def four_on_the_floor(beats: np.ndarray, bpm: float, sample_rate: int, length: int,
-                      kit: str = "edm", rest: tuple[float, float] | None = None) -> np.ndarray:
+                      kit: str = "edm", rest=None) -> np.ndarray:
     """A kick on every beat and a hat on every offbeat - the house groove - as stereo audio.
 
     No clap. The drummer's own backbeat, re-struck on the dance kit, already lands on 2 and
@@ -625,7 +668,9 @@ def four_on_the_floor(beats: np.ndarray, bpm: float, sample_rate: int, length: i
 
     for beat in beats:
         # `rest` is a build: from its start up to (not including) the drop, nothing.
-        if rest is not None and rest[0] - 1e-3 <= beat < rest[1] - 1e-3:
+        from app.services.synth.groove import resting
+
+        if resting(beat, rest):
             continue
         lay(kick, beat, 0.95)
         lay(hat, beat + half, 0.38)

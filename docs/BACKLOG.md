@@ -2617,6 +2617,27 @@ off**, not by being near it.
 
 ---
 
+### X0R-1350 · Rearrange the song · 8 · `DONE` 2026-10-12
+**As a** person remixing **I want** to put the song's sections in my own order - an intro,
+the chorus twice, a breakdown - **so that** the remix has the shape of a dance track rather
+than the band's running order.
+
+Ryan chose this as the first kind of "more manipulation". See
+[SPRINT-5.md](sprints/SPRINT-5.md).
+
+**Acceptance criteria**
+- Sections found on four-bar phrases and grouped by sound; named by guess, lettered by
+  what the grouping found; each can be heard. ✅
+- Any order, repeats and omissions; per-block mutes of any part or the added beat; a build
+  and drop into any block. Bad requests refused before any work, in words. ✅
+- Cuts on bar lines: the beat carries straight through (a 4-cut version reads 139.99 BPM
+  at 140); a piece that was not next to its neighbour in the song rings on under it. ✅
+- The bounce's account counts it ("5 blocks, 20 bars, 2 drops"); the MIDI export follows
+  the same cuts. ✅
+- Presets: as written, start on the chorus, club mix. ✅
+
+---
+
 ### X0R-1344 · Feel: a pump that follows the kick, and a beat that sounds played · 2 · `DONE` 2026-10-11
 **As a** person adding a beat **I want** the pump to breathe with that beat's kick and the beat
 to sound played rather than programmed **so that** the remix grooves.

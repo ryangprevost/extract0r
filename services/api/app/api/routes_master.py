@@ -1983,6 +1983,17 @@ def revoiced_audio(
     return FileResponse(path, media_type="audio/wav", filename=path.name)
 
 
+class ArrangeItem(BaseModel):
+    """One block of an arrangement: a section of the song, by id from `/sections`."""
+
+    section: str
+    #: Stems silent in this block, and "beat" for the added beat - a breakdown is
+    #: ["drums", "beat"], an intro of just the beat is every stem.
+    mute: list[str] = Field(default_factory=list)
+    #: Build up into the start of this block and drop there.
+    drop: bool = False
+
+
 class BounceRequest(BaseModel):
     #: Null keeps the track's own tempo, which makes this a plain mixdown of the version.
     target_bpm: float | None = None
@@ -2012,6 +2023,73 @@ class BounceRequest(BaseModel):
     #: How much the added beat is nudged off the grid and varied in level, 0..1. A built-in
     #: beat is programmed dead straight; this is what makes it sound played.
     humanize: float = Field(0.0, ge=0.0, le=1.0)
+    #: Sprint 5: the song's sections in any order - repeated, left out, with parts muted and
+    #: drops placed per block. Null plays the song as it was written.
+    arrangement: list[ArrangeItem] | None = Field(None, max_length=64)
+
+
+def _sections_of(record, bpm: float) -> list:
+    """The song's sections, read off the original mix on its own beat grid. Sprint 5."""
+    import soundfile as sf
+
+    from app.services.synth.arrange import find_sections
+    from app.services.synth.retempo import beat_grid
+
+    audio, rate = sf.read(str(record.stored.path), dtype="float64", always_2d=True)
+    first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+    return find_sections(audio, rate, beat_grid(first, bpm, len(audio) / rate))
+
+
+def _arrangement(record, body: BounceRequest, source_bpm: float, scale: float,
+                 grid_bpm: float, stems: dict) -> list | None:
+    """An arrangement request turned into pieces in the version's time, every problem with
+    it raised now, in words, rather than inside the job."""
+    if not body.arrangement:
+        return None
+    from app.services.synth import drop as drops
+    from app.services.synth.arrange import Piece, arranged_beats, drop_bars
+    from app.services.synth.retempo import beat_grid
+
+    if not source_bpm:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Rearranging needs to know where the bars are, and this track's "
+                            "tempo could not be read.")
+    sections = {s.id: s for s in _sections_of(record, source_bpm)}
+    # Any part the app knows, not only the ones in this version: muting the drums in a block
+    # of a version that left the drummer out is harmless, and refusing it would be a puzzle.
+    allowed = {kind.value for kind in StemKind} | {"beat"}
+    pieces = []
+    for n, item in enumerate(body.arrangement, start=1):
+        section = sections.get(item.section)
+        if section is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"Block {n} asks for section {item.section!r}, and the song's "
+                                f"sections are {', '.join(sections)}.")
+        unknown = set(item.mute) - allowed
+        if unknown:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"Block {n} mutes {', '.join(sorted(unknown))}, which this "
+                                f"version does not have.")
+        end = section.end_s
+        # The song's ring-out, once, when the arrangement ends on the song's last section.
+        if n == len(body.arrangement):
+            end += section.tail_s
+        pieces.append(Piece(section.start_s * scale, end * scale,
+                            frozenset(item.mute), item.drop))
+
+    first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+    longest = max(piece.end_s for piece in pieces)
+    beats = arranged_beats(beat_grid(first * scale, grid_bpm, longest + 1.0), pieces)
+    for bar in drop_bars(pieces, beats):
+        try:
+            drops.check(beats, bar)
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"A drop at bar {bar} of the arrangement has no room for its "
+                f"{drops.BUILD_BARS}-bar build. Put a block before it, or untick that drop.",
+            ) from exc
+    return pieces
 
 
 def _resolve_beat(body: BounceRequest, out_dir: Path):
@@ -2142,6 +2220,9 @@ def bounce_version(
             drop.check(beat_grid(first * scale, grid_bpm, longest * scale), body.drop_bar)
         except ValueError as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    source_bpm = _tempo_of(track_id, registry)
+    pieces = _arrangement(registry.require(track_id), body, source_bpm, scale,
+                          body.target_bpm or source_bpm, stems)
 
     def work(handle: JobHandle) -> dict:
         import soundfile as sf
@@ -2173,7 +2254,8 @@ def bounce_version(
         # downbeats rather than on a grid of its own that happens to share a tempo.
         beats = None
         target = body.target_bpm or (getattr(record.timing, "tempo_bpm", 0.0) or 0.0)
-        if (body.pump or body.four_on_the_floor or body.drop_bar or added_beat) and target:
+        if (body.pump or body.four_on_the_floor or body.drop_bar or added_beat
+                or pieces) and target:
             from app.services.synth.retempo import beat_grid
 
             first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
@@ -2192,6 +2274,7 @@ def bounce_version(
                 left_out=tuple(body.leave_out),
                 beat_sounds=library.sounds(body.beat_kit, rate, sample_dir) if added_beat else None,
                 humanize=body.humanize,
+                pieces=pieces,
             )
         except StaleRender as exc:
             return {"ok": False, "why": str(exc), "stem": exc.stem}
@@ -2378,6 +2461,54 @@ def reference_recipe(
     return to_response(jobs.submit("recipe", track_id, work))
 
 
+@router.get("/{track_id}/sections")
+def song_sections(
+    track_id: str,
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """The song's sections, to rearrange. Sprint 5. See `synth/arrange.py`."""
+    try:
+        bpm = _tempo_of(track_id, registry)
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if not bpm:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "The tempo could not be read, so there are no bars to count.")
+    found = _sections_of(record, bpm)
+    return {
+        "tempo_bpm": round(bpm, 2),
+        "sections": [s.to_dict() for s in found],
+        "note": "Cut on four-bar phrases and grouped by how they sound: the same letter "
+        "sounds alike. The names are guesses - the loudest group is called the chorus.",
+    }
+
+
+@router.get("/{track_id}/sections/{section_id}/preview")
+def section_preview(
+    track_id: str,
+    section_id: str,
+    registry: TrackRegistry = Depends(get_registry),
+) -> Response:
+    """One section of the original song, to hear what a block is before placing it."""
+    try:
+        bpm = _tempo_of(track_id, registry)
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    found = {s.id: s for s in _sections_of(record, bpm)} if bpm else {}
+    section = found.get(section_id)
+    if section is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such section.")
+    import soundfile as sf
+
+    from app.services.synth.library import wav_bytes
+
+    audio, rate = sf.read(str(record.stored.path), dtype="float64", always_2d=True)
+    piece = audio[int(section.start_s * rate): int((section.end_s + section.tail_s) * rate)]
+    return Response(wav_bytes(piece, rate), media_type="audio/wav")
+
+
 @router.get("/{track_id}/drops")
 def suggest_drops(
     track_id: str,
@@ -2479,6 +2610,7 @@ def version_midi(
         )
     added = _resolve_beat(body, out_dir)
     first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
+    pieces = _arrangement(record, body, source_bpm, scale, tempo, stems)
 
     def work(handle: JobHandle) -> dict:
         import soundfile as sf
@@ -2513,14 +2645,28 @@ def version_midi(
         handle.update(JobState.RUNNING, 0.8, "laying out the beat and the build")
         longest = max(sf.info(str(p)).duration for p in stems.values()) * scale
         beats = beat_grid(first * scale, tempo, longest)
-        rest = None
-        roll_notes = None
-        if body.drop_bar:
+        drop_at = [body.drop_bar] if body.drop_bar else []
+        rest: list = []
+        if pieces:
+            # Every part follows the arrangement, the same cut as the audio.
+            from app.services.synth import arrange
+
+            pitched = {stem: arrange.place_notes(notes, pieces, stem)
+                       for stem, notes in pitched.items()}
+            if drummer is not None:
+                drummer = arrange.place_notes(drummer, pieces, "drums")
+            beats = arrange.arranged_beats(beats, pieces)
+            drop_at = sorted({*drop_at, *arrange.drop_bars(pieces, beats)})
+            rest += arrange.muted_spans(pieces, "beat")
+        roll_notes = []
+        for bar in drop_at:
             try:
-                rest = drops._window(beats, body.drop_bar)
-                roll_notes = vm.build(drops.roll(beats, tempo, body.drop_bar), rest[1])
+                window = drops._window(beats, bar)
             except ValueError:
-                rest = None
+                continue
+            rest.append(window)
+            roll_notes += vm.build(drops.roll(beats, tempo, bar), window[1])
+        roll_notes = sorted(roll_notes, key=lambda n: n.start_s) or None
         beat_notes = None
         beat_name = "beat"
         if added is not None:

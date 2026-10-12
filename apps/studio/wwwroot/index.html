@@ -918,6 +918,22 @@
         </label>
         <span class="muted tiny" id="drop-why"></span>
       </div>
+      <!-- Sprint 5: the song's sections in any order, each block with its own mutes and drop. -->
+      <details class="arrange-box" id="arrange-box" open hidden>
+        <summary>Arrangement</summary>
+        <p class="muted small">
+          Hear a section, add it, move it, play it twice, mute parts in one block - a
+          breakdown is the chorus without the drums - and drop into any block you like.
+          Cuts land on the bar lines, so the beat never stumbles.
+        </p>
+        <div class="preset-row" id="arrange-presets"></div>
+        <h4 class="library-head">The song's sections</h4>
+        <div class="arrange-sources" id="arrange-sections"></div>
+        <p class="muted tiny" id="arrange-note"></p>
+        <h4 class="library-head">Your version, in order</h4>
+        <ol class="arrange-lane" id="arrange-lane"></ol>
+        <p class="muted small" id="arrange-length"></p>
+      </details>
       <div class="bounce-box">
         <button class="primary" id="bounce-btn">Make the version</button>
         <button id="midi-version-btn" title="Every part as notes, at this tempo, for your DAW">
@@ -1049,6 +1065,7 @@
 <script src="sections.js"></script>
 <script src="resume.js"></script>
 <script src="revoice.js"></script>
+<script src="arrange.js"></script>
 <script src="dropzone.js"></script>
 <script src="spectrum.js"></script>
 <script src="groups.js"></script>

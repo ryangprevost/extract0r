@@ -1654,3 +1654,23 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
   .library-item { grid-template-columns: 34px 1fr; }
   .library-item .about { grid-column: 1 / -1; }
 }
+
+/* -- Sprint 5: the arrangement -- */
+.arrange-box { margin: 14px 0; }
+.arrange-box summary { cursor: pointer; font-weight: 600; }
+.arrange-sources { display: flex; flex-wrap: wrap; gap: 8px; }
+.arrange-source { display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+  border: 1px solid var(--edge); border-left-width: 4px; border-radius: 6px; }
+.arrange-lane { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 6px; }
+.arrange-block { padding: 6px 8px; border: 1px solid var(--edge); border-left-width: 4px;
+  border-radius: 6px; display: grid; gap: 6px; }
+.arrange-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.arrange-name { font-family: var(--mono); font-size: 12px; margin-right: auto; }
+.arrange-mutes { display: flex; flex-wrap: wrap; gap: 4px; }
+.arrange-mutes .chip { cursor: pointer; background: none; }
+.group-A { border-left-color: #4f8ef7; }
+.group-B { border-left-color: #f2a03d; }
+.group-C { border-left-color: #3fbf8a; }
+.group-D { border-left-color: #c46be0; }
+.group-E { border-left-color: #e05c6b; }
+.group-F { border-left-color: #9aa3ad; }

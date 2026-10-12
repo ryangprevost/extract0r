@@ -403,7 +403,16 @@ BUILT_IN: dict[str, Groove] = {
 # --- playing one -------------------------------------------------------------------------
 
 
-def events(groove: Groove, beats: np.ndarray, rest: tuple[float, float] | None = None,
+def resting(t: float, rest) -> bool:
+    """Whether `t` falls in a rest: None, one (start, end) span, or a list of them - a build
+    before each drop, and any block of an arrangement where the beat is muted."""
+    if rest is None:
+        return False
+    spans = [rest] if isinstance(rest, tuple) else rest
+    return any(a - 1e-3 <= t < b - 1e-3 for a, b in spans)
+
+
+def events(groove: Groove, beats: np.ndarray, rest=None,
            swing: float | None = None, feel: bool = True,
            threshold: float = PLAYS_FROM,
            humanize: float = 0.0) -> list[tuple[float, str, float]]:
@@ -440,7 +449,7 @@ def events(groove: Groove, beats: np.ndarray, rest: tuple[float, float] | None =
                 if swing is not None and step % 2 == 1:
                     shift = swing * TRIPLET
                 t = float(grid[beat] + ((step % 4) + shift) * sixteenth)
-                if rest is not None and rest[0] - 1e-3 <= t < rest[1] - 1e-3:
+                if resting(t, rest):
                     continue
                 # A step played a little ahead of the song's very first beat lands before
                 # zero. It is still the downbeat - dropping it lost the first kick.
@@ -460,7 +469,7 @@ def events(groove: Groove, beats: np.ndarray, rest: tuple[float, float] | None =
 
 
 def render(groove: Groove, beats: np.ndarray, sample_rate: int, length: int,
-           kit: str = "edm", rest: tuple[float, float] | None = None,
+           kit: str = "edm", rest=None,
            swing: float | None = None, feel: bool = True,
            threshold: float = PLAYS_FROM,
            sounds: dict[str, np.ndarray] | None = None,

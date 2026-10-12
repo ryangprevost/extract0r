@@ -285,6 +285,7 @@ const Revoice = (() => {
     box.hidden = false;
     sayTempo();
     await loadDrops();
+    if (typeof Arrange !== "undefined") await Arrange.load();
   }
 
   /**
@@ -313,6 +314,7 @@ const Revoice = (() => {
     box.disabled = select.disabled = !any;
     if (!any) box.checked = false;
     $("drop-why").textContent = info.why || "";
+    $("drop-why").dataset.said = info.why || "";
   }
 
   function sayTempo() {
@@ -358,6 +360,7 @@ const Revoice = (() => {
       setTempo(targetBpm);
       // And the bars are counted on the new grid.
       await loadDrops();
+      if (typeof Arrange !== "undefined") await Arrange.load();
     } catch (error) {
       fail("revoice-error", error);
     }
@@ -366,6 +369,8 @@ const Revoice = (() => {
   function setTempo(bpm) {
     targetBpm = bpm || null;
     $("tempo-target").value = bpm || "";
+    // The arrangement's length is read at this tempo.
+    if (typeof Arrange !== "undefined") Arrange.render();
     // Every existing render is at the old tempo. Keeping them playable would let somebody
     // build a version out of parts at two different tempos without being told.
     for (const [, held] of parts) {
@@ -572,7 +577,7 @@ const Revoice = (() => {
   function versionRequest() {
     const replayed = {};
     for (const [stem, held] of parts) if (held.url) replayed[stem] = held.voice;
-    return {
+    const request = {
       target_bpm: targetBpm,
       parts: replayed,
       pump: !!$("opt-pump")?.checked,
@@ -581,9 +586,15 @@ const Revoice = (() => {
       beat_kit: $("beat-kit")?.value || "edm",
       swing: $("beat-swing")?.value === "" ? null : parseFloat($("beat-swing").value),
       leave_out: $("opt-leave-drums")?.checked ? ["drums"] : [],
-      drop_bar: $("opt-drop")?.checked ? parseInt($("drop-bar").value, 10) || null : null,
       humanize: parseFloat($("beat-humanize")?.value || "0") || 0,
     };
+    // Sprint 5. Once the order is the user's, drops are per block and the single control
+    // is out of play - its bar number is in the song, not in the arrangement.
+    const arrangement = typeof Arrange !== "undefined" ? Arrange.request() : null;
+    request.arrangement = arrangement;
+    request.drop_bar = !arrangement && $("opt-drop")?.checked
+      ? parseInt($("drop-bar").value, 10) || null : null;
+    return request;
   }
 
   /** The version as MIDI: one track per part, drums on channel 10, added parts named. */
@@ -936,6 +947,7 @@ const Revoice = (() => {
     const theirs = [...($("beat-select")?.options || [])].find((o) => o.value === "reference");
     if (theirs) theirs.disabled = true;
     if ($("beat-select")?.value === "reference") $("beat-select").value = "";
+    if (typeof Arrange !== "undefined") Arrange.reset();
     render();
   }
 

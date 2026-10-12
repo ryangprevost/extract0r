@@ -485,3 +485,84 @@ def test_a_humanized_beat_says_so(client, separated):
     lines = " ".join(body["result"]["lines"])
     assert "a trap beat, played with a human feel" in lines
     assert "Pumping with the added beat's kick" in lines
+
+
+# --- Sprint 5: rearranging the song -----------------------------------------------------------
+
+
+def test_the_song_s_sections_are_listed_in_bars(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    body = client.get(f"/api/v1/tracks/{separated}/sections").json()
+    sections = body["sections"]
+    assert sections and sections[0]["start_bar"] == 1
+    for a, b in zip(sections, sections[1:], strict=False):
+        assert b["start_bar"] == a["start_bar"] + a["bars"]
+    assert "guesses" in body["note"]
+
+
+def test_sections_of_an_unknown_track_is_a_404(client):
+    assert client.get("/api/v1/tracks/" + "e" * 32 + "/sections").status_code == 404
+
+
+def test_an_arrangement_naming_a_section_that_is_not_there_is_refused(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    response = client.post(f"/api/v1/tracks/{separated}/bounce",
+                           json={"arrangement": [{"section": "s99"}]})
+    assert response.status_code == 400
+    assert "s99" in response.json()["detail"]
+
+
+def test_an_arrangement_muting_a_part_that_is_not_there_is_refused(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    response = client.post(f"/api/v1/tracks/{separated}/bounce",
+                           json={"arrangement": [{"section": "s1", "mute": ["kazoo"]}]})
+    assert response.status_code == 400
+
+
+def test_a_drop_with_nothing_before_it_is_refused(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    response = client.post(f"/api/v1/tracks/{separated}/bounce",
+                           json={"arrangement": [{"section": "s1", "drop": True}]})
+    assert response.status_code == 400
+    assert "no room" in response.json()["detail"]
+
+
+def test_a_section_played_twice_makes_a_longer_version(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    first = client.get(f"/api/v1/tracks/{separated}/sections").json()["sections"][0]
+    started = client.post(
+        f"/api/v1/tracks/{separated}/bounce",
+        json={"target_bpm": 120, "beat": "house",
+              "arrangement": [{"section": first["id"], "mute": ["beat"]},
+                              {"section": first["id"]}]})
+    body = finish(client, started.json()["job_id"])
+    assert body["state"] == "succeeded", body
+    result = body["result"]
+    # Twice the section, plus the song's ring-out once at the end if it is the last one.
+    seconds = first["end_s"] - first["start_s"]
+    assert abs(result["duration_s"] - (2 * seconds + first["tail_s"])) < 0.15
+    assert any(line.startswith("Rearranged: 2 blocks") for line in result["lines"])
+
+
+def test_the_midi_follows_the_arrangement(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    first = client.get(f"/api/v1/tracks/{separated}/sections").json()["sections"][0]
+    once = finish(client, client.post(
+        f"/api/v1/tracks/{separated}/version/midi",
+        json={"target_bpm": 120, "beat": "house",
+              "arrangement": [{"section": first["id"]}]}).json()["job_id"])
+    twice = finish(client, client.post(
+        f"/api/v1/tracks/{separated}/version/midi",
+        json={"target_bpm": 120, "beat": "house",
+              "arrangement": [{"section": first["id"]}, {"section": first["id"]}]}
+    ).json()["job_id"])
+    # The beat over the song's ring-out comes once, at the end, so not quite double.
+    assert twice["result"]["tracks"][0]["notes"] > 1.5 * once["result"]["tracks"][0]["notes"]
+
+
+def test_a_section_can_be_heard_before_it_is_placed(client, separated):
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    first = client.get(f"/api/v1/tracks/{separated}/sections").json()["sections"][0]
+    heard = client.get(f"/api/v1/tracks/{separated}/sections/{first['id']}/preview")
+    assert heard.status_code == 200 and heard.headers["content-type"] == "audio/wav"
+    assert client.get(f"/api/v1/tracks/{separated}/sections/s99/preview").status_code == 404

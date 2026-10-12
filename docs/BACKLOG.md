@@ -2617,6 +2617,41 @@ off**, not by being near it.
 
 ---
 
+### X0R-1462 · Upload names were lost on every restart · 1 · `DONE` 2026-10-12 · **defect**
+Names lived only in memory, so a restart turned "VaVaVa.mp3" into "source.mp3" everywhere.
+Kept in `names.json` beside the track and read back at startup. See
+[SPRINT-15.md](sprints/SPRINT-15.md) §3.
+
+---
+
+### X0R-1461 · Styles that keep a song's speed · 3 · `DONE` 2026-10-12
+**As a** person remixing a fast song **I want** a style that does not slow it down **so that**
+the remix keeps its energy and the vocal does not drag.
+
+Ryan, 2026-10-12: *"i dont know the best way to turn something like a pop punk song into edm.
+it just doesnt seem to translate well it feels slowed down and boring."* (169 to 129 BPM.)
+
+**Done.** Every style has a tempo range and is fitted to the song, saying what it does to
+its speed; a song opens on a style that keeps it; new *Half-time* and *Hard dance* styles; a
+target within 0.2% of the song's tempo stretches nothing. See
+[SPRINT-15.md](sprints/SPRINT-15.md) §2.
+
+---
+
+### X0R-1460 · Sample a sound from the reference · 5 · `DONE` 2026-10-12
+**As a** person who does not like the built-in synths **I want** to sample a note of the
+reference's synth and play my parts on it **so that** my remix sounds like the record I love.
+
+Ryan, 2026-10-12: *"can you allow for sampling a note of a synth in the reference and applying
+that to the midi? thatd be huge."*
+
+**Done.** Clean notes found in any reference part, heard as they would be sampled, made into
+an instrument on opt-in. The one exception to "analyzed, never sampled": consent required,
+named everywhere, deleted with its track, never in the repository. See
+[SPRINT-15.md](sprints/SPRINT-15.md) §1.
+
+---
+
 ### X0R-1452 · The piano roll saved to a part called "null" · 1 · `DONE` 2026-10-12 · **defect**
 Seen in the API log while Ryan edited: `PUT /parts/null/notes` 422. Closing the editor cleared
 the part it was editing, so an editor still on screen had nothing to save to. Showing and

@@ -37,6 +37,7 @@ and that is the whole point.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -131,14 +132,19 @@ def adopt_one(directory: Path) -> TrackRecord | None:
             drum_stems[side] = drums
 
     reference = next((p for p in directory.glob("reference.*")), None)
+    # Sprint 15: the names the uploads arrived with, when they were kept.
+    try:
+        names = json.loads((directory / "names.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        names = {}
 
     return TrackRecord(
         stored=StoredTrack(
             track_id=track_id,
             path=path,
-            # The upload's own name is not on disk. Said plainly rather than guessed from
-            # the extension, so nothing downstream reports a filename nobody chose.
-            original_filename=path.name,
+            # The upload's own name, when it was kept (Sprint 15). Otherwise said plainly
+            # rather than guessed, so nothing downstream reports a filename nobody chose.
+            original_filename=names.get("source") or path.name,
             sha256="",
             size_bytes=path.stat().st_size if path.exists() else 0,
         ),
@@ -148,7 +154,7 @@ def adopt_one(directory: Path) -> TrackRecord | None:
         separation=_separation_from(stems),
         reference_stems=dict(reference_stems),
         drum_stems=drum_stems,
-        reference_name=reference.name if reference else "",
+        reference_name=(names.get("reference") or reference.name) if reference else "",
     )
 
 

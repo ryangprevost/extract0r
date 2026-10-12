@@ -287,6 +287,7 @@ const Revoice = (() => {
     }
     sourceBpm = info.tempo_bpm || 0;
     if (!sourceBpm) return;
+    loadStyles();
 
     $("tempo-now").textContent = `This track runs at ${sourceBpm.toFixed(0)} BPM.`;
     const chips = $("tempo-chips");
@@ -387,6 +388,7 @@ const Revoice = (() => {
       sourceBpm = fixed.tempo_bpm;
       $("tempo-now").textContent =
         `This track runs at ${sourceBpm.toFixed(0)} BPM (you set this).`;
+      loadStyles();
       // Every render was made against the old source tempo, so every one is now wrong.
       setTempo(targetBpm);
       // And the bars are counted on the new grid.
@@ -689,17 +691,40 @@ const Revoice = (() => {
   //: Sprint 12: every style the server offers, made concrete for this install - real
   //: synths where they are installed. EDM above is the fallback if the list cannot load.
   let styles = [EDM];
+  //: Sprint 15: the styles that keep this song at its own speed, nearest first.
+  let suggestedStyles = [];
+  let styleTouched = false;
+
+  /** How a style changes this song's speed, in a few words for its option. */
+  function speedWord(style) {
+    if (!sourceBpm || style.change === undefined) return "";
+    if (style.keeps_speed) return " \u00b7 keeps its speed";
+    const pct = Math.round(Math.abs(style.change) * 100);
+    return ` \u00b7 ${pct}% ${style.change < 0 ? "slower" : "faster"}`;
+  }
 
   async function loadStyles() {
+    let info = {};
     try {
-      styles = (await api("/tracks/styles")).styles || [EDM];
+      info = await api(`/tracks/styles${sourceBpm ? `?bpm=${sourceBpm}` : ""}`);
+      styles = info.styles || [EDM];
     } catch {
       styles = [EDM];
     }
+    suggestedStyles = info.suggested || [];
     const pick = $("style-pick");
     if (!pick) return;
+    const was = pick.value;
     pick.innerHTML = "";
-    for (const style of styles) pick.appendChild(new Option(`${style.name} \u00b7 ${style.tempo}`, style.name));
+    for (const style of styles) {
+      const tempo = Math.round(style.tempo);
+      pick.appendChild(new Option(`${style.name} \u00b7 ${tempo}${speedWord(style)}`, style.name));
+    }
+    // Sprint 15: a song opens on a style that keeps it at its own speed, unless the person
+    // has already chosen one. A pop-punk song made into house was a quarter slower and
+    // sounded it.
+    if (styleTouched && styles.some((st) => st.name === was)) pick.value = was;
+    else if (suggestedStyles.length) pick.value = suggestedStyles[0];
     sayStyle();
   }
 
@@ -712,8 +737,14 @@ const Revoice = (() => {
     $("preset-edm").textContent = `Make it ${style.name}`;
     const real = style.real_synths
       ? ` ${style.real_synths} part${style.real_synths === 1 ? "" : "s"} on real synths.` : "";
+    // Sprint 15: what the style does to this song's speed, and what would keep it.
+    let speed = style.fit ? `${style.fit} ` : `${Math.round(style.tempo)} BPM. `;
+    if (style.fit && !style.keeps_speed && suggestedStyles.length) {
+      speed += `${suggestedStyles.join(" or ")} keep${suggestedStyles.length === 1 ? "s" : ""} ` +
+        "it at its own speed. ";
+    }
     $("style-about").textContent =
-      `${style.tempo} BPM. ${style.about || ""}${real} Then change anything you like below.`;
+      `${speed}${style.about || ""}${real} Then change anything you like below.`;
   }
 
   /**
@@ -1088,6 +1119,7 @@ const Revoice = (() => {
     if ($("beat-select")?.value === "reference") $("beat-select").value = "";
     if (typeof Arrange !== "undefined") Arrange.reset();
     if (typeof Notes !== "undefined") Notes.close();
+    if (typeof Sampler !== "undefined") Sampler.reset();
     if (typeof Mixer !== "undefined") Mixer.reset();
     customRows = null;
     customBase = null;
@@ -1109,7 +1141,10 @@ const Revoice = (() => {
     $("bounce-btn")?.addEventListener("click", makeVersion);
     $("midi-version-btn")?.addEventListener("click", versionMidi);
     $("preset-edm")?.addEventListener("click", makeItEdm);
-    $("style-pick")?.addEventListener("change", sayStyle);
+    $("style-pick")?.addEventListener("change", () => {
+      styleTouched = true;
+      sayStyle();
+    });
     loadStyles();
     $("preset-reference")?.addEventListener("click", remixLikeReference);
     $("groove-box")?.addEventListener("toggle", (e) => {

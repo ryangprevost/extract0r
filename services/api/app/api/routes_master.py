@@ -293,7 +293,9 @@ async def upload_reference(
 
     The reference is **analyzed, never sampled**: nothing from this file ends up in the
     output, only measurements of it. That distinction matters legally, and the rights
-    gate applies here too — uploading a commercial master is still an upload.
+    gate applies here too — uploading a commercial master is still an upload. The one
+    exception is a sound the person chooses to sample from it in pr0ducer (Sprint 15,
+    `sample_reference`), which they must say they may do, and which is named as such.
     """
     try:
         record = registry.require(track_id)
@@ -829,8 +831,9 @@ def stream_reference_stem(
 
     This serves audio from the reference, which nothing else in extract0r does. It is
     playback only: the reference is analyzed, never sampled, and no path exists from these
-    bytes into a master. The rights attestation collected at upload is what makes playing
-    it back the user's own recording to play.
+    bytes into a master. (pr0ducer can sample a note from a stem when the person asks - see
+    `sample_reference` - but never from here.) The rights attestation collected at upload is
+    what makes playing it back the user's own recording to play.
     """
     try:
         record = registry.require(track_id)
@@ -852,6 +855,150 @@ def stream_reference_stem(
     from app.api.routes_audio import ranged_file
 
     return ranged_file(Path(path), request)
+
+
+# --- Sprint 15: a sound sampled from the reference ---------------------------------------------
+
+
+def _sampled_dir(storage: TrackStorage, track_id: str, stem: str) -> Path:
+    return storage.exports_dir(track_id) / "sampled" / stem
+
+
+@router.post("/{track_id}/reference/notes", response_model=JobResponse)
+def find_reference_notes(
+    track_id: str,
+    stem: str = Query("other", description="the reference stem to look in"),
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """Find the clean notes in one of the reference's parts - candidates to sample. Sprint 15.
+
+    Nothing is sampled yet: each candidate is cut so it can be heard, kept with the track,
+    and becomes an instrument only when the person picks it and says they may sample it."""
+    from app.services.synth.sampled import SAMPLEABLE
+
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if stem not in SAMPLEABLE:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"Sounds are sampled from {', '.join(SAMPLEABLE)} - not {stem}.")
+    path = (record.reference_stems or {}).get(StemKind(stem))
+    if path is None or not Path(path).exists():
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Split the reference first, so there is a part to sample from.")
+
+    def work(handle: JobHandle) -> dict:
+        import soundfile as sf
+
+        from app.services.synth import sampled
+
+        handle.update(JobState.RUNNING, 0.1, f"reading the notes in the reference's {stem}")
+        notes = _transcribe(settings, StemKind(stem), Path(path)).notes
+        handle.update(JobState.RUNNING, 0.6, "listening for clean ones")
+        audio, rate = sf.read(str(path), dtype="float64", always_2d=True)
+        found = sampled.find_candidates(audio, rate, notes)
+        out = _sampled_dir(storage, track_id, stem)
+        out.mkdir(parents=True, exist_ok=True)
+        for old in out.glob("*.wav"):
+            old.unlink()
+        held = {}
+        for c in found:
+            note = sampled.cut(audio, rate, c)
+            held[c.n] = round(len(note) / rate, 2)
+            sf.write(str(out / f"{c.n}.wav"), note, rate, subtype="PCM_16")
+        (out / "candidates.json").write_text(
+            json.dumps({"rate": rate, "candidates": [c.to_dict() for c in found]}), "utf-8")
+        return {
+            "stem": stem,
+            # `sample_s`: how long the sample can hold a note, looped or not.
+            "candidates": [dict(c.to_dict(), sample_s=held[c.n],
+                                url=f"/api/v1/tracks/{track_id}/reference/notes/"
+                                f"{stem}/{c.n}.wav") for c in found],
+            "note": "Best first. A clean note is one pitch at a time, held steady, with most of "
+            "its sound on its own harmonics." if found else
+            f"No clean notes in the reference's {stem} - it is chords, noise or another "
+            "part's leakage throughout. Try another part.",
+        }
+
+    return to_response(jobs.submit("reference-notes", track_id, work))
+
+
+@router.get("/{track_id}/reference/notes/{stem}/{n}.wav")
+def hear_reference_note(
+    track_id: str, stem: str, n: int,
+    storage: TrackStorage = Depends(get_storage),
+) -> FileResponse:
+    """One candidate, as it would be sampled: cut, tuned and held. Sprint 15."""
+    path = _sampled_dir(storage, track_id, stem) / f"{int(n)}.wav"
+    if not re.fullmatch(r"[a-z]+", stem) or not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such candidate - find notes first.")
+    return FileResponse(path, media_type="audio/wav")
+
+
+class SampleRequest(BaseModel):
+    stem: str
+    picks: list[int] = Field(min_length=1, max_length=24)
+    name: str = Field("", max_length=40)
+    #: The person says they may sample this recording - see `legal.SAMPLING_NOTICE`.
+    may_sample: bool = False
+
+
+@router.post("/{track_id}/reference/sampled")
+def sample_reference(
+    track_id: str,
+    body: SampleRequest,
+    settings: Settings = Depends(get_config),
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """Make an instrument of the picked notes, to play any part on. Sprint 15.
+
+    The one place extract0r samples a reference, and only when asked: `may_sample` must be
+    true. The instrument goes to the samples folder, never the repository, is named for the
+    reference, and is deleted with this track."""
+    import soundfile as sf
+
+    from app.legal import SAMPLING_NOTICE
+    from app.services.synth import sampled
+
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if not body.may_sample:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, SAMPLING_NOTICE + " Tick the box to "
+                            "say you may sample this recording.")
+    if settings.sample_dir is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No samples folder is configured.")
+    folder = _sampled_dir(storage, track_id, body.stem)
+    try:
+        saved = json.loads((folder / "candidates.json").read_text("utf-8"))
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Find the notes first.") from exc
+    by_n = {c["n"]: sampled.Candidate.from_dict(c) for c in saved["candidates"]}
+    missing = [n for n in body.picks if n not in by_n or not (folder / f"{n}.wav").exists()]
+    if missing:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"No candidate {missing[0]}.")
+    picks = []
+    for n in dict.fromkeys(body.picks):
+        audio, _ = sf.read(str(folder / f"{n}.wav"), dtype="float64")
+        picks.append((by_n[n], audio))
+    reference = getattr(record, "reference_name", "") or "the reference"
+    names = "/".join(sampled.note_name(c.pitch) for c, _ in picks[:3])
+    name = body.name.strip() or f"{Path(reference).stem[:24]} {body.stem} {names}"
+    made = sampled.make_instrument(settings.sample_dir, name, body.stem, reference, picks,
+                                   int(saved["rate"]), SAMPLING_NOTICE, track_id)
+    from app.services.synth import instruments
+
+    instrument = instruments.find(made, settings.sample_dir)
+    return {"id": made, "name": instrument.name if instrument else name,
+            "label": f"{name} (from your reference)",
+            "instrument": instrument.to_dict() if instrument else None,
+            "notice": SAMPLING_NOTICE}
 
 
 @router.post("/{track_id}/reference/instruments", response_model=JobResponse)
@@ -1361,8 +1508,10 @@ def list_voices(settings: Settings = Depends(get_config)) -> dict:
     from app.services.synth.shape import describe, user_sounds
 
     real = [
-        {"id": i.id, "label": f"{i.name} (real synth)", "about": i.about, "real": True,
-         "kind": i.kind}
+        {"id": i.id,
+         "label": f"{i.name} (from your reference)" if i.origin == "reference"
+         else f"{i.name} (real synth)",
+         "about": i.about, "real": True, "kind": i.kind, "origin": i.origin}
         for i in instruments.installed(settings.sample_dir).values()
     ]
     mine = [
@@ -1780,6 +1929,25 @@ _READING_GUARD = threading.Lock()
 def _reading(track_id: str) -> threading.Lock:
     with _READING_GUARD:
         return _READING.setdefault(track_id, threading.Lock())
+
+
+#: A target within this fraction of the song's own tempo *is* the song's own (Sprint 15).
+#: The page shows the tempo to a tenth of a BPM, so a style that keeps the song at its speed
+#: asked for 169.0 against a measured 169.04 - a 0.02% stretch of every part, paid for in
+#: time and quality, and an added beat drifting 57 ms against the song by its end.
+SAME_TEMPO = 0.002
+
+
+def _as_asked(track_id: str, registry: TrackRegistry, target: float | None) -> float | None:
+    """`target`, snapped to the song's exact tempo when it is within `SAME_TEMPO` of it - so
+    the move is exactly 1 and nothing is stretched, while the version keeps the name asked
+    for."""
+    if not target:
+        return target
+    source = _tempo_of(track_id, registry)
+    if source and abs(source / target - 1.0) <= SAME_TEMPO:
+        return source
+    return target
 
 
 def _transcribe(settings: Settings, kind: StemKind, path: Path):
@@ -2232,6 +2400,7 @@ def revoice(
     # so it has to be settled before the job starts - a move this refuses should say so now
     # rather than after a transcription.
     move = None
+    target_bpm = _as_asked(track_id, registry, target_bpm)
     if target_bpm:
         from app.services.synth.retempo import MAX_RATIO, MIN_RATIO, plan
 
@@ -2649,6 +2818,7 @@ def bounce_version(
 
     scale = 1.0
     move = None
+    body.target_bpm = _as_asked(track_id, registry, body.target_bpm)
     if body.target_bpm:
         source_bpm = _tempo_of(track_id, registry)
         if not source_bpm:
@@ -2732,6 +2902,7 @@ def bounce_version(
         import soundfile as sf
 
         from app.services.mixdown.encode import write_mp3, write_wav
+        from app.services.synth import instruments
         from app.services.synth.retempo import StaleRender, bounce, stretcher_available
 
         handle.update(JobState.RUNNING, 0.1, "gathering the parts")
@@ -2744,6 +2915,10 @@ def bounce_version(
         for stem, path in renders.items():
             data, _ = sf.read(str(path), dtype="float64", always_2d=True)
             label = body.parts[stem]
+            sound = instruments.find(label, sample_dir)
+            if sound is not None and sound.origin == "reference":
+                # Sprint 15: said wherever the version describes itself.
+                label = f"{sound.name}, a sound sampled from your reference"
             if _edited_notes(out_dir, stem) is not None:
                 label = f"{label}, as you edited it"
             replays[stem] = (data, label)
@@ -3146,13 +3321,20 @@ NO_DETECTOR = ("Reading a beat needs the hit detector, which comes with the ML e
 
 
 @router.get("/styles")
-def list_styles(settings: Settings = Depends(get_config)) -> dict:
+def list_styles(
+    bpm: float = Query(0.0, ge=0.0, le=400.0, description="the song's tempo, to fit each style"),
+    settings: Settings = Depends(get_config),
+) -> dict:
     """Styles to remix into - each a tempo, a beat, a kit and a sound for every part, real
-    synths where they are installed and this app's own voices where not. Sprint 12."""
+    synths where they are installed and this app's own voices where not. Sprint 12.
+
+    Given the song's tempo (Sprint 15), each style's tempo is fitted to it and says what it
+    does to the song, and `suggested` names the styles that keep it at its own speed."""
     from app.services.synth import instruments, styles
 
     have = set(instruments.installed(settings.sample_dir))
-    return {"styles": [styles.resolve(name, have) for name in styles.STYLES]}
+    return {"styles": [styles.resolve(name, have, bpm) for name in styles.STYLES],
+            "suggested": styles.suggested(bpm)}
 
 
 @router.get("/grooves")
@@ -3512,6 +3694,7 @@ def version_midi(
     from app.services.synth.retempo import plan
 
     source_bpm = _tempo_of(track_id, registry)
+    body.target_bpm = _as_asked(track_id, registry, body.target_bpm)
     tempo = body.target_bpm or source_bpm or 120.0
     scale = 1.0
     move = None

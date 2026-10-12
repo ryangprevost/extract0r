@@ -207,7 +207,7 @@
     <p class="muted hint-line">
       The reference is <strong>analyzed, never sampled</strong>. extract0r measures its
       tonal balance and loudness and moves your mix in that direction — no audio from it
-      reaches your export.
+      reaches your master. (pr0ducer can sample a sound from it, only if you choose to.)
     </p>
 
     <p class="muted hint-line" id="ref-already" hidden>
@@ -881,6 +881,43 @@
           <span class="muted small" id="notes-said"></span>
         </div>
       </section>
+      <!-- Sprint 15: a sound sampled from the reference - the one place it is sampled. -->
+      <details class="sample-box" id="sampler-box">
+        <summary>Sample a sound from your reference</summary>
+        <p class="muted small">
+          Not loving the synths? Take the sound straight from your reference. Pick one of its
+          parts and this finds its clean notes - one pitch at a time, held steady - and plays
+          each the way it would be sampled: cut at its attack, tuned to the note, held. Tick
+          the ones to keep and they become an instrument you can put on any part. More notes
+          at different pitches sound more natural across a part.
+        </p>
+        <div class="revoice-row">
+          <label>Part of the reference
+            <select id="sampler-stem">
+              <option value="other">synths and other (other)</option>
+              <option value="bass">bass</option>
+              <option value="piano">keys (piano)</option>
+              <option value="guitar">guitar</option>
+              <option value="vocals">vocals - for a vocal chop</option>
+            </select>
+          </label>
+          <button class="small" id="sampler-find" type="button">Find clean notes</button>
+          <span class="muted small" id="sampler-said"></span>
+        </div>
+        <ol class="sampler-list" id="sampler-list"></ol>
+        <div class="revoice-row" id="sampler-make-row" hidden>
+          <label>Name
+            <input type="text" id="sampler-name" maxlength="40" placeholder="their bass" />
+          </label>
+          <label class="check">
+            <input type="checkbox" id="sampler-rights" />
+            I may sample this recording
+          </label>
+          <button class="primary small" id="sampler-make" type="button">Make it an instrument</button>
+        </div>
+        <p class="muted tiny" id="sampler-notice"></p>
+        <p class="small" id="sampler-made"></p>
+      </details>
       <details class="sample-box" id="sample-box">
         <summary>Use a sample of your own</summary>
         <p class="muted small">
@@ -1247,6 +1284,7 @@
 <script src="arrange.js"></script>
 <script src="notes.js"></script>
 <script src="mixer.js"></script>
+<script src="sampler.js"></script>
 <script src="shaper.js"></script>
 <script src="dropzone.js"></script>
 <script src="spectrum.js"></script>

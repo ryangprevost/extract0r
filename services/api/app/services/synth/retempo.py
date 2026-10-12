@@ -543,8 +543,11 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
 
     lines = []
     if replayed:
+        # At the song's own tempo there is no new tempo to speak of (Sprint 15).
+        moved = move is not None and abs(move.scale - 1.0) > 1e-6
         lines.append(
             f"Re-played at the new tempo, so as crisp as the original: {', '.join(replayed)}."
+            if moved else f"Re-played on the sounds you chose: {', '.join(replayed)}."
         )
     edited = [p.stem for p in account
               if p.how == "re-played" and p.detail.endswith("as you edited it")]
@@ -552,6 +555,12 @@ def summarise(move: Move | None, account: list[Part]) -> dict:
         # Sprint 6: an edit is the user's, and is never passed off as the band's playing.
         lines.append(f"Edited by you, so these play your notes rather than the band's: "
                      f"{', '.join(edited)}.")
+    sampled = [p.stem for p in account
+               if p.how == "re-played" and "sampled from your reference" in p.detail]
+    if sampled:
+        # Sprint 15: a sound taken from someone else's recording is named as such.
+        lines.append(f"Played on a sound sampled from your reference - clear the sample "
+                     f"before you release this: {', '.join(sampled)}.")
     if stretched:
         lines.append(f"Stretched to fit: {', '.join(stretched)}.")
     for part in pumped:

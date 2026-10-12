@@ -174,6 +174,11 @@ def delete_track(
     """Immediate, unconditional delete - the user's stated right in the privacy policy."""
     storage.delete(track_id)
     registry.remove(track_id)
+    # Any sound sampled from this track's reference goes with it. Sprint 15.
+    from app.config import get_settings
+    from app.services.synth.sampled import forget_missing
+
+    forget_missing(get_settings().sample_dir, storage.root)
 
 
 def _as_job_response(job) -> JobResponse:

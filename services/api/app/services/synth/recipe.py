@@ -16,7 +16,8 @@ Nothing of the reference's audio reaches the remix. Each element is reduced to a
 numbers - a tempo, a sixteen-step pattern, a depth in dB, a pair of spectral shares - and the
 remix is built from this application's own synthesis to match them. That is the same line
 the mastering suite draws (a reference is measured, not copied) and the reason this is a
-remix *in the style of* a track rather than a remix *of* it.
+remix *in the style of* a track rather than a remix *of* it. (Sampling a sound from the
+reference is a separate, opt-in step - `sampled.py`, Sprint 15 - never part of a recipe.)
 
 ### Every choice is shown and can be changed
 

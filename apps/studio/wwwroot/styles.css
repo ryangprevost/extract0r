@@ -1749,3 +1749,11 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 #notes-canvas, #notes-vel { display: block; }
 #notes-vel { border-top: 1px solid var(--edge); cursor: ns-resize; touch-action: none; }
 #notes-vel-value { width: 5em; }
+
+/* -- Sprint 15: sampling from the reference -- */
+.sampler-list { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 4px; }
+.sampler-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sampler-row strong { min-width: 3em; font-family: var(--mono); }
+.sampler-meter { width: 64px; height: 6px; border-radius: 3px; background: var(--edge);
+  background-image: linear-gradient(var(--accent), var(--accent));
+  background-size: var(--fill, 0%) 100%; background-repeat: no-repeat; }

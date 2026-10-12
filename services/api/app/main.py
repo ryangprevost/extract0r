@@ -31,6 +31,15 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 log = logging.getLogger("extract0r")
 
 
+def _forget_sampled() -> None:
+    """Sounds sampled from a reference go with their track (Sprint 15)."""
+    from app.services.synth.sampled import forget_missing
+
+    gone = forget_missing(get_settings().sample_dir, get_storage().root)
+    if gone:
+        log.info("deleted %d sound(s) sampled from purged references", len(gone))
+
+
 async def _retention_sweep(interval_minutes: int, retention_hours: int) -> None:
     """Purge expired tracks on a timer for as long as the process lives.
 
@@ -43,6 +52,7 @@ async def _retention_sweep(interval_minutes: int, retention_hours: int) -> None:
             removed = await asyncio.to_thread(get_storage().purge_expired, retention_hours)
             # Always log the count, including zero - this is the audit trail.
             log.info("retention sweep purged %d track(s)", len(removed))
+            await asyncio.to_thread(_forget_sampled)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -81,6 +91,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     # Sweep on boot so a crashed process cannot leave user audio sitting past retention.
     removed = get_storage().purge_expired(settings.retention_hours)
+    _forget_sampled()
     if removed:
         log.info("purged %d expired track(s) on startup", len(removed))
 

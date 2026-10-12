@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import get_config
 from app.config import Settings
-from app.legal import COPYRIGHT_NOTICE, TERMS_VERSION, UPLOAD_GATE_TEXT
+from app.legal import COPYRIGHT_NOTICE, SAMPLING_NOTICE, TERMS_VERSION, UPLOAD_GATE_TEXT
 
 router = APIRouter(prefix="/api/v1", tags=["meta"])
 
@@ -87,6 +87,7 @@ def legal(settings: Settings = Depends(get_config)) -> dict:
         "terms_version": TERMS_VERSION,
         "copyright_notice": COPYRIGHT_NOTICE,
         "upload_gate": UPLOAD_GATE_TEXT,
+        "sampling_notice": SAMPLING_NOTICE,
         "retention_hours": settings.retention_hours,
         "dmca_contact": settings.dmca_contact_email,
     }

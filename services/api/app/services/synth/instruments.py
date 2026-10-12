@@ -51,12 +51,14 @@ class Instrument:
     #: Recorded notes: MIDI pitch -> file name inside the instrument's folder.
     notes: dict[int, str] = field(default_factory=dict)
     folder: Path | None = None
+    #: "reference" for a sound sampled from the person's reference (Sprint 15), else "".
+    origin: str = ""
 
     def to_dict(self) -> dict:
         return {"id": self.id, "name": self.name, "kind": self.kind, "about": self.about,
                 "source": self.source, "license": self.license,
                 "range": [min(self.notes), max(self.notes)] if self.notes else None,
-                "recorded_notes": len(self.notes)}
+                "recorded_notes": len(self.notes), "origin": self.origin}
 
 
 def instrument_dir(sample_dir: Path) -> Path:
@@ -78,7 +80,8 @@ def installed(sample_dir: Path | None) -> dict[str, Instrument]:
             out[meta.parent.name] = Instrument(
                 id=meta.parent.name, name=data["name"], kind=data.get("kind", "keys"),
                 about=data.get("about", ""), source=data.get("source", ""),
-                license=data.get("license", ""), notes=notes, folder=meta.parent)
+                license=data.get("license", ""), notes=notes, folder=meta.parent,
+                origin=data.get("origin", ""))
         except Exception:  # noqa: BLE001 - one damaged instrument should not hide the rest
             continue
     return out

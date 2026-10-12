@@ -2477,6 +2477,12 @@ const MODALS = {
       song is itself a derivative work of that composition. Private study is often argued
       to be fair use in the United States, but fair use is a defense decided case by case,
       not a permission slip, and other countries treat private copying differently.</p>
+    <h3>Sampling from your reference</h3>
+    <p>extract0r measures a reference; it does not copy it into a master. In pr0ducer you
+      can choose to sample notes from it to play your own parts on. Sampling copies part of
+      a recording, even a single note: tick that you may sample it, keep the result private,
+      or clear the sample with the rights holder before you release anything made with it.
+      A sampled sound is named for the reference and deleted with the track.</p>
     <h3>How long your audio is kept</h3>
     <p>Uploads and everything derived from them are deleted automatically after
       {{retention}} hours. You can delete a track immediately from the stems screen.</p>

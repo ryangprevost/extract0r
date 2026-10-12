@@ -302,11 +302,16 @@ const HELP_REFERENCE = [
         silence a part you actually played.</p>`,
   },
   {
-    heading: "The reference is analyzed, never sampled",
+    heading: "The reference is analyzed, not sampled - unless you ask",
     body: `
       <p>Its tonal balance, loudness and stereo image are measured. No audio from it
-        reaches your export. You can play its separated stems to compare them with yours,
-        and that is playback only — there is no path from those bytes into a master.</p>`,
+        reaches your master. You can play its separated stems to compare them with yours,
+        and that is playback only — there is no path from those bytes into a master.</p>
+      <p>The one exception is in pr0ducer: <em>Sample a sound from your reference</em> cuts
+        notes you pick from one of its parts into an instrument. It only happens when you
+        tick that you may sample the recording, the instrument is named for the reference,
+        a version made with it says so, and it is deleted with the track. Clear a sample
+        before you release anything that uses it.</p>`,
   },
 ];
 

@@ -38,6 +38,13 @@ NO_DRM_CIRCUMVENTION = (
     "other method that violates the rights holder's terms of use."
 )
 
+SAMPLING_NOTICE = (
+    "Sampling copies part of a recording, even a single note. A sound sampled from your "
+    "reference is kept in your own samples folder and named for where it came from. Use "
+    "it privately, or clear the sample with the rights holder before you release anything "
+    "made with it."
+)
+
 RETENTION_NOTICE = (
     "Uploaded audio and every file derived from it are deleted automatically after the "
     "retention window shown on this page. You can delete a track immediately at any "
@@ -56,6 +63,7 @@ ALL_NOTICES = {
     "upload_gate": UPLOAD_GATE_TEXT,
     "fair_use": FAIR_USE_NOTE,
     "no_drm_circumvention": NO_DRM_CIRCUMVENTION,
+    "sampling": SAMPLING_NOTICE,
     "retention": RETENTION_NOTICE,
     "dmca": DMCA_NOTICE,
 }

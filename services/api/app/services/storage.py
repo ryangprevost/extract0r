@@ -6,7 +6,9 @@ which matters because "we delete your audio" has to be true, not aspirational.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import json
 import re
 import shutil
 import time
@@ -44,6 +46,24 @@ class TrackStorage:
     def exports_dir(self, track_id: str) -> Path:
         return self.track_dir(track_id) / "exports"
 
+    #: What the uploads were called, kept beside them (Sprint 15). Only in memory before, so
+    #: every restart turned "VaVaVa.mp3" into "source.mp3" everywhere it was shown. Inside
+    #: the track folder, so it is deleted with it.
+    NAMES = "names.json"
+
+    def names(self, track_id: str) -> dict:
+        try:
+            return json.loads((self.track_dir(track_id) / self.NAMES).read_text("utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def remember_name(self, track_id: str, role: str, filename: str) -> None:
+        names = self.names(track_id)
+        names[role] = Path(filename).name
+        # A name that cannot be kept costs a label after a restart, never an upload.
+        with contextlib.suppress(OSError):
+            (self.track_dir(track_id) / self.NAMES).write_text(json.dumps(names), "utf-8")
+
     def save_upload(self, filename: str, data: bytes) -> StoredTrack:
         suffix = Path(filename).suffix.lower()
         if suffix not in ALLOWED_SUFFIXES:
@@ -59,6 +79,7 @@ class TrackStorage:
         # Store under a fixed name so nothing user-controlled reaches the filesystem.
         path = directory / f"source{suffix}"
         path.write_bytes(data)
+        self.remember_name(track_id, "source", filename)
         return StoredTrack(
             track_id=track_id,
             path=path,
@@ -85,6 +106,7 @@ class TrackStorage:
             existing.unlink(missing_ok=True)
         path = directory / f"reference{suffix}"
         path.write_bytes(data)
+        self.remember_name(track_id, "reference", filename)
         return path
 
     def reference_stems_dir(self, track_id: str) -> Path:

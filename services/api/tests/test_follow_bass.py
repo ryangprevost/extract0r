@@ -40,3 +40,20 @@ def test_legato_stops_at_the_bass_changes():
     part = [BeatNote(0, 0.5, 71, 90), BeatNote(8, 0.5, 73, 90)]
     held = legato(part, 1.0, stops=[0, 4, 8])
     assert held[0].length == 4.0
+
+
+def test_trim_takes_out_ghosts_and_lone_leaps():
+    from app.services.synth.edit import trim
+
+    line = [BeatNote(0, 1, 60, 80), BeatNote(1, 1, 62, 80), BeatNote(2, 1, 76, 80),
+            BeatNote(3, 1, 64, 80), BeatNote(3.5, 0.1, 65, 20), BeatNote(4, 1, 65, 80)]
+    kept = [n.pitch for n in trim(line)]
+    assert kept == [60, 62, 64, 65]
+
+
+def test_top_line_is_the_top_of_each_chord_in_the_lead_register():
+    from app.services.synth.edit import top_line
+
+    chords = [BeatNote(0, 1, 50, 80), BeatNote(0, 1, 54, 80), BeatNote(0, 1, 57, 80),
+              BeatNote(1, 1, 52, 80), BeatNote(1, 1, 79, 80)]
+    assert [(n.beat, n.pitch) for n in top_line(chords)] == [(0, 57), (1, 67)]

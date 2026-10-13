@@ -439,11 +439,14 @@ const Notes = (() => {
     draw();
   }
 
-  async function quantise(withSwing, legato = 0) {
+  async function quantise(withSwing, legato = 0, extra = null) {
     const which = selected.size ? [...selected] : notes.map((_, i) => i);
     if (!which.length) return;
     const swingValue = parseFloat($("beat-swing")?.value);
-    const body = legato ? {
+    const body = extra ? {
+      // Sprint 19: trim or top line on their own - nothing moved in time.
+      notes: which.map((i) => notes[i]), grid: "1/16", strength: 0, ...extra,
+    } : legato ? {
       // Sprint 18: legato alone - the notes held towards the next, nothing quantized.
       notes: which.map((i) => notes[i]), grid: "1/16", strength: 0, legato,
     } : {
@@ -460,7 +463,16 @@ const Notes = (() => {
         body: JSON.stringify(body),
       });
       remember();
-      which.forEach((index, k) => Object.assign(notes[index], result.notes[k]));
+      if (result.notes.length === which.length) {
+        which.forEach((index, k) => Object.assign(notes[index], result.notes[k]));
+      } else {
+        // Trim and top line change how many notes there are: the selection is replaced.
+        const keep = notes.filter((_, i) => !which.includes(i));
+        notes = keep.concat(result.notes);
+        selected = new Set();
+        $("notes-said").textContent =
+          `${which.length - result.notes.length} notes taken out. Save to play it.`;
+      }
       draw();
     } catch (error) {
       $("notes-said").textContent = error.message || String(error);
@@ -617,6 +629,8 @@ const Notes = (() => {
     $("notes-swing").addEventListener("click", () => quantise(true));
     $("notes-legato")?.addEventListener("click", () => quantise(false, 1));
     $("notes-follow")?.addEventListener("click", followBass);
+    $("notes-trim")?.addEventListener("click", () => quantise(false, 0, { trim: true }));
+    $("notes-topline")?.addEventListener("click", () => quantise(false, 0, { top_line: true }));
     $("notes-up").addEventListener("click", () => nudge(1));
     $("notes-down").addEventListener("click", () => nudge(-1));
     $("notes-oct-up").addEventListener("click", () => nudge(12));

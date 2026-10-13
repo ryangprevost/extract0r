@@ -194,6 +194,59 @@ def legato(notes: list[BeatNote], amount: float = 1.0,
     return out
 
 
+def trim(notes: list[BeatNote], short: float = 0.25, quiet: float = 0.6,
+         leap: int = 7) -> list[BeatNote]:
+    """The questionable notes taken out. Sprint 19.
+
+    Ryan: *"the midi feels a little off maybe trim some of the questionable notes."* Two kinds,
+    each something a player would not have meant:
+
+    - **ghosts** - shorter than `short` beats *and* quieter than `quiet` of the part's median
+      velocity: a transcriber's echo of a note, not a note;
+    - **leaps** - in a single line, a note more than `leap` semitones from both the note
+      before and the note after: one wrong octave or overtone in an otherwise smooth line.
+      Only judged where one note sounds at a time; chords are left to `follow_bass`."""
+    if not notes:
+        return []
+    ordered = sorted(notes, key=lambda n: (n.beat, n.pitch))
+    loud = sorted(n.velocity for n in ordered)[len(ordered) // 2]
+    kept = [n for n in ordered if not (n.length < short and n.velocity < quiet * loud)]
+    onsets: dict[int, int] = {}
+    for n in kept:
+        onsets[round(n.beat / 0.05)] = onsets.get(round(n.beat / 0.05), 0) + 1
+    out = []
+    for i, n in enumerate(kept):
+        alone = onsets[round(n.beat / 0.05)] == 1
+        if alone and 0 < i < len(kept) - 1:
+            before, after = kept[i - 1].pitch, kept[i + 1].pitch
+            if abs(n.pitch - before) > leap and abs(n.pitch - after) > leap:
+                continue
+        out.append(n)
+    return out
+
+
+def top_line(notes: list[BeatNote], highest: int = 71, lowest: int = 55) -> list[BeatNote]:
+    """The top note of every chord, as one line - a lead to play over the chords. Sprint 19.
+
+    Moved by whole octaves into `lowest`..`highest` (G3 to B4 by default): a lead that sits
+    over the chords without becoming the lone high note Ryan asked to be rid of."""
+    groups: dict[int, BeatNote] = {}
+    for n in notes:
+        key = round(n.beat / 0.05)
+        if key not in groups or n.pitch > groups[key].pitch:
+            groups[key] = n
+    out = []
+    for key in sorted(groups):
+        n = groups[key]
+        pitch = n.pitch
+        while pitch > highest:
+            pitch -= 12
+        while pitch < lowest:
+            pitch += 12
+        out.append(BeatNote(n.beat, n.length, pitch, n.velocity))
+    return out
+
+
 MAJOR = (0, 2, 4, 5, 7, 9, 11)
 
 

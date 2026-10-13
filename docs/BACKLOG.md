@@ -2617,6 +2617,25 @@ off**, not by being near it.
 
 ---
 
+### X0R-1474 · Trim and Top line in the piano roll · 1 · `DONE` 2026-10-13
+**As a** person cleaning up transcribed parts **I want** to take out ghost notes and stray
+leaps, and to pull a single lead line out of chords **so that** the parts sound meant.
+
+**Done.** `edit.trim`, `edit.top_line`, on the quantize route and as piano-roll buttons. See
+[SPRINT-17.md](sprints/SPRINT-17.md) §6.
+
+---
+
+### X0R-1475 · Match the reference's levels on a version · 3 · `TODO`
+**As a** person remixing toward a reference **I want** one press to set each part's fader to
+the reference's balance **so that** my mix sits like the record I chose.
+
+Done by hand for VaVaVa against "Bounce" (synths -14 dB, drums -8, vocal -6, bass as the
+anchor; then the tonal match). Make it a button on the version mixer, each move named, the
+faders left for the person to change.
+
+---
+
 ### X0R-1473 · A wall that pulses: follow the bass, pump per part · 2 · `DONE` 2026-10-13
 **As a** person making a synth wall **I want** every part on the bass's chords and pulsing
 **so that** held notes never clash and the wall breathes even when the beat drops out.

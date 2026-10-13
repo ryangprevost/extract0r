@@ -2244,6 +2244,10 @@ class QuantizeRequest(NotesRequest):
     transpose: int = Field(0, ge=-48, le=48)
     #: Sprint 18: then hold every note this far towards the next one, 0..1.
     legato: float = Field(0.0, ge=0.0, le=1.0)
+    #: Sprint 19: first take out the questionable notes - ghosts, and lone leaps in a line.
+    trim: bool = False
+    #: Sprint 19: then keep only the top note of each chord, as one line in G3..B4.
+    top_line: bool = False
 
 
 @router.get("/{track_id}/parts/{stem}/notes")
@@ -2389,11 +2393,15 @@ def quantize_notes(body: QuantizeRequest) -> dict:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             f"No grid called {body.grid!r}. Try one of {', '.join(edit.GRIDS)}.")
     notes = [edit.BeatNote.from_dict(n.model_dump()) for n in body.notes]
+    if body.trim:
+        notes = edit.trim(notes)
     notes = edit.quantize(notes, edit.GRIDS[body.grid], body.strength, body.ends)
     if body.swing is not None:
         notes = edit.groove(notes, body.swing)
     if body.transpose:
         notes = edit.transpose(notes, body.transpose)
+    if body.top_line:
+        notes = edit.top_line(notes)
     if body.legato:
         notes = edit.legato(notes, body.legato)
     return {"notes": [n.to_dict() for n in notes]}

@@ -104,3 +104,44 @@ piano-roll button):
 - The account names each depth.
 - Measured per beat, the mix now pulses 9.8 dB in the beat-free teaser (it was 1.6) and
   15.6 dB in the chorus (it was 10.4).
+
+## 6. Matched levels, a gritty lead over clean chords, trimmed notes — X0R-1474
+
+Ryan, over three rounds:
+
+> it does NOT sound like the levels of the mstrkrft refernce track
+
+> it sounds like grinding metal lol ... kill some of the overhead single held out note that's
+> high pitched
+
+> try the gritty single-note lead over clean chords. the midi feels a little off maybe trim
+> some of the questionable notes
+
+**Levels.** Measured each part against its bass, in "Bounce" and in the remix. The synths sat
+14 dB over the bass where "Bounce" has them level with it; the drums were 8 dB and the vocal
+6 dB louder than "Bounce"'s balance. Faders were set from the measurements, then the mix was
+tonally matched to "Bounce" with the mastering engine's own `matching_curve`. With the
+balance right, that curve needed only ±2 dB. Done by a script for now; a "match the
+reference's levels" button on the version mixer is the obvious next card.
+
+**The odd high notes.** The sampled "Bounce" synth had clean notes only at F#1, A#1, A#2 and
+F5. Over 90% of the keys' and strings' held time came from a recording more than 5
+semitones away, and a third of it from more than an octave away. Adding their clean F4
+removed every stretch over an octave. The lone high notes (C5 and up: 26 on the strings,
+including a G5 held for nearly 4 beats, and 9 on the keys) were taken out.
+
+**Grinding metal was not brightness.** "Bounce" has *more* 2–8 kHz energy than the remix
+(-9.6 dB of the total against -13.6). The grind is distortion on whole chords:
+intermodulation, tones at the notes' sums and differences that belong to no chord. So now:
+
+- the chords are clean;
+- the grit goes on one line, `edit.top_line` (the top note of each chord, G3–B4), played on
+  the sampled synth at 65% grit;
+- the bass keeps its own grit.
+
+**Trim** (`edit.trim`) takes out ghosts (short and well under the part's median velocity)
+and lone leaps (a single note more than 7 semitones from both neighbors). Everything is also
+quantized to 1/16: transcription timing was the "off" feel.
+
+Both tools are available as `trim` and `top_line` on the quantize route, and as **Trim** and
+**Top line** in the piano roll.

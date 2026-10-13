@@ -1761,3 +1761,8 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 /* -- Sprint 16: grit per part -- */
 .part-row .grit { display: inline-flex; align-items: center; gap: 4px; font-size: 0.85em; }
 .part-row .grit input[type="range"] { width: 72px; }
+
+/* -- Sprint 20: chops -- */
+.chops-list { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 4px; }
+.chop-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chop-row input[type="number"] { width: 4.5em; }

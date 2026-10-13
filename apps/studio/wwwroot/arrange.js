@@ -228,6 +228,24 @@ const Arrange = (() => {
     }
   }
 
+  /** Sprint 20: how many bars the version has - the arrangement's, else the song's. */
+  function versionBars() {
+    const order = touched && lane.length ? lane.map((item) => byId(item.section)) : sections;
+    return order.filter(Boolean).reduce((sum, s) => sum + (s.bars || 0), 0);
+  }
+
+  /** Sprint 20: the version bars that start a block dropping in. */
+  function dropBars() {
+    if (!touched) return [];
+    const out = [];
+    let bar = 1;
+    for (const item of lane) {
+      if (item.drop) out.push(bar);
+      bar += byId(item.section)?.bars || 0;
+    }
+    return out;
+  }
+
   /** What the version request should carry: null while the song plays as written. */
   function request() {
     if (!touched || !lane.length) return null;
@@ -416,7 +434,7 @@ const Arrange = (() => {
     });
   }
 
-  return { init, load, reset, request, render };
+  return { init, load, reset, request, render, versionBars, dropBars };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Arrange.init());

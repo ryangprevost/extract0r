@@ -439,6 +439,11 @@ def bounce(
             for bar in drops:
                 part = sweep(part, sample_rate, beats, bar)
 
+        if chops and beats is not None:
+            # Sprint 20: chops on this part alone - a lead that stutters over the beat.
+            from app.services.synth.chop import apply as chop
+
+            part = chop(part, sample_rate, beats, chops, layer=stem)
         take = min(len(part), length)
         mix[:take] += part[:take]
         if layers_out is not None:
@@ -466,6 +471,10 @@ def bounce(
         played = play_groove(added_beat, beats, sample_rate, length, kit=beat_kit,
                              rest=beat_rests, swing=swing, sounds=beat_sounds,
                              humanize=humanize)
+        if chops:
+            from app.services.synth.chop import apply as chop
+
+            played = chop(played, sample_rate, beats, chops, layer="beat")
         mix += played
         if layers_out is not None:
             layers_out["beat"] = played
@@ -497,15 +506,17 @@ def bounce(
         # Sprint 19: stutters, gates and stops, cut the same into every layer.
         from app.services.synth.chop import apply as chop
 
+        # The whole-track chops; a part's own were cut into it above.
         mix = chop(mix, sample_rate, beats, chops)
         if layers_out is not None:
             for name in list(layers_out):
                 layers_out[name] = chop(layers_out[name], sample_rate, beats, chops)
-        kinds: dict[str, list[int]] = {}
+        kinds: dict[str, list[str]] = {}
         for c in chops:
-            kinds.setdefault(c.kind, []).append(c.bar)
+            on = f" ({', '.join(c.parts)})" if c.parts else ""
+            kinds.setdefault(c.kind, []).append(f"{c.bar}{on}")
         account.append(Part("chops", "added", "; ".join(
-            f"{k}s at bars {', '.join(map(str, bars))}" for k, bars in kinds.items())))
+            f"{k}s at bars {', '.join(bars)}" for k, bars in kinds.items())))
 
     # Down to -1 dBFS if the sum went over. Not a limiter - this is a sketch of a version,
     # and the mastering page is where loudness is decided. It only stops the file clipping.

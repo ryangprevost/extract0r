@@ -177,3 +177,40 @@ harmony stays the chords'; only the rhythm is new.
   builds. Checked in the file:
   - the stop is digital silence;
   - the stutters repeat their slice (0.55 correlation against 0.15 for the music around them).
+
+## 8. Chops and stabs on the page, chops on instruments — X0R-1477
+
+Ryan:
+
+> add the chops and stabs as controls on the page. love them by the way it's a nice touch.
+> can you add chops to the instruments as well like stutters and whatnot. something like this
+> youtube video at the time i copied
+
+The video is Madeon's "Icarus". Its audio cannot be heard from here; going by what that
+record is known for, the chops are cut into *instruments* - a lead retriggering and climbing
+in pitch into the next phrase, a vocal chopped, stabs gated - while the beat carries on.
+
+- **A chop on a part.** `Chop.parts` (empty is the whole track) is cut into that part inside
+  the bounce, or into the added beat (`"beat"`). Whole-track chops are still cut into the
+  mix and every layer.
+- **Two new kinds:**
+  - **rise:** a stutter in sixteenths, each repeat a semitone higher (tested: two repeats in,
+    the pitch has climbed 2 semitones);
+  - **tape:** a tape stop, speed falling from 1 to 0 across the window.
+- **On the page:**
+  - A **Chops** panel under the arrangement. Each row sets the bar, beat, length and kind,
+    and whether the chop is on the whole track or one part.
+  - **Suggest** fills in a gate, stutter or rise at every fourth bar and skips the two bars
+    before a drop.
+  - A **Stabs** button sits in the piano roll.
+
+**On VaVaVa:**
+
+- **The lead:** rises into phrase ends, plus stutters.
+- **The stabs:** gated.
+- **The vocal:** stutters and one rise (chorus cut).
+- **The whole track:** a tape stop into the bridge, and a gate to close.
+
+**Retention.** The local `.env` had `RETENTION_HOURS=24`, and the sweep deleted every track
+older than a day, the demo track included. With Ryan's go-ahead it is now 168 (7 days,
+git-ignored, local only), raised minutes before VaVaVa would have gone.

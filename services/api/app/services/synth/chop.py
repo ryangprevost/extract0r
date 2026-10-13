@@ -13,6 +13,13 @@ mixer hears the same chops the file has.
   eighths, then sixteenths, then thirty-seconds: the retrigger roll into a downbeat.
 - **gate**: sixteenths on and off in a complextro rhythm, on the beat grid.
 - **stop**: silence for the window - the whole track drops out, then slams back.
+- **rise** (Sprint 20): a stutter in sixteenths whose every repeat is a semitone higher - the
+  climbing retrigger Madeon cuts into a lead or a vocal before a phrase lands ("Icarus").
+- **tape**: the part slows to a halt across the window, pitch falling with it - a tape stop.
+
+A chop is on the whole track, or (Sprint 20) on chosen parts only: the lead stutters while
+the beat carries on, which is how complextro and Madeon chop *instruments* rather than the
+mix.
 """
 
 from __future__ import annotations
@@ -21,7 +28,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-KINDS = ("stutter", "gate", "stop")
+KINDS = ("stutter", "gate", "stop", "rise", "tape")
 #: The gate's rhythm over a beat's four sixteenths, repeated: on, off, on, on.
 GATE = (1, 0, 1, 1)
 #: Edges faded over this long, so a cut never clicks.
@@ -34,9 +41,16 @@ class Chop:
     beat: float         # where in the bar it starts, 0 to 3.75
     beats: float        # how long, in beats
     kind: str
+    #: The parts (layers) it is cut into; empty is the whole track.
+    parts: tuple[str, ...] = ()
 
     def describe(self) -> str:
-        return f"{self.kind} at bar {self.bar}"
+        on = f" on the {', '.join(self.parts)}" if self.parts else ""
+        return f"{self.kind} at bar {self.bar}{on}"
+
+    def applies_to(self, layer: str | None) -> bool:
+        """Whole-track chops are cut into the finished mix; a part's, into that part."""
+        return (not self.parts) if layer is None else layer in self.parts
 
 
 def _at(beats: np.ndarray, position: float) -> float | None:
@@ -59,8 +73,11 @@ def _fade(n: int, rate: int) -> np.ndarray:
     return env
 
 
-def apply(audio: np.ndarray, sample_rate: int, beats: np.ndarray, chops: list[Chop]) -> np.ndarray:
-    """`audio` with every chop cut in. Unchanged where there are none."""
+def apply(audio: np.ndarray, sample_rate: int, beats: np.ndarray, chops: list[Chop],
+          layer: str | None = None) -> np.ndarray:
+    """`audio` with every chop for `layer` cut in - `None` is the finished mix, which takes
+    the whole-track chops. Unchanged where there are none."""
+    chops = [c for c in chops or [] if c.applies_to(layer)]
     out = np.array(audio, dtype=np.float64, copy=True)
     if not chops or beats is None or len(beats) < 2:
         return out
@@ -78,6 +95,33 @@ def apply(audio: np.ndarray, sample_rate: int, beats: np.ndarray, chops: list[Ch
         if c.kind == "stop":
             # Silent between two short fades, so the drop-out does not click either side.
             stereo[a:b] = source[a:b] * (1.0 - _fade(b - a, sample_rate))[:, None]
+            continue
+        if c.kind == "tape":
+            # Speed falls from 1 to 0 over the window: read position t - t^2 / 2T.
+            n = b - a
+            t = np.arange(n, dtype=np.float64)
+            read = a + t - t * t / (2.0 * n)
+            env = np.ones(n)
+            edge = max(1, min(n, int(FADE_S * sample_rate)))
+            env[-edge:] = np.linspace(1.0, 0.0, edge)     # out, so the halt does not click
+            for ch in range(stereo.shape[1]):
+                stereo[a:b, ch] = np.interp(read, np.arange(len(source)), source[:, ch]) * env
+            continue
+        if c.kind == "rise":
+            n = max(2, int(beat_len / 4 * sample_rate))
+            piece = source[a:a + n]
+            at, step = a, 0
+            while at < b:
+                want = np.arange(n) * 2.0 ** (step / 12.0)
+                want = want[want < len(piece) - 1]
+                shifted = np.stack([np.interp(want, np.arange(len(piece)), piece[:, ch])
+                                    for ch in range(stereo.shape[1])], axis=1)
+                shifted *= _fade(len(shifted), sample_rate)[:, None]
+                m = min(len(shifted), b - at)
+                stereo[at:at + m] = shifted[:m]
+                stereo[at + m: min(b, at + n)] = 0.0
+                at += n
+                step += 1
             continue
         if c.kind == "gate":
             sixteenth = beat_len / 4

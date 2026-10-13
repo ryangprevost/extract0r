@@ -2700,7 +2700,9 @@ class ChopIn(BaseModel):
     bar: int = Field(ge=1)
     beat: float = Field(0.0, ge=0.0, lt=4.0)
     beats: float = Field(1.0, ge=0.25, le=8.0)
-    kind: Literal["stutter", "gate", "stop"] = "stutter"
+    kind: Literal["stutter", "gate", "stop", "rise", "tape"] = "stutter"
+    #: Sprint 20: the parts it is cut into - stems and "beat" - or empty for the whole track.
+    parts: list[str] = Field(default_factory=list, max_length=8)
 
 
 class CustomBeat(BaseModel):
@@ -3105,7 +3107,8 @@ def bounce_version(
                 layers_out=layers,
                 pump_parts=body.pump_parts if body.pump else None,
                 ghost_pump=body.ghost_pump and body.pump,
-                chops=[Chop(c.bar, c.beat, c.beats, c.kind) for c in body.chops],
+                chops=[Chop(c.bar, c.beat, c.beats, c.kind, tuple(c.parts))
+                       for c in body.chops],
             )
         except StaleRender as exc:
             return {"ok": False, "why": str(exc), "stem": exc.stem}

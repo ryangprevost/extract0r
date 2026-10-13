@@ -681,6 +681,8 @@ const Revoice = (() => {
     // is out of play - its bar number is in the song, not in the arrangement.
     const arrangement = typeof Arrange !== "undefined" ? Arrange.request() : null;
     request.arrangement = arrangement;
+    // Sprint 20: chops, on the whole track or on single parts.
+    request.chops = typeof Chops !== "undefined" ? Chops.request() : [];
     request.drop_bar = !arrangement && $("opt-drop")?.checked
       ? parseInt($("drop-bar").value, 10) || null : null;
     return request;
@@ -1172,6 +1174,7 @@ const Revoice = (() => {
     if (typeof Arrange !== "undefined") Arrange.reset();
     if (typeof Notes !== "undefined") Notes.close();
     if (typeof Sampler !== "undefined") Sampler.reset();
+    if (typeof Chops !== "undefined") Chops.reset();
     if (typeof Mixer !== "undefined") Mixer.reset();
     customRows = null;
     customBase = null;

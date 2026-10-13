@@ -847,6 +847,7 @@
           <button class="small notes-pitch" id="notes-follow" title="Move every note onto the chord the bass is playing under it, at most four at once - no clashing overtones or stray notes">Follow the bass</button>
           <button class="small" id="notes-trim" title="Take out the questionable notes: faint ghost notes, and single notes that leap away from the line and straight back">Trim</button>
           <button class="small notes-pitch" id="notes-topline" title="Keep only the top note of each chord, as one line between G3 and B4 - a lead to play over the chords">Top line</button>
+          <button class="small notes-pitch" id="notes-stabs" title="Re-cut the chords into short complextro stabs on a syncopated sixteenth rhythm - same chords, new rhythm">Stabs</button>
           <button class="small notes-pitch" id="notes-oct-down" title="Down an octave">-12</button>
           <button class="small notes-pitch" id="notes-down" title="Down a semitone">-1</button>
           <button class="small notes-pitch" id="notes-up" title="Up a semitone">+1</button>
@@ -1094,6 +1095,24 @@
         <ol class="arrange-lane" id="arrange-lane"></ol>
         <p class="muted small" id="arrange-length"></p>
       </details>
+      <!-- Sprint 20: chops - stutters, rises, gates, stops and tape stops. -->
+      <details class="arrange-box" id="chops-box">
+        <summary>Chops</summary>
+        <p class="muted small">
+          Cut edits into the version: a stutter rolling into the next phrase, a rise that
+          climbs in pitch, a gate, a stop, a tape stop. Put one on the whole track, or on one
+          part so it stutters while the beat carries on. Bars count through your version, in
+          order. Suggest puts them at the ends of phrases and keeps them out of the build into
+          a drop.
+        </p>
+        <ol class="chops-list" id="chops-list"></ol>
+        <div class="preset-row">
+          <button class="small" id="chops-suggest" type="button">Suggest chops</button>
+          <button class="small" id="chops-add" type="button">Add a chop</button>
+          <button class="small" id="chops-clear" type="button">Clear</button>
+          <span class="muted small" id="chops-said"></span>
+        </div>
+      </details>
       <div class="bounce-box">
         <button class="primary" id="bounce-btn">Make the version</button>
         <button id="midi-version-btn" title="Every part as notes, at this tempo, for your DAW">
@@ -1289,6 +1308,7 @@
 <script src="notes.js"></script>
 <script src="mixer.js"></script>
 <script src="sampler.js"></script>
+<script src="chops.js"></script>
 <script src="shaper.js"></script>
 <script src="dropzone.js"></script>
 <script src="spectrum.js"></script>

@@ -2626,6 +2626,15 @@ leaps, and to pull a single lead line out of chords **so that** the parts sound 
 
 ---
 
+### X0R-1477 · Chops on instruments, and on the page · 2 · `DONE` 2026-10-13
+**As a** person making a Madeon-style edit **I want** chops on single parts - a lead that climbs
+in a stutter, a gated stab - set from the page **so that** I can cut them myself.
+
+**Done.** `Chop.parts`, the rise and tape kinds, a Chops panel with Suggest, and a Stabs
+button. See [SPRINT-17.md](sprints/SPRINT-17.md) §8.
+
+---
+
 ### X0R-1476 · Complextro chops and stabs · 2 · `DONE` 2026-10-13
 **As a** person making an electro remix **I want** stutters, gates and stops at phrase ends, and
 chords cut into syncopated stabs **so that** the beat breaks up and drives.

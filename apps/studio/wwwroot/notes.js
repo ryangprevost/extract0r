@@ -631,6 +631,7 @@ const Notes = (() => {
     $("notes-follow")?.addEventListener("click", followBass);
     $("notes-trim")?.addEventListener("click", () => quantise(false, 0, { trim: true }));
     $("notes-topline")?.addEventListener("click", () => quantise(false, 0, { top_line: true }));
+    $("notes-stabs")?.addEventListener("click", () => quantise(false, 0, { stabs: true }));
     $("notes-up").addEventListener("click", () => nudge(1));
     $("notes-down").addEventListener("click", () => nudge(-1));
     $("notes-oct-up").addEventListener("click", () => nudge(12));

@@ -68,7 +68,7 @@ def test_an_instrument_is_named_for_the_reference_and_goes_with_its_track(tmp_pa
     storage = tmp_path / "storage"
     (storage / "track1").mkdir(parents=True)
     made = sampled.make_instrument(tmp_path / "samples", "their bass", "bass", "ref.mp3", picks,
-                                   RATE, "notice", "track1")
+                                   RATE, "notice", "track1", storage)
     found_again = instruments.find(made, tmp_path / "samples")
     assert found_again is not None and found_again.origin == "reference"
     assert sorted(found_again.notes) == [45, 52, 57]
@@ -77,6 +77,8 @@ def test_an_instrument_is_named_for_the_reference_and_goes_with_its_track(tmp_pa
 
     assert sampled.forget_missing(tmp_path / "samples", storage) == []
     (storage / "track1").rmdir()
+    # Checked against some other storage - a test's, say - it is never an orphan.
+    assert sampled.forget_missing(tmp_path / "samples", tmp_path / "elsewhere") == []
     assert sampled.forget_missing(tmp_path / "samples", storage) == [made]
     assert instruments.find(made, tmp_path / "samples") is None
 

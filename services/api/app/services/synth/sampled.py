@@ -311,7 +311,7 @@ def slug(text: str) -> str:
 
 def make_instrument(sample_dir: Path, name: str, stem: str, reference_name: str,
                     picks: list[tuple[Candidate, np.ndarray]], sample_rate: int,
-                    notice: str, track_id: str) -> str:
+                    notice: str, track_id: str, storage_root: Path | None = None) -> str:
     """Write `picks` as an instrument in the samples folder - never the repository - and
     return its id. Its name and its `origin` say it came from the reference."""
     import soundfile as sf
@@ -340,6 +340,7 @@ def make_instrument(sample_dir: Path, name: str, stem: str, reference_name: str,
         "origin": "reference",
         # Deleted with the track it was sampled from - see `forget_missing`.
         "track_id": track_id,
+        "storage_root": str(Path(storage_root).resolve()) if storage_root else "",
         "notes": notes,
         "picked": [{"start_s": round(c.start_s, 3), "pitch": c.pitch,
                     "cents": round(c.cents, 1)} for c, _ in picks],
@@ -369,6 +370,11 @@ def forget_missing(sample_dir: Path | None, storage_root: Path) -> list[str]:
             continue
         track = data.get("track_id")
         mine = data.get("origin") == "reference" and track
+        # Only judged against the storage it was made in. A check against any other - a
+        # test's temporary folder - must never find it orphaned (it once did, Sprint 16).
+        made_in = data.get("storage_root")
+        if not made_in or Path(made_in) != Path(storage_root).resolve():
+            continue
         if mine and not (Path(storage_root) / track).exists():
             shutil.rmtree(meta.parent, ignore_errors=True)
             gone.append(meta.parent.name)

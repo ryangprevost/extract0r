@@ -991,7 +991,8 @@ def sample_reference(
     names = "/".join(sampled.note_name(c.pitch) for c, _ in picks[:3])
     name = body.name.strip() or f"{Path(reference).stem[:24]} {body.stem} {names}"
     made = sampled.make_instrument(settings.sample_dir, name, body.stem, reference, picks,
-                                   int(saved["rate"]), SAMPLING_NOTICE, track_id)
+                                   int(saved["rate"]), SAMPLING_NOTICE, track_id,
+                                   storage.root)
     from app.services.synth import instruments
 
     instrument = instruments.find(made, settings.sample_dir)

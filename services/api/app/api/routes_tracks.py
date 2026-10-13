@@ -170,15 +170,18 @@ def delete_track(
     track_id: str,
     storage: TrackStorage = Depends(get_storage),
     registry: TrackRegistry = Depends(get_registry),
+    settings: Settings = Depends(get_config),
 ) -> None:
     """Immediate, unconditional delete - the user's stated right in the privacy policy."""
     storage.delete(track_id)
     registry.remove(track_id)
-    # Any sound sampled from this track's reference goes with it. Sprint 15.
-    from app.config import get_settings
+    # Any sound sampled from this track's reference goes with it. Sprint 15. The same
+    # settings as every other route: reading `get_settings()` here paired the test suite's
+    # temporary storage with the real samples folder, and the suite deleted a real sampled
+    # instrument as an orphan.
     from app.services.synth.sampled import forget_missing
 
-    forget_missing(get_settings().sample_dir, storage.root)
+    forget_missing(settings.sample_dir, storage.root)
 
 
 def _as_job_response(job) -> JobResponse:

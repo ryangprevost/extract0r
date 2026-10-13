@@ -162,6 +162,34 @@ def transpose(notes: list[BeatNote], semitones: int) -> list[BeatNote]:
             for n in notes]
 
 
+#: Legato never holds a note longer than this, in beats - two bars - so a last note before a
+#: long gap does not ring through it.
+LEGATO_MAX = 8.0
+
+
+def legato(notes: list[BeatNote], amount: float = 1.0) -> list[BeatNote]:
+    """Every note held towards the next onset in the part - `amount` of the way, 1 to the
+    next note exactly. Sprint 18.
+
+    Ryan: *"feel free to drag out the individual notes to have it more side chained and less
+    choppy."* A transcribed guitar part is short strums and stabs; on a synth that is choppy,
+    and the pump has nothing held to swell. Held to the next note, the synth sustains and the
+    sidechain is heard as the breathing around every kick. Chords move together: every note
+    of one onset is held to the same next onset. A note is never shortened."""
+    amount = max(0.0, min(1.0, float(amount)))
+    onsets = sorted({round(n.beat, 4) for n in notes})
+    out = []
+    for n in notes:
+        later = [b for b in onsets if b > n.beat + 0.05]
+        if not later:
+            out.append(n)
+            continue
+        gap_end = min(later[0], n.beat + LEGATO_MAX)
+        want = n.beat + n.length + amount * (gap_end - (n.beat + n.length))
+        out.append(BeatNote(n.beat, max(n.length, want - n.beat), n.pitch, n.velocity))
+    return out
+
+
 def differs(edited: list[BeatNote], played: list[BeatNote]) -> bool:
     """Whether an edit changed anything - so "as you edited it" is only said when true."""
     def key(notes):

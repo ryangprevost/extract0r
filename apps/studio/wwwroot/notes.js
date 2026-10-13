@@ -439,11 +439,14 @@ const Notes = (() => {
     draw();
   }
 
-  async function quantise(withSwing) {
+  async function quantise(withSwing, legato = 0) {
     const which = selected.size ? [...selected] : notes.map((_, i) => i);
     if (!which.length) return;
     const swingValue = parseFloat($("beat-swing")?.value);
-    const body = {
+    const body = legato ? {
+      // Sprint 18: legato alone - the notes held towards the next, nothing quantized.
+      notes: which.map((i) => notes[i]), grid: "1/16", strength: 0, legato,
+    } : {
       notes: which.map((i) => notes[i]),
       grid: $("notes-grid").value,
       strength: parseFloat($("notes-strength").value),
@@ -592,6 +595,7 @@ const Notes = (() => {
     $("notes-grid").addEventListener("change", draw);
     $("notes-quantise").addEventListener("click", () => quantise(false));
     $("notes-swing").addEventListener("click", () => quantise(true));
+    $("notes-legato")?.addEventListener("click", () => quantise(false, 1));
     $("notes-up").addEventListener("click", () => nudge(1));
     $("notes-down").addEventListener("click", () => nudge(-1));
     $("notes-oct-up").addEventListener("click", () => nudge(12));

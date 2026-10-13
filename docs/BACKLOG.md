@@ -2617,6 +2617,18 @@ off**, not by being near it.
 
 ---
 
+### X0R-1472 · Legato in the piano roll · 1 · `DONE` 2026-10-13
+**As a** person turning strummed parts into synths **I want** every note held to the next
+**so that** the synths sustain and the pump breathes instead of chopping.
+
+Ryan, 2026-10-13: *"feel free to drag out the individual notes to have it more side chained
+and less choppy."*
+
+**Done.** `edit.legato`, `legato` on the quantize route, a Legato button in the piano roll;
+saved as an edit, so the version says so. See [SPRINT-17.md](sprints/SPRINT-17.md) §4.
+
+---
+
 ### X0R-1471 · Width: synths spread in stereo, mono-safe · 2 · `DONE` 2026-10-13
 **As a** person making a club remix **I want** my synths wide **so that** they stop sitting on
 top of the vocal and the kick.

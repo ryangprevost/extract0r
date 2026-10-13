@@ -984,3 +984,21 @@ def test_width_is_applied_and_said(client, separated):
     body = finish(client, started.json()["job_id"])
     assert body["state"] == "succeeded", body
     assert any("stereo" in line and "bass 70%" in line for line in body["result"]["lines"])
+
+
+def test_legato_holds_each_note_to_the_next(client):
+    """Sprint 18: legato holds notes towards the next onset; chords move together; a note is
+    never shortened and never held past two bars."""
+    notes = [{"beat": 0, "length": 0.25, "pitch": 60, "velocity": 100},
+             {"beat": 0, "length": 0.25, "pitch": 64, "velocity": 100},
+             {"beat": 1, "length": 1.5, "pitch": 62, "velocity": 100},
+             {"beat": 2, "length": 0.25, "pitch": 65, "velocity": 100},
+             {"beat": 20, "length": 0.5, "pitch": 67, "velocity": 100}]
+    response = client.post("/api/v1/tracks/notes/quantize",
+                           json={"notes": notes, "strength": 0, "legato": 1})
+    assert response.status_code == 200, response.text
+    lengths = [n["length"] for n in response.json()["notes"]]
+    assert lengths == [1.0, 1.0, 1.5, 8.0, 0.5]
+    half = client.post("/api/v1/tracks/notes/quantize",
+                       json={"notes": notes[:1] + notes[2:3], "strength": 0, "legato": 0.5})
+    assert half.json()["notes"][0]["length"] == 0.625

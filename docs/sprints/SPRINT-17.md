@@ -52,3 +52,25 @@ masters put a **soft clipper** before the limiter instead: it shaves only the ti
 transients. That is 0.3% of samples clipped by more than 3.5 dB, and the limiter then
 averages 0.2 dB. Both cuts finish at -10.6/-10.7 LUFS with the true peak at -1 dBTP. This
 finish is a one-off script for the remix, not yet a feature of the app.
+
+## 4. Then: less boom, wider, legato — X0R-1472
+
+Ryan, on the punchy remix:
+
+> getting there. a little less bass on the kick and more stereo width. feel free to drag out
+> the individual notes to have it more side chained and less choppy.
+
+- **Kick.** The new **club punch tight** kit is the same punchy base with the kick shorter and
+  slightly higher. Against club punch, its sub is about 5 dB lower relative to its punch, its
+  tail falls to -20 dB in 175 ms instead of 254, and 53% of its energy is in the first 30 ms.
+- **Width.** Synths at 100%, and the bass at 35% (its sub stays centered by the 150 Hz
+  high-pass). The mix's side rose from -8.4 to -5.4 dB against the middle, and left/right
+  correlation fell from 0.75 to 0.55. Mono still sums exactly.
+- **Legato.** `edit.legato` holds every note towards the next onset in its part. Chords move
+  together; a note is never shortened, and never held past two bars. It is available as
+  `legato` on `POST /tracks/notes/quantize` and as a **Legato** button in the piano roll.
+  Because it is an edit, saved through the note editor, the version's account says the parts
+  play your notes rather than the band's.
+  - On VaVaVa, average note length went from 0.68 to 1.94 beats on the guitars, 0.63 to 1.86
+    on other, and 0.65 to 4.11 on the keys.
+  - The pump went from 10 to 11 dB, so the held synths breathe around every kick.

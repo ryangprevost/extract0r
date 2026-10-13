@@ -2242,6 +2242,8 @@ class QuantizeRequest(NotesRequest):
     swing: float | None = Field(None, ge=0.0, le=1.0)
     #: Then move every note this many semitones.
     transpose: int = Field(0, ge=-48, le=48)
+    #: Sprint 18: then hold every note this far towards the next one, 0..1.
+    legato: float = Field(0.0, ge=0.0, le=1.0)
 
 
 @router.get("/{track_id}/parts/{stem}/notes")
@@ -2336,6 +2338,8 @@ def quantize_notes(body: QuantizeRequest) -> dict:
         notes = edit.groove(notes, body.swing)
     if body.transpose:
         notes = edit.transpose(notes, body.transpose)
+    if body.legato:
+        notes = edit.legato(notes, body.legato)
     return {"notes": [n.to_dict() for n in notes]}
 
 

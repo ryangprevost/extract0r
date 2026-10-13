@@ -974,3 +974,13 @@ def test_grit_is_applied_and_said(client, separated):
     body = finish(client, started.json()["job_id"])
     assert body["state"] == "succeeded", body
     assert any("grit" in line and "bass 60%" in line for line in body["result"]["lines"])
+
+
+def test_width_is_applied_and_said(client, separated):
+    """Sprint 17: width on a part is named in the version's account."""
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    started = client.post(f"/api/v1/tracks/{separated}/bounce",
+                          json={"target_bpm": 120, "width": {"bass": 0.7}})
+    body = finish(client, started.json()["job_id"])
+    assert body["state"] == "succeeded", body
+    assert any("stereo" in line and "bass 70%" in line for line in body["result"]["lines"])

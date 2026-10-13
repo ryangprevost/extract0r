@@ -2666,13 +2666,15 @@ class BounceRequest(BaseModel):
     arrangement: list[ArrangeItem] | None = Field(None, max_length=64)
     #: Sprint 16: how hard to drive each part into distortion, 0 to 1, by stem.
     grit: dict[str, float] = Field(default_factory=dict)
+    #: Sprint 17: how wide to spread each part in stereo, 0 to 1, by stem - mono-safe.
+    width: dict[str, float] = Field(default_factory=dict)
 
-    @field_validator("grit")
+    @field_validator("grit", "width")
     @classmethod
-    def _grit_in_range(cls, value: dict[str, float]) -> dict[str, float]:
+    def _amounts_in_range(cls, value: dict[str, float]) -> dict[str, float]:
         for stem, amount in value.items():
             if not 0.0 <= amount <= 1.0:
-                raise ValueError(f"grit for {stem} must be between 0 and 1")
+                raise ValueError(f"{stem} must be between 0 and 1")
         return value
 
 
@@ -2951,6 +2953,23 @@ def bounce_version(
                 else:
                     continue
                 gritted.append(f"{stem} {round(amount * 100)}%")
+        # Sprint 17: width, after grit - a distorted synth is spread, not a spread one
+        # distorted, which would fold the side back into the middle.
+        widened = []
+        if body.width:
+            from app.services.synth import width as width_
+
+            for stem, amount in body.width.items():
+                if amount <= 0:
+                    continue
+                if stem in replays:
+                    data, label = replays[stem]
+                    replays[stem] = (width_.widen(data, rate, amount), label)
+                elif stem in audio:
+                    audio[stem] = width_.widen(audio[stem], rate, amount)
+                else:
+                    continue
+                widened.append(f"{stem} {round(amount * 100)}%")
 
         stretching = [s for s in audio if s not in replays and abs(scale - 1.0) > 1e-6]
         handle.update(
@@ -3006,6 +3025,9 @@ def bounce_version(
         said = summarise(move, account)
         if gritted:
             said["lines"].append("Driven into distortion (grit): " + ", ".join(gritted) + ".")
+        if widened:
+            said["lines"].append("Spread wide in stereo, low end kept centered: "
+                                 + ", ".join(widened) + ".")
         return {
             "ok": True,
             # Counted, not asserted. `Move.describe()` is true of one re-played part and was

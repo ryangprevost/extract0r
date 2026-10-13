@@ -2617,6 +2617,18 @@ off**, not by being near it.
 
 ---
 
+### X0R-1471 · Width: synths spread in stereo, mono-safe · 2 · `DONE` 2026-10-13
+**As a** person making a club remix **I want** my synths wide **so that** they stop sitting on
+top of the vocal and the kick.
+
+Ryan, 2026-10-13: *"can you redo it with a punchier kick and some stereo wideness?"*
+
+**Done.** `synth/width.py` (drifting-delay side, exact mono sum, side high-passed at 150 Hz),
+a width slider per part, `BounceRequest.width`, named in the account. Punch came from a
+shaped kit, measured. See [SPRINT-17.md](sprints/SPRINT-17.md).
+
+---
+
 ### X0R-1470 · Grit: gritty, distorted synths · 2 · `DONE` 2026-10-13
 **As a** person making an electro remix **I want** to drive a part into distortion **so that**
 my synths have the grit of the records I reference.

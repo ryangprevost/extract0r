@@ -158,6 +158,30 @@ const Revoice = (() => {
     grit.append("grit ", gritSlider, gritValue);
     line.appendChild(grit);
 
+    // Sprint 17: width - the part spread across the stereo field in the version. Mono-safe:
+    // summed to mono it is the part as it was, and its low end stays in the middle.
+    const wide = document.createElement("label");
+    wide.className = "grit";
+    wide.title = "Spread this part across the stereo field in the version. Mono-safe, and " +
+      "the low end stays centered for club systems.";
+    const wideSlider = document.createElement("input");
+    wideSlider.type = "range";
+    wideSlider.min = "0";
+    wideSlider.max = "100";
+    wideSlider.step = "5";
+    wideSlider.value = String(Math.round((held.width || 0) * 100));
+    wideSlider.setAttribute("aria-label", `Width of the ${label.toLowerCase()}`);
+    const wideValue = document.createElement("span");
+    wideValue.className = "muted small";
+    wideValue.textContent = held.width ? `${Math.round(held.width * 100)}%` : "off";
+    wideSlider.addEventListener("input", () => {
+      const amount = Number(wideSlider.value) / 100;
+      parts.set(stem, { ...(parts.get(stem) || {}), width: amount });
+      wideValue.textContent = amount ? `${wideSlider.value}%` : "off";
+    });
+    wide.append("width ", wideSlider, wideValue);
+    line.appendChild(wide);
+
     const inMaster = document.createElement("label");
     inMaster.className = "check";
     const box = document.createElement("input");
@@ -650,6 +674,8 @@ const Revoice = (() => {
       humanize: parseFloat($("beat-humanize")?.value || "0") || 0,
       grit: Object.fromEntries([...parts].filter(([, held]) => held.grit > 0)
         .map(([stem, held]) => [stem, held.grit])),
+      width: Object.fromEntries([...parts].filter(([, held]) => held.width > 0)
+        .map(([stem, held]) => [stem, held.width])),
     };
     // Sprint 5. Once the order is the user's, drops are per block and the single control
     // is out of play - its bar number is in the song, not in the arrangement.

@@ -247,6 +247,33 @@ def top_line(notes: list[BeatNote], highest: int = 71, lowest: int = 55) -> list
     return out
 
 
+#: Complextro stab rhythms, two bars of sixteenths: syncopated off the kick, never on it.
+STABS = ("..x..x..x...x.x.", "..x..x..x..x.xx.")
+
+
+def stabs(chords: list[BeatNote], pattern: tuple[str, ...] = STABS,
+          length: float = 0.2) -> list[BeatNote]:
+    """The chords re-cut into short stabs on a rhythm. Sprint 19.
+
+    Wherever the pattern has an `x`, the chord sounding at that sixteenth is played short.
+    The harmony is the chords'; only the rhythm is new - which is what complextro does to
+    a chord part: the same changes, chopped against the kick."""
+    if not chords:
+        return []
+    end = max(n.beat + n.length for n in chords)
+    steps = "".join(pattern)
+    out = []
+    step = 0
+    while step * 0.25 < end:
+        if steps[step % len(steps)] == "x":
+            at = step * 0.25
+            sounding = [n for n in chords if n.beat <= at + 0.01 < n.beat + n.length]
+            for n in sounding:
+                out.append(BeatNote(at, length, n.pitch, n.velocity))
+        step += 1
+    return out
+
+
 MAJOR = (0, 2, 4, 5, 7, 9, 11)
 
 

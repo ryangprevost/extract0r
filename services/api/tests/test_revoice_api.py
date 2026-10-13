@@ -1017,3 +1017,16 @@ def test_a_pump_per_part_is_said(client, separated):
     bad = client.post(f"/api/v1/tracks/{separated}/bounce",
                       json={"pump": True, "pump_parts": {"bass": 40}})
     assert bad.status_code == 422
+
+
+def test_chops_are_cut_in_and_said(client, separated):
+    """Sprint 19: stutters and gates named in the version's account."""
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    started = client.post(f"/api/v1/tracks/{separated}/bounce",
+                          json={"target_bpm": 120, "chops": [
+                              {"bar": 2, "beat": 3, "beats": 1, "kind": "stutter"},
+                              {"bar": 3, "beat": 2, "beats": 2, "kind": "gate"}]})
+    body = finish(client, started.json()["job_id"])
+    assert body["state"] == "succeeded", body
+    lines = " ".join(body["result"]["lines"])
+    assert "stutters at bars 2" in lines and "gates at bars 3" in lines

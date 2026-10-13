@@ -145,3 +145,35 @@ quantized to 1/16: transcription timing was the "off" feel.
 
 Both tools are available as `trim` and `top_line` on the quantize route, and as **Trim** and
 **Top line** in the piano roll.
+
+## 7. Complextro: chops and stabs — X0R-1476
+
+Ryan:
+
+> love that much more! great tone. please make it a little more complextro sounding with
+> chops and stabs here and there to break up the beat and give it more drive and upbeat
+> feeling
+
+**Chops** (`synth/chop.py`, `BounceRequest.chops`):
+
+- **stutter:** the window's first slice retriggered, in eighths, then sixteenths, then
+  thirty-seconds.
+- **gate:** sixteenths on and off.
+- **stop:** silence between two 3 ms fades.
+
+Every chop is linear (a re-read or a multiply), so it is cut the same into the mix and into
+every layer, and the layers still sum to the version exactly (tested). The account lists
+them by bar.
+
+**Stabs** (`edit.stabs`, `stabs` on the quantize route): the chords that sound at each `x` of a
+two-bar sixteenth pattern (`..x..x..x...x.x.` / `..x..x..x..x.xx.`), played short. The
+harmony stays the chords'; only the rhythm is new.
+
+**On VaVaVa:**
+
+- **Stabs:** 488 of them, on the strings channel, on the sampled "Bounce" synth with 50% grit.
+- **Beat:** the techno groove's sixteenth hats under the club punch tight kit.
+- **Chops:** 14 at phrase ends - stutters, gates, and a stop before the bridge - none in the
+  builds. Checked in the file:
+  - the stop is digital silence;
+  - the stutters repeat their slice (0.55 correlation against 0.15 for the music around them).

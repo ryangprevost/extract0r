@@ -2248,6 +2248,8 @@ class QuantizeRequest(NotesRequest):
     trim: bool = False
     #: Sprint 19: then keep only the top note of each chord, as one line in G3..B4.
     top_line: bool = False
+    #: Sprint 19: then re-cut the chords into short complextro stabs.
+    stabs: bool = False
 
 
 @router.get("/{track_id}/parts/{stem}/notes")
@@ -2402,6 +2404,8 @@ def quantize_notes(body: QuantizeRequest) -> dict:
         notes = edit.transpose(notes, body.transpose)
     if body.top_line:
         notes = edit.top_line(notes)
+    if body.stabs:
+        notes = edit.stabs(notes)
     if body.legato:
         notes = edit.legato(notes, body.legato)
     return {"notes": [n.to_dict() for n in notes]}
@@ -2690,6 +2694,15 @@ class ArrangeItem(BaseModel):
     drop: bool = False
 
 
+class ChopIn(BaseModel):
+    """Sprint 19: a stutter, gate or stop at a place in the version."""
+
+    bar: int = Field(ge=1)
+    beat: float = Field(0.0, ge=0.0, lt=4.0)
+    beats: float = Field(1.0, ge=0.25, le=8.0)
+    kind: Literal["stutter", "gate", "stop"] = "stutter"
+
+
 class CustomBeat(BaseModel):
     """A beat written on the step grid. Each row is sixteen of x (plays), o (soft), . (rest)."""
 
@@ -2740,6 +2753,8 @@ class BounceRequest(BaseModel):
     pump_parts: dict[str, float] = Field(default_factory=dict)
     #: Sprint 18b: keep pumping on the beat where the arrangement mutes the beat.
     ghost_pump: bool = False
+    #: Sprint 19: stutters, gates and stops cut into the version, by bar.
+    chops: list[ChopIn] = Field(default_factory=list, max_length=64)
 
     @field_validator("pump_parts")
     @classmethod
@@ -2996,6 +3011,7 @@ def bounce_version(
 
         from app.services.mixdown.encode import write_mp3, write_wav
         from app.services.synth import instruments
+        from app.services.synth.chop import Chop
         from app.services.synth.retempo import StaleRender, bounce, stretcher_available
 
         handle.update(JobState.RUNNING, 0.1, "gathering the parts")
@@ -3065,7 +3081,7 @@ def bounce_version(
         beats = None
         target = body.target_bpm or (getattr(record.timing, "tempo_bpm", 0.0) or 0.0)
         if (body.pump or body.four_on_the_floor or body.drop_bar or added_beat
-                or pieces) and target:
+                or pieces or body.chops) and target:
             from app.services.synth.retempo import beat_grid
 
             first = getattr(record.timing, "first_beat_s", 0.0) or 0.0
@@ -3089,6 +3105,7 @@ def bounce_version(
                 layers_out=layers,
                 pump_parts=body.pump_parts if body.pump else None,
                 ghost_pump=body.ghost_pump and body.pump,
+                chops=[Chop(c.bar, c.beat, c.beats, c.kind) for c in body.chops],
             )
         except StaleRender as exc:
             return {"ok": False, "why": str(exc), "stem": exc.stem}

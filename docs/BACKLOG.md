@@ -2626,6 +2626,16 @@ leaps, and to pull a single lead line out of chords **so that** the parts sound 
 
 ---
 
+### X0R-1476 · Complextro chops and stabs · 2 · `DONE` 2026-10-13
+**As a** person making an electro remix **I want** stutters, gates and stops at phrase ends, and
+chords cut into syncopated stabs **so that** the beat breaks up and drives.
+
+**Done.** `synth/chop.py` and `BounceRequest.chops` (linear, so layers still sum); `edit.stabs`
+on the quantize route. A place to add chops on the page is still to come. See
+[SPRINT-17.md](sprints/SPRINT-17.md) §7.
+
+---
+
 ### X0R-1475 · Match the reference's levels on a version · 3 · `TODO`
 **As a** person remixing toward a reference **I want** one press to set each part's fader to
 the reference's balance **so that** my mix sits like the record I chose.

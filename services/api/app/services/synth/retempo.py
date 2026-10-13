@@ -326,6 +326,7 @@ def bounce(
     layers_out: dict | None = None,
     pump_parts: dict[str, float] | None = None,
     ghost_pump: bool = False,
+    chops: list | None = None,
 ) -> tuple[np.ndarray, list[Part]]:
     """Every part of the song at the new tempo, summed. Returns the audio and the account.
 
@@ -492,6 +493,19 @@ def bounce(
             account.append(Part("drop", "added", impact))
     if pieces:
         account.append(Part("arrangement", "arranged", _arrangement_detail(pieces, beats)))
+    if chops and beats is not None:
+        # Sprint 19: stutters, gates and stops, cut the same into every layer.
+        from app.services.synth.chop import apply as chop
+
+        mix = chop(mix, sample_rate, beats, chops)
+        if layers_out is not None:
+            for name in list(layers_out):
+                layers_out[name] = chop(layers_out[name], sample_rate, beats, chops)
+        kinds: dict[str, list[int]] = {}
+        for c in chops:
+            kinds.setdefault(c.kind, []).append(c.bar)
+        account.append(Part("chops", "added", "; ".join(
+            f"{k}s at bars {', '.join(map(str, bars))}" for k, bars in kinds.items())))
 
     # Down to -1 dBFS if the sum went over. Not a limiter - this is a sketch of a version,
     # and the mastering page is where loudness is decided. It only stops the file clipping.

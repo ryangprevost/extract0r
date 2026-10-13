@@ -2617,6 +2617,19 @@ off**, not by being near it.
 
 ---
 
+### X0R-1470 · Grit: gritty, distorted synths · 2 · `DONE` 2026-10-13
+**As a** person making an electro remix **I want** to drive a part into distortion **so that**
+my synths have the grit of the records I reference.
+
+Ryan, 2026-10-13: *"make the synths more like bounce.mp3. i want gritty, distorted synths."*
+
+**Done.** `synth/grit.py` (oversampled asymmetric soft clip, level matched), a grit slider per
+part, `BounceRequest.grit`, named in the version's account. Set by ear: matching the amount
+to the reference was tried and could not be measured on separated stems. See
+[SPRINT-16.md](sprints/SPRINT-16.md).
+
+---
+
 ### X0R-1462 · Upload names were lost on every restart · 1 · `DONE` 2026-10-12 · **defect**
 Names lived only in memory, so a restart turned "VaVaVa.mp3" into "source.mp3" everywhere.
 Kept in `names.json` beside the track and read back at startup. See

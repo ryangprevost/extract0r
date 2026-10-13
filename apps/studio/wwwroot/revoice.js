@@ -134,6 +134,30 @@ const Revoice = (() => {
       line.appendChild(edit);
     }
 
+    // Sprint 16: grit - how hard the part is driven into distortion in the version. Heard
+    // in the version, not in the part's own player above it.
+    const grit = document.createElement("label");
+    grit.className = "grit";
+    grit.title = "Drive this part into distortion in the version - the gritty, overdriven " +
+      "synths of electro records. Level matched, so it changes the sound, not the volume.";
+    const gritSlider = document.createElement("input");
+    gritSlider.type = "range";
+    gritSlider.min = "0";
+    gritSlider.max = "100";
+    gritSlider.step = "5";
+    gritSlider.value = String(Math.round((held.grit || 0) * 100));
+    gritSlider.setAttribute("aria-label", `Grit on the ${label.toLowerCase()}`);
+    const gritValue = document.createElement("span");
+    gritValue.className = "muted small";
+    gritValue.textContent = held.grit ? `${Math.round(held.grit * 100)}%` : "off";
+    gritSlider.addEventListener("input", () => {
+      const amount = Number(gritSlider.value) / 100;
+      parts.set(stem, { ...(parts.get(stem) || {}), grit: amount });
+      gritValue.textContent = amount ? `${gritSlider.value}%` : "off";
+    });
+    grit.append("grit ", gritSlider, gritValue);
+    line.appendChild(grit);
+
     const inMaster = document.createElement("label");
     inMaster.className = "check";
     const box = document.createElement("input");
@@ -624,6 +648,8 @@ const Revoice = (() => {
       swing: $("beat-swing")?.value === "" ? null : parseFloat($("beat-swing").value),
       leave_out: $("opt-leave-drums")?.checked ? ["drums"] : [],
       humanize: parseFloat($("beat-humanize")?.value || "0") || 0,
+      grit: Object.fromEntries([...parts].filter(([, held]) => held.grit > 0)
+        .map(([stem, held]) => [stem, held.grit])),
     };
     // Sprint 5. Once the order is the user's, drops are per block and the single control
     // is out of play - its bar number is in the song, not in the arrangement.

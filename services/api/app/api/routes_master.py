@@ -2664,6 +2664,16 @@ class BounceRequest(BaseModel):
     #: Sprint 5: the song's sections in any order - repeated, left out, with parts muted and
     #: drops placed per block. Null plays the song as it was written.
     arrangement: list[ArrangeItem] | None = Field(None, max_length=64)
+    #: Sprint 16: how hard to drive each part into distortion, 0 to 1, by stem.
+    grit: dict[str, float] = Field(default_factory=dict)
+
+    @field_validator("grit")
+    @classmethod
+    def _grit_in_range(cls, value: dict[str, float]) -> dict[str, float]:
+        for stem, amount in value.items():
+            if not 0.0 <= amount <= 1.0:
+                raise ValueError(f"grit for {stem} must be between 0 and 1")
+        return value
 
 
 def _marks_path(record) -> Path:
@@ -2924,6 +2934,24 @@ def bounce_version(
                 label = f"{label}, as you edited it"
             replays[stem] = (data, label)
 
+        # Sprint 16: grit, on the part as it will be heard - its re-played render, else
+        # the stem - before anything is stretched, pumped or summed.
+        gritted = []
+        if body.grit:
+            from app.services.synth import grit as grit_
+
+            for stem, amount in body.grit.items():
+                if amount <= 0:
+                    continue
+                if stem in replays:
+                    data, label = replays[stem]
+                    replays[stem] = (grit_.drive(data, rate, amount), label)
+                elif stem in audio:
+                    audio[stem] = grit_.drive(audio[stem], rate, amount)
+                else:
+                    continue
+                gritted.append(f"{stem} {round(amount * 100)}%")
+
         stretching = [s for s in audio if s not in replays and abs(scale - 1.0) > 1e-6]
         handle.update(
             JobState.RUNNING,
@@ -2976,6 +3004,8 @@ def bounce_version(
         from app.services.synth.retempo import summarise
 
         said = summarise(move, account)
+        if gritted:
+            said["lines"].append("Driven into distortion (grit): " + ", ".join(gritted) + ".")
         return {
             "ok": True,
             # Counted, not asserted. `Move.describe()` is true of one re-played part and was

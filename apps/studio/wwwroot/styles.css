@@ -1757,3 +1757,7 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .sampler-meter { width: 64px; height: 6px; border-radius: 3px; background: var(--edge);
   background-image: linear-gradient(var(--accent), var(--accent));
   background-size: var(--fill, 0%) 100%; background-repeat: no-repeat; }
+
+/* -- Sprint 16: grit per part -- */
+.part-row .grit { display: inline-flex; align-items: center; gap: 4px; font-size: 0.85em; }
+.part-row .grit input[type="range"] { width: 72px; }

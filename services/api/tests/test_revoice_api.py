@@ -961,3 +961,16 @@ def test_a_stem_is_transcribed_once_and_kept(tmp_path, monkeypatch):
     stem.write_bytes(b"a new separation")
     routes_master._transcribe(Settings(), StemKind.BASS, stem)
     assert len(calls) == 2
+
+
+def test_grit_is_applied_and_said(client, separated):
+    """Sprint 16: grit on a part is named in the version's account, and bad amounts are
+    refused before any work."""
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    bad = client.post(f"/api/v1/tracks/{separated}/bounce", json={"grit": {"bass": 2}})
+    assert bad.status_code == 422
+    started = client.post(f"/api/v1/tracks/{separated}/bounce",
+                          json={"target_bpm": 120, "grit": {"bass": 0.6}})
+    body = finish(client, started.json()["job_id"])
+    assert body["state"] == "succeeded", body
+    assert any("grit" in line and "bass 60%" in line for line in body["result"]["lines"])

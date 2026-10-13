@@ -74,3 +74,33 @@ Ryan, on the punchy remix:
   - On VaVaVa, average note length went from 0.68 to 1.94 beats on the guitars, 0.63 to 1.86
     on other, and 0.65 to 4.11 on the keys.
   - The pump went from 10 to 11 dB, so the held synths breathe around every kick.
+
+## 5. A wall that pulses — X0R-1473
+
+Ryan, on the legato remix:
+
+> there were some overtones and held out notes that just conflicted with the overall vibe.
+> can you side chain them as well? i want it like a wall of pulsating distorted synth
+
+**Why it clashed.** It was not the key: 98–100% of every part's notes were in D major. Each
+part's transcription picked its own extra chord tones (overtones read as sevenths and
+ninths), and legato held them across the bass's chord changes.
+
+**Follow the bass** (`edit.follow_bass`, `POST /tracks/{id}/parts/{stem}/follow-bass`, and a
+piano-roll button):
+
+- Every note moves to the nearest tone of the triad on the bass note under it. The triad is
+  built in the song's scale, which is found from the notes.
+- Each chord's duplicates go, and at most four notes sound together.
+- Legato can hold notes, but only until the next note *or* the bass's next change.
+- On VaVaVa it moved or merged 69 guitar notes, 47 keys notes and 108 notes of "other".
+
+**The pump, per part and through the rests:**
+
+- `pump_parts` gives each part its own depth. Here the synths are at 14 dB, the bass at
+  11 dB and the vocal at 4 dB.
+- `ghost_pump` keeps the pulse on every beat where the arrangement mutes the beat, but not
+  through a build.
+- The account names each depth.
+- Measured per beat, the mix now pulses 9.8 dB in the beat-free teaser (it was 1.6) and
+  15.6 dB in the chorus (it was 10.4).

@@ -167,7 +167,8 @@ def transpose(notes: list[BeatNote], semitones: int) -> list[BeatNote]:
 LEGATO_MAX = 8.0
 
 
-def legato(notes: list[BeatNote], amount: float = 1.0) -> list[BeatNote]:
+def legato(notes: list[BeatNote], amount: float = 1.0,
+           stops: list[float] | None = None) -> list[BeatNote]:
     """Every note held towards the next onset in the part - `amount` of the way, 1 to the
     next note exactly. Sprint 18.
 
@@ -175,9 +176,12 @@ def legato(notes: list[BeatNote], amount: float = 1.0) -> list[BeatNote]:
     choppy."* A transcribed guitar part is short strums and stabs; on a synth that is choppy,
     and the pump has nothing held to swell. Held to the next note, the synth sustains and the
     sidechain is heard as the breathing around every kick. Chords move together: every note
-    of one onset is held to the same next onset. A note is never shortened."""
+    of one onset is held to the same next onset. A note is never shortened.
+
+    `stops` are further places a held note must end - the bass's chord changes, so a chord
+    is not held into the next one (Sprint 18b)."""
     amount = max(0.0, min(1.0, float(amount)))
-    onsets = sorted({round(n.beat, 4) for n in notes})
+    onsets = sorted({round(n.beat, 4) for n in notes} | {round(s, 4) for s in stops or []})
     out = []
     for n in notes:
         later = [b for b in onsets if b > n.beat + 0.05]
@@ -187,6 +191,84 @@ def legato(notes: list[BeatNote], amount: float = 1.0) -> list[BeatNote]:
         gap_end = min(later[0], n.beat + LEGATO_MAX)
         want = n.beat + n.length + amount * (gap_end - (n.beat + n.length))
         out.append(BeatNote(n.beat, max(n.length, want - n.beat), n.pitch, n.velocity))
+    return out
+
+
+MAJOR = (0, 2, 4, 5, 7, 9, 11)
+
+
+def scale_of(notes: list[BeatNote]) -> list[int]:
+    """The major scale (as pitch classes, from its tonic) that holds the most of these notes,
+    weighted by how long each sounds. A relative minor is the same seven notes, so this is
+    the song's scale whichever mode it is in."""
+    weight = [0.0] * 12
+    for n in notes:
+        weight[n.pitch % 12] += max(n.length, MIN_LENGTH)
+    best = max(range(12), key=lambda t: (sum(weight[(t + d) % 12] for d in MAJOR), weight[t]))
+    return [(best + d) % 12 for d in MAJOR]
+
+
+def chord_tones(root: int, scale: list[int]) -> set[int]:
+    """The triad on `root` inside `scale` - root, third and fifth, stepping the scale - or a
+    major triad when the root is outside it (a borrowed chord)."""
+    root %= 12
+    if root not in scale:
+        return {root, (root + 4) % 12, (root + 7) % 12}
+    i = scale.index(root)
+    return {scale[i], scale[(i + 2) % 7], scale[(i + 4) % 7]}
+
+
+def follow_bass(notes: list[BeatNote], bass: list[BeatNote], voices: int = 4,
+                scale: list[int] | None = None) -> list[BeatNote]:
+    """A part's notes made to agree with the bass's chords. Sprint 18b.
+
+    Ryan, on the legato remix: *"there were some overtones and held out notes that just
+    conflicted with the overall vibe ... i want it like a wall of pulsating distorted
+    synth."* Every part was in key - 98 to 100% of each part's notes were in D major - so a
+    key filter would have changed nothing. The clashes were each part's transcription
+    picking its own extra chord tones (overtones read as sevenths and ninths) and legato
+    holding them across the bass's changes. So each note is checked against the triad on the
+    bass note under it, and one that is not in it moves to the nearest note that is - the
+    rhythm kept, the harmony made one chord. Then a chord's duplicates go, and at most
+    `voices` notes sound together: a wall, not a cluster."""
+    if not notes or not bass:
+        return list(notes)
+    scale = scale or scale_of(list(notes) + list(bass))
+    roots = sorted(bass, key=lambda b: b.beat)
+    starts = [b.beat for b in roots]
+
+    def root_at(beat: float) -> int:
+        from bisect import bisect_right
+
+        i = bisect_right(starts, beat + 0.05) - 1
+        return roots[max(0, i)].pitch
+
+    moved = []
+    for n in notes:
+        tones = chord_tones(root_at(n.beat), scale)
+        pitch = n.pitch
+        if pitch % 12 not in tones:
+            # Nearest chord tone; a tie goes down, which keeps the line from creeping up.
+            for step in (1, 2, 3, 4, 5, 6):
+                if (pitch - step) % 12 in tones:
+                    pitch -= step
+                    break
+                if (pitch + step) % 12 in tones:
+                    pitch += step
+                    break
+        moved.append(BeatNote(n.beat, n.length, int(max(0, min(127, pitch))), n.velocity))
+
+    # One of each pitch per onset, the loudest; then the `voices` loudest of each onset.
+    groups: dict[float, dict[int, BeatNote]] = {}
+    for n in moved:
+        key = round(n.beat / 0.05) * 0.05
+        same = groups.setdefault(key, {})
+        if n.pitch not in same or n.velocity > same[n.pitch].velocity:
+            same[n.pitch] = n
+    out = []
+    for key in sorted(groups):
+        chord = sorted(groups[key].values(), key=lambda n: (-n.velocity, n.pitch))[:voices]
+        out.extend(sorted(chord, key=lambda n: n.pitch))
     return out
 
 

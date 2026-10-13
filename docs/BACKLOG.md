@@ -2617,6 +2617,18 @@ off**, not by being near it.
 
 ---
 
+### X0R-1473 · A wall that pulses: follow the bass, pump per part · 2 · `DONE` 2026-10-13
+**As a** person making a synth wall **I want** every part on the bass's chords and pulsing
+**so that** held notes never clash and the wall breathes even when the beat drops out.
+
+Ryan, 2026-10-13: *"there were some overtones and held out notes that just conflicted ... i
+want it like a wall of pulsating distorted synth"*
+
+**Done.** `edit.follow_bass` and a piano-roll button; legato that stops at chord changes;
+`pump_parts` and `ghost_pump` on the version. See [SPRINT-17.md](sprints/SPRINT-17.md) §5.
+
+---
+
 ### X0R-1472 · Legato in the piano roll · 1 · `DONE` 2026-10-13
 **As a** person turning strummed parts into synths **I want** every note held to the next
 **so that** the synths sustain and the pump breathes instead of chopping.

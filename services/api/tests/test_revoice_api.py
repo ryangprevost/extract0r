@@ -1002,3 +1002,18 @@ def test_legato_holds_each_note_to_the_next(client):
     half = client.post("/api/v1/tracks/notes/quantize",
                        json={"notes": notes[:1] + notes[2:3], "strength": 0, "legato": 0.5})
     assert half.json()["notes"][0]["length"] == 0.625
+
+
+def test_a_pump_per_part_is_said(client, separated):
+    """Sprint 18b: per-part pump depths are named in the version's account."""
+    client.put(f"/api/v1/tracks/{separated}/tempo?bpm=120")
+    started = client.post(f"/api/v1/tracks/{separated}/bounce",
+                          json={"target_bpm": 120, "pump": True, "four_on_the_floor": True,
+                                "pump_parts": {"bass": 14, "vocals": 3}, "ghost_pump": True})
+    body = finish(client, started.json()["job_id"])
+    assert body["state"] == "succeeded", body
+    lines = " ".join(body["result"]["lines"])
+    assert "bass 14 dB" in lines and "vocals 3 dB" in lines
+    bad = client.post(f"/api/v1/tracks/{separated}/bounce",
+                      json={"pump": True, "pump_parts": {"bass": 40}})
+    assert bad.status_code == 422

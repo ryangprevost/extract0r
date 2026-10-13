@@ -324,6 +324,8 @@ def bounce(
     humanize: float = 0.0,
     pieces: list | None = None,
     layers_out: dict | None = None,
+    pump_parts: dict[str, float] | None = None,
+    ghost_pump: bool = False,
 ) -> tuple[np.ndarray, list[Part]]:
     """Every part of the song at the new tempo, summed. Returns the audio and the account.
 
@@ -373,13 +375,24 @@ def bounce(
     # breakbeat or a trap pattern, whose kick is not on every beat, ducking on the beat
     # fights the beat. So with an added beat it ducks where that beat's kicks are.
     pump_at = beats
-    if added_beat is not None and beats is not None and bpm > 0 and pump_db > 0:
+    if added_beat is not None and beats is not None and bpm > 0 and (
+            pump_db > 0 or any(v > 0 for v in (pump_parts or {}).values())):
         from app.services.synth.groove import events
 
         kicks = [t for t, kind, _ in events(added_beat, beats, beat_rests, swing,
                                              humanize=humanize) if kind == "kick"]
         if kicks:
             pump_at = np.asarray(kicks)
+    # Sprint 18b: a ghost pump - where the arrangement mutes the beat, the parts go on
+    # pulsing on every beat as if the kick were still there, the way a producer keys a
+    # sidechain from a silent kick so a breakdown keeps breathing. Not through a build.
+    deepest = max([pump_db, *(pump_parts or {}).values()])
+    if ghost_pump and pump_at is not None and beats is not None and deepest > 0:
+        from app.services.synth.groove import resting
+
+        quiet = [b for b in np.asarray(beats) if resting(b, beat_rests)
+                 and not resting(b, builds)]
+        pump_at = np.asarray(sorted({*np.asarray(pump_at).tolist(), *quiet}))
     # And it rests through a build, with the kick, so the drop is where the pump arrives.
     if builds and pump_at is not None:
         from app.services.synth.groove import resting
@@ -415,8 +428,10 @@ def bounce(
 
         # The pump goes on everything except the drums: ducking the kick to itself is
         # silence on every beat, which is the opposite of the effect.
-        if pump_db > 0 and beats is not None and bpm > 0 and stem != "drums":
-            part = pump(part, sample_rate, pump_at, bpm, pump_db)
+        # Sprint 18b: a depth per part when asked - synths pumped hard, a vocal barely.
+        depth = (pump_parts or {}).get(stem, pump_db)
+        if depth > 0 and beats is not None and bpm > 0 and stem != "drums":
+            part = pump(part, sample_rate, pump_at, bpm, depth)
         if drops and beats is not None and stem != "drums":
             from app.services.synth.drop import sweep
 
@@ -431,12 +446,17 @@ def bounce(
             layer[:take] = part[:take]
             layers_out[stem] = layer
 
-    if pump_db > 0 and beats is not None and bpm > 0:
-        pumped = [p.stem for p in account if p.stem != "drums"]
+    if deepest > 0 and beats is not None and bpm > 0:
+        depths = {p.stem: (pump_parts or {}).get(p.stem, pump_db) for p in account
+                  if p.stem != "drums"}
+        pumped = [s for s, d in depths.items() if d > 0]
         if pumped:
             # Named for what it follows, because that is what is heard.
             follows = "kick" if added_beat is not None and pump_at is not beats else "beat"
-            account.append(Part(f"pump on the {follows}", "pumped", ", ".join(pumped)))
+            said = ", ".join(f"{s} {depths[s]:.0f} dB" if pump_parts else s for s in pumped)
+            if ghost_pump:
+                said += " - and on through the beat's rests"
+            account.append(Part(f"pump on the {follows}", "pumped", said))
 
     if added_beat is not None and beats is not None and bpm > 0:
         # Any groove - built in, or read off a reference - added alongside the band. Sprint 4.

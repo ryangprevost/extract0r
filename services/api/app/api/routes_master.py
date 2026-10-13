@@ -2323,6 +2323,62 @@ def reset_part_notes(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+class FollowRequest(BaseModel):
+    #: Then hold every note this far towards the next one, stopping at the bass's changes.
+    legato: float = Field(0.0, ge=0.0, le=1.0)
+    #: At most this many notes sound together.
+    voices: int = Field(4, ge=1, le=8)
+
+
+@router.post("/{track_id}/parts/{stem}/follow-bass")
+def follow_bass_notes(
+    track_id: str,
+    stem: StemKind,
+    body: FollowRequest,
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """A part's notes made to agree with the bass's chords - and, with `legato`, held to the
+    next note or chord change. Sprint 18b. Nothing is saved: the editor shows the result and
+    the person saves it, so the version says the notes are theirs."""
+    from app.services.synth import edit
+
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if stem in (StemKind.BASS, StemKind.DRUMS):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "The bass is what the other parts follow, and drums have no chords.")
+    out_dir = storage.exports_dir(track_id)
+
+    def current(part: str):
+        found = _edited_notes(out_dir, part)
+        if found is None:
+            found = _read_notes(_notes_file(out_dir, part, "played"))
+        return found
+
+    bass = current(StemKind.BASS.value)
+    notes = current(stem.value)
+    if not bass:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Play the bass first, so there are chords to follow.")
+    if not notes:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Play the {stem.value} first.")
+    scale = edit.scale_of(list(notes) + list(bass))
+    followed = edit.follow_bass(notes, bass, body.voices, scale)
+    if body.legato:
+        followed = edit.legato(followed, body.legato, stops=[b.beat for b in bass])
+    kept = {(round(n.beat / 0.05), n.pitch) for n in followed}
+    moved = sum(1 for n in notes if (round(n.beat / 0.05), n.pitch) not in kept)
+    names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    return {"notes": [n.to_dict() for n in followed],
+            "scale": [names[p] for p in scale],
+            "said": f"{len(notes)} notes became {len(followed)}, in the scale of "
+                    f"{names[scale[0]]} major, every one a note of the bass's chord "
+                    f"({moved} moved or merged)."}
+
+
 @router.post("/notes/quantize")
 def quantize_notes(body: QuantizeRequest) -> dict:
     """Quantise, swing and transpose a list of notes - the editor's tools, done here so they
@@ -2672,6 +2728,18 @@ class BounceRequest(BaseModel):
     grit: dict[str, float] = Field(default_factory=dict)
     #: Sprint 17: how wide to spread each part in stereo, 0 to 1, by stem - mono-safe.
     width: dict[str, float] = Field(default_factory=dict)
+    #: Sprint 18b: a pump depth per part in dB, in place of `pump_db` for those parts.
+    pump_parts: dict[str, float] = Field(default_factory=dict)
+    #: Sprint 18b: keep pumping on the beat where the arrangement mutes the beat.
+    ghost_pump: bool = False
+
+    @field_validator("pump_parts")
+    @classmethod
+    def _pumps_in_range(cls, value: dict[str, float]) -> dict[str, float]:
+        for stem, depth in value.items():
+            if not 0.0 <= depth <= 24.0:
+                raise ValueError(f"the pump on {stem} must be 0 to 24 dB")
+        return value
 
     @field_validator("grit", "width")
     @classmethod
@@ -3011,6 +3079,8 @@ def bounce_version(
                 humanize=body.humanize,
                 pieces=pieces,
                 layers_out=layers,
+                pump_parts=body.pump_parts if body.pump else None,
+                ghost_pump=body.ghost_pump and body.pump,
             )
         except StaleRender as exc:
             return {"ok": False, "why": str(exc), "stem": exc.stem}

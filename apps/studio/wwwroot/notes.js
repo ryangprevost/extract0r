@@ -467,6 +467,26 @@ const Notes = (() => {
     }
   }
 
+  /** Sprint 18b: every note moved onto the bass's chord under it, at most four at once - a
+   *  wall instead of clashing overtones. Shown here; saving it makes it the part's notes. */
+  async function followBass() {
+    try {
+      const result = await api(`/tracks/${state.trackId}/parts/${stem}/follow-bass`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ legato: 0, voices: 4 }),
+      });
+      remember();
+      notes = result.notes;
+      selected = new Set();
+      fitRange();
+      draw();
+      $("notes-said").textContent = `${result.said} Save to play it.`;
+    } catch (error) {
+      $("notes-said").textContent = error.message || String(error);
+    }
+  }
+
   // --- loading and saving ---------------------------------------------------------------------
 
   async function open(part, name, saved) {
@@ -596,6 +616,7 @@ const Notes = (() => {
     $("notes-quantise").addEventListener("click", () => quantise(false));
     $("notes-swing").addEventListener("click", () => quantise(true));
     $("notes-legato")?.addEventListener("click", () => quantise(false, 1));
+    $("notes-follow")?.addEventListener("click", followBass);
     $("notes-up").addEventListener("click", () => nudge(1));
     $("notes-down").addEventListener("click", () => nudge(-1));
     $("notes-oct-up").addEventListener("click", () => nudge(12));

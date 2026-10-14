@@ -1030,3 +1030,30 @@ def test_chops_are_cut_in_and_said(client, separated):
     assert body["state"] == "succeeded", body
     lines = " ".join(body["result"]["lines"])
     assert "stutters at bars 2" in lines and "gates at bars 3" in lines
+
+
+def test_a_sound_is_tuned_previewed_and_kept(client, tmp_path):
+    """Sprint 22: preview and keep a tuning on an instrument in the samples folder."""
+    import json as _json
+
+    import numpy as np
+    import soundfile as sf
+
+    from app.api.deps import get_config
+
+    settings = client.app.dependency_overrides[get_config]()
+    folder = settings.sample_dir / "instruments" / "tone"
+    folder.mkdir(parents=True, exist_ok=True)
+    t = np.arange(22050) / 22050
+    sf.write(str(folder / "60.wav"), 0.5 * np.sin(2 * np.pi * 261.6 * t), 22050)
+    (folder / "instrument.json").write_text(_json.dumps(
+        {"name": "tone", "kind": "lead", "notes": {"60": "60.wav"}}), "utf-8")
+    heard = client.post("/api/v1/tracks/instruments/tone/preview", json={"cents": 20})
+    assert heard.status_code == 200 and heard.headers["content-type"] == "audio/wav"
+    kept = client.put("/api/v1/tracks/instruments/tone/tweak",
+                      json={"cents": 20, "bass_db": -3})
+    assert kept.json()["tweak"] == {"cents": 20.0, "bass_db": -3.0}
+    data = _json.loads((folder / "instrument.json").read_text("utf-8"))
+    assert data["tweak"] == {"cents": 20.0, "bass_db": -3.0}
+    assert client.put("/api/v1/tracks/instruments/tone/tweak", json={}).json()["tweak"] == {}
+    assert client.put("/api/v1/tracks/instruments/nope/tweak", json={}).status_code == 404

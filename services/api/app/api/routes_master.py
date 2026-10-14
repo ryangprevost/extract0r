@@ -1513,7 +1513,7 @@ def list_voices(settings: Settings = Depends(get_config)) -> dict:
          "label": f"{i.name} (from your reference)" if i.origin == "reference"
          else f"{i.name} (real synth)",
          "about": i.about, "real": True, "kind": i.kind, "origin": i.origin,
-         "track_id": i.track_id}
+         "track_id": i.track_id, "tweak": dict(i.tweak)}
         for i in instruments.installed(settings.sample_dir).values()
     ]
     mine = [
@@ -1675,6 +1675,64 @@ def sound_library(settings: Settings = Depends(get_config)) -> dict:
         "note": "Built-in sounds are synthesised here, so nothing anybody else recorded ships. "
         "Your kits are made of samples you uploaded and stay on this machine.",
     }
+
+
+class TweakIn(BaseModel):
+    """Sprint 22: a sampled sound's tuning - every field optional; see `instruments.TWEAKS`."""
+
+    semitones: float | None = None
+    cents: float | None = None
+    start_ms: float | None = None
+    attack_ms: float | None = None
+    max_s: float | None = None
+    release_ms: float | None = None
+    low_cut_hz: float | None = None
+    high_cut_hz: float | None = None
+    bass_db: float | None = None
+    treble_db: float | None = None
+
+
+def _instrument(name: str, settings: Settings):
+    from app.services.synth import instruments
+
+    found = instruments.find(name, settings.sample_dir)
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No instrument called {name!r}.")
+    return found
+
+
+@router.post("/instruments/{name}/preview")
+def preview_tweak(name: str, body: TweakIn, settings: Settings = Depends(get_config)) -> Response:
+    """Hear a sound with these settings before keeping them. Sprint 22."""
+    from dataclasses import replace
+
+    from app.services.synth import instruments, library
+
+    found = _instrument(name, settings)
+    trial = replace(found, tweak=instruments.clean_tweak(body.model_dump(exclude_none=True)))
+    rate = 44100
+    return Response(library.wav_bytes(instruments.preview(trial, rate), rate),
+                    media_type="audio/wav")
+
+
+@router.put("/instruments/{name}/tweak")
+def save_tweak(name: str, body: TweakIn, settings: Settings = Depends(get_config)) -> dict:
+    """Keep a sound's tuning. The recordings are untouched; the settings are applied whenever
+    it plays, so a part played on it must be played again to hear them. Sprint 22."""
+    from app.services.synth import instruments
+
+    found = _instrument(name, settings)
+    tweak = instruments.clean_tweak(body.model_dump(exclude_none=True))
+    meta = found.folder / "instrument.json"
+    data = json.loads(meta.read_text("utf-8"))
+    if tweak:
+        data["tweak"] = tweak
+    else:
+        data.pop("tweak", None)
+    meta.write_text(json.dumps(data, indent=2), "utf-8")
+    return {"name": name, "tweak": tweak,
+            "said": "Kept. Play the parts on it again to hear it in the version."
+            if tweak else "Back to the sound as it was sampled."}
 
 
 @router.get("/library/kits/{kit}/preview")

@@ -2626,6 +2626,24 @@ leaps, and to pull a single lead line out of chords **so that** the parts sound 
 
 ---
 
+### X0R-1491 · Tune a sampled sound · 2 · `DONE` 2026-10-14
+**As a** person who sampled a sound from the reference **I want** to fine-tune its pitch, start,
+attack, length, release and EQ **so that** it sits right in my remix.
+
+**Done.** Non-destructive settings on the instrument, a Tune panel with live preview. See
+[SPRINT-22.md](sprints/SPRINT-22.md) §2.
+
+---
+
+### X0R-1490 · A DAW's piano roll · 3 · `DONE` 2026-10-14
+**As a** person editing transcribed parts **I want** box select, bulk lengths, fill-to-next and
+DAW keys **so that** editing feels like a DAW, not clicking note by note.
+
+**Done.** Select/Draw tools, lengths 1/16 to a bar, Fill to next, Quantize + fill, copy, paste,
+duplicate, length keys, Ctrl+scroll zoom. See [SPRINT-22.md](sprints/SPRINT-22.md) §1.
+
+---
+
 ### X0R-1480 · Describe it: a remix in words · 5 · `DONE` 2026-10-14
 **As a** person who knows what they want to hear but not which controls make it **I want** to
 describe a remix in a sentence **so that** the app sets everything and I adjust from there.

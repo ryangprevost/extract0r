@@ -37,6 +37,11 @@ const Notes = (() => {
   let bars = 8;
   let onSaved = null;
   let drag = null;
+  // Sprint 22: a DAW's piano roll. "select" - drag empty space for a box of notes, double-click
+  // to add one; "draw" - click to add, as before. V and B switch, as in most DAWs.
+  let tool = "select";
+  let marquee = null;        // {x0, y0, x1, y1, keep: Set} while dragging a box
+  let clipboard = [];        // copied notes, beats relative to the first
 
   const GRID_BEATS = {
     "1/4": 1, "1/8": 0.5, "1/16": 0.25, "1/8 triplet": 1 / 3, "1/16 triplet": 1 / 6,
@@ -145,6 +150,13 @@ const Notes = (() => {
         g.lineWidth = 1;
       }
     });
+    if (marquee) {
+      g.strokeStyle = ink;
+      g.setLineDash([4, 3]);
+      g.strokeRect(Math.min(marquee.x0, marquee.x1) + 0.5, Math.min(marquee.y0, marquee.y1) + 0.5,
+        Math.abs(marquee.x1 - marquee.x0), Math.abs(marquee.y1 - marquee.y0));
+      g.setLineDash([]);
+    }
     drawVelocity(width);
     say();
   }
@@ -358,6 +370,14 @@ const Notes = (() => {
     if (x < GUTTER) return;
     $("notes-canvas").setPointerCapture(event.pointerId);
     const found = hit(x, y);
+    if (!found && tool === "select") {
+      // A box: everything it touches is selected - added to the selection with Shift.
+      marquee = { x0: x, y0: y, x1: x, y1: y, keep: event.shiftKey ? new Set(selected) : new Set() };
+      selected = new Set(marquee.keep);
+      drag = null;
+      draw();
+      return;
+    }
     remember();
     if (!found) {
       if (!event.shiftKey) selected = new Set();
@@ -382,7 +402,27 @@ const Notes = (() => {
     draw();
   }
 
+  function boxed() {
+    const left = beatAt(Math.min(marquee.x0, marquee.x1));
+    const right = beatAt(Math.max(marquee.x0, marquee.x1));
+    const top = Math.min(marquee.y0, marquee.y1);
+    const bottom = Math.max(marquee.y0, marquee.y1);
+    const inside = new Set(marquee.keep);
+    notes.forEach((n, i) => {
+      if (!rows().includes(n.pitch)) return;
+      const y0 = yOf(n.pitch);
+      if (n.beat < right && n.beat + n.length > left && y0 < bottom && y0 + rowH > top) inside.add(i);
+    });
+    return inside;
+  }
+
   function moveTo(event) {
+    if (marquee) {
+      [marquee.x1, marquee.y1] = point(event);
+      selected = boxed();
+      draw();
+      return;
+    }
     if (!drag) return;
     const [x, y] = point(event);
     const dBeat = (x - drag.x) / pxPerBeat;
@@ -402,6 +442,11 @@ const Notes = (() => {
   }
 
   function up() {
+    if (marquee) {
+      marquee = null;
+      draw();
+      return;
+    }
     if (drag) {
       const changed = drag.start.some((s) => {
         const n = notes[s.i];
@@ -411,6 +456,100 @@ const Notes = (() => {
     }
     drag = null;
     say();
+  }
+
+  // --- Sprint 22: bulk tools, as a DAW has them ---------------------------------------------
+
+  const which = () => (selected.size ? [...selected] : notes.map((_, i) => i));
+
+  /** Every chosen note set to one length, in beats. */
+  function setLength(beats) {
+    const chosen = which();
+    if (!chosen.length) return;
+    remember();
+    for (const i of chosen) notes[i].length = Math.max(1 / 16, beats);
+    draw();
+    $("notes-said").textContent = `${chosen.length} notes set to ${lengthName(beats)}.`;
+  }
+
+  /** Every chosen note held to exactly where the next note in the part starts - overlaps
+   *  trimmed, gaps closed; a chord's notes together. The last note keeps its length; none
+   *  is held past two bars. */
+  function fillToNext() {
+    const chosen = which();
+    if (!chosen.length) return;
+    remember();
+    const onsets = [...new Set(notes.map((n) => Math.round(n.beat * 1000) / 1000))].sort((a, b) => a - b);
+    let filled = 0;
+    for (const i of chosen) {
+      const n = notes[i];
+      const next = onsets.find((b) => b > n.beat + 1e-3);
+      if (next === undefined) continue;
+      n.length = Math.max(1 / 16, Math.min(next - n.beat, 8));
+      filled += 1;
+    }
+    draw();
+    $("notes-said").textContent = `${filled} notes now run into the next one.`;
+  }
+
+  async function quantiseAndFill() {
+    await quantise(false);
+    fillToNext();
+    $("notes-said").textContent = "Quantized, then every note run into the next one.";
+  }
+
+  function lengthName(beats) {
+    return { 0.25: "1/16", 0.5: "1/8", 1: "1/4", 2: "1/2", 4: "a bar", 8: "two bars" }[beats]
+      || `${beats} beats`;
+  }
+
+  /** Lengthen or shorten the chosen notes by the grid. */
+  function stretch(by) {
+    const chosen = which();
+    if (!chosen.length) return;
+    remember();
+    for (const i of chosen) notes[i].length = Math.max(1 / 16, notes[i].length + by);
+    draw();
+  }
+
+  function copy() {
+    const chosen = [...selected].map((i) => notes[i]);
+    if (!chosen.length) return;
+    const first = Math.min(...chosen.map((n) => n.beat));
+    clipboard = chosen.map((n) => ({ ...n, beat: n.beat - first }));
+    $("notes-said").textContent = `${clipboard.length} notes copied.`;
+  }
+
+  /** Paste the copied notes - after the selection, or after the last note. */
+  function paste(at = null) {
+    if (!clipboard.length) return;
+    remember();
+    const after = at ?? (selected.size
+      ? Math.max(...[...selected].map((i) => notes[i].beat + notes[i].length))
+      : Math.max(0, ...notes.map((n) => n.beat + n.length)));
+    const start = Math.ceil((after - 1e-6) / grid()) * grid();
+    const first = notes.length;
+    for (const n of clipboard) notes.push({ ...n, beat: start + n.beat });
+    selected = new Set(clipboard.map((_, k) => first + k));
+    draw();
+  }
+
+  /** Ctrl+D: the selection again, straight after itself. */
+  function duplicate() {
+    if (!selected.size) return;
+    const chosen = [...selected].map((i) => notes[i]);
+    const first = Math.min(...chosen.map((n) => n.beat));
+    const last = Math.max(...chosen.map((n) => n.beat + n.length));
+    const span = Math.ceil((last - first - 1e-6) / grid()) * grid();
+    copy();
+    paste(first + span);
+  }
+
+  function setTool(name) {
+    tool = name;
+    $("notes-tool-select")?.classList.toggle("on", name === "select");
+    $("notes-tool-draw")?.classList.toggle("on", name === "draw");
+    $("notes-canvas").style.cursor = name === "draw" ? "crosshair" : "default";
   }
 
   /** A new note is as loud as the one picked last, else as the part's notes usually are. */
@@ -596,6 +735,25 @@ const Notes = (() => {
       draw();
     } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       nudge((event.key === "ArrowUp" ? 1 : -1) * (event.shiftKey ? 12 : 1));
+    } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && event.shiftKey) {
+      stretch(event.key === "ArrowLeft" ? -grid() : grid());
+    } else if (mod && event.key.toLowerCase() === "c") {
+      copy();
+    } else if (mod && event.key.toLowerCase() === "v") {
+      paste();
+    } else if (mod && event.key.toLowerCase() === "d") {
+      duplicate();
+    } else if (!mod && event.key.toLowerCase() === "q") {
+      quantise(false);
+    } else if (!mod && event.key.toLowerCase() === "l") {
+      fillToNext();
+    } else if (!mod && event.key.toLowerCase() === "v") {
+      setTool("select");
+    } else if (!mod && event.key.toLowerCase() === "b") {
+      setTool("draw");
+    } else if (event.key === "Escape") {
+      selected = new Set();
+      draw();
     } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && selected.size) {
       remember();
       const by = event.key === "ArrowLeft" ? -grid() : grid();
@@ -621,8 +779,31 @@ const Notes = (() => {
       if (found) {
         selected = new Set([found.index]);
         removeSelected();
+      } else if (tool === "select" && x >= GUTTER) {
+        // Double-click empty space to add a note, the select tool's way of drawing.
+        remember();
+        notes.push({ beat: Math.max(0, snapOn() ? Math.floor(beatAt(x) / grid()) * grid() : beatAt(x)),
+          length: drums ? 0.25 : grid(), pitch: pitchAt(y), velocity: newVelocity() });
+        selected = new Set([notes.length - 1]);
+        draw();
       }
     });
+    // Ctrl + scroll zooms in time, as a DAW does; a plain scroll still scrolls.
+    canvas.addEventListener("wheel", (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      pxPerBeat = Math.max(12, Math.min(160, pxPerBeat * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      draw();
+    }, { passive: false });
+    $("notes-tool-select")?.addEventListener("click", () => setTool("select"));
+    $("notes-tool-draw")?.addEventListener("click", () => setTool("draw"));
+    $("notes-setlen")?.addEventListener("click", () => setLength(Number($("notes-len").value)));
+    $("notes-fill")?.addEventListener("click", fillToNext);
+    $("notes-qfill")?.addEventListener("click", quantiseAndFill);
+    for (const b of document.querySelectorAll("[data-notes-len]")) {
+      b.addEventListener("click", () => setLength(Number(b.dataset.notesLen)));
+    }
+    setTool("select");
     canvas.addEventListener("keydown", key);
     $("notes-grid").addEventListener("change", draw);
     $("notes-quantise").addEventListener("click", () => quantise(false));

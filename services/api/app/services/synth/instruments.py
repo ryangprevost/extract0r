@@ -55,13 +55,16 @@ class Instrument:
     origin: str = ""
     #: The track whose reference it was sampled from (Sprint 21), else "".
     track_id: str = ""
+    #: Sprint 22: how the person tuned it - see `TWEAKS`. Applied whenever it plays; the
+    #: recordings themselves are never changed, so "Reset" is always one press away.
+    tweak: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {"id": self.id, "name": self.name, "kind": self.kind, "about": self.about,
                 "source": self.source, "license": self.license,
                 "range": [min(self.notes), max(self.notes)] if self.notes else None,
                 "recorded_notes": len(self.notes), "origin": self.origin,
-                "track_id": self.track_id}
+                "track_id": self.track_id, "tweak": dict(self.tweak)}
 
 
 def instrument_dir(sample_dir: Path) -> Path:
@@ -84,7 +87,8 @@ def installed(sample_dir: Path | None) -> dict[str, Instrument]:
                 id=meta.parent.name, name=data["name"], kind=data.get("kind", "keys"),
                 about=data.get("about", ""), source=data.get("source", ""),
                 license=data.get("license", ""), notes=notes, folder=meta.parent,
-                origin=data.get("origin", ""), track_id=data.get("track_id", ""))
+                origin=data.get("origin", ""), track_id=data.get("track_id", ""),
+                tweak=clean_tweak(data.get("tweak") or {}))
         except Exception:  # noqa: BLE001 - one damaged instrument should not hide the rest
             continue
     return out
@@ -92,6 +96,100 @@ def installed(sample_dir: Path | None) -> dict[str, Instrument]:
 
 def find(name: str, sample_dir: Path | None) -> Instrument | None:
     return installed(sample_dir).get(name)
+
+
+# --- Sprint 22: tuning a sound ------------------------------------------------------------------
+
+#: Ryan: *"the ability to fine tune the EQ, length, pitch, etc on an extracted sample from the
+#: reference song would be great."* Each setting: (lowest, highest, what changes nothing).
+TWEAKS = {
+    "semitones": (-12.0, 12.0, 0.0),     # the whole sound moved, in semitones
+    "cents": (-50.0, 50.0, 0.0),         # and finely, in cents
+    "start_ms": (0.0, 300.0, 0.0),       # skip into each recording - past a messy attack
+    "attack_ms": (0.0, 500.0, 0.0),      # fade each note in
+    "max_s": (0.0, 3.0, 0.0),            # cut every note at this length; 0 lets it ring
+    "release_ms": (0.0, 2000.0, -1.0),   # how long a note fades after it ends; -1 = its kind's
+    "low_cut_hz": (0.0, 1000.0, 0.0),    # high-pass; 0 is off
+    "high_cut_hz": (0.0, 20000.0, 0.0),  # low-pass; 0 is off
+    "bass_db": (-12.0, 12.0, 0.0),       # low shelf at 200 Hz
+    "treble_db": (-12.0, 12.0, 0.0),     # high shelf at 4 kHz
+}
+
+
+def clean_tweak(raw: dict) -> dict:
+    """Only known settings, each held in its range; settings at "no change" are dropped."""
+    out = {}
+    for name, (low, high, neutral) in TWEAKS.items():
+        if name not in raw:
+            continue
+        try:
+            value = float(raw[name])
+        except (TypeError, ValueError):
+            continue
+        value = min(max(value, low), high) if not (name == "release_ms" and value < 0) else -1.0
+        if value != neutral:
+            out[name] = value
+    return out
+
+
+def _shelf(kind: str, hz: float, gain_db: float, sample_rate: int):
+    """RBJ shelving biquad, slope 1."""
+    a = 10 ** (gain_db / 40)
+    w0 = 2 * np.pi * hz / sample_rate
+    cos, alpha = np.cos(w0), np.sin(w0) / 2 * np.sqrt(2)
+    sq = 2 * np.sqrt(a) * alpha
+    if kind == "low":
+        b = [a * ((a + 1) - (a - 1) * cos + sq), 2 * a * ((a - 1) - (a + 1) * cos),
+             a * ((a + 1) - (a - 1) * cos - sq)]
+        d = [(a + 1) + (a - 1) * cos + sq, -2 * ((a - 1) + (a + 1) * cos),
+             (a + 1) + (a - 1) * cos - sq]
+    else:
+        b = [a * ((a + 1) + (a - 1) * cos + sq), -2 * a * ((a - 1) + (a + 1) * cos),
+             a * ((a + 1) + (a - 1) * cos - sq)]
+        d = [(a + 1) - (a - 1) * cos + sq, 2 * ((a - 1) - (a + 1) * cos),
+             (a + 1) - (a - 1) * cos - sq]
+    return np.array(b) / d[0], np.array(d) / d[0]
+
+
+def tweak_recording(audio: np.ndarray, sample_rate: int, tweak: dict) -> np.ndarray:
+    """One recording skipped into and faded in. Pitch, length and release act per note in the
+    renderer; the EQ on what it plays (`tweak_tone`)."""
+    if not tweak:
+        return audio
+    out = np.asarray(audio, dtype=np.float64)
+    start = int(tweak.get("start_ms", 0.0) / 1000 * sample_rate)
+    if 0 < start < out.size - 16:
+        out = out[start:].copy()
+        edge = min(out.size, max(1, int(0.002 * sample_rate)))
+        out[:edge] *= np.linspace(0.0, 1.0, edge)
+    attack = int(tweak.get("attack_ms", 0.0) / 1000 * sample_rate)
+    if attack > 0:
+        n = min(attack, out.size)
+        out = out.copy()
+        out[:n] *= np.linspace(0.0, 1.0, n)
+    return out
+
+
+def tweak_tone(audio: np.ndarray, sample_rate: int, tweak: dict) -> np.ndarray:
+    """The EQ, on the played part - after each note is pitched, as a sampler's filter is, so a
+    1 kHz cut is at 1 kHz whatever note plays (on the recordings it moved with the pitch)."""
+    if not tweak:
+        return audio
+    from scipy.signal import butter, lfilter, sosfilt
+
+    out = np.asarray(audio, dtype=np.float64)
+    nyquist = sample_rate / 2
+    if 0 < tweak.get("low_cut_hz", 0) < nyquist * 0.95:
+        out = sosfilt(butter(2, tweak["low_cut_hz"] / nyquist, "high", output="sos"), out)
+    if 0 < tweak.get("high_cut_hz", 0) < nyquist * 0.95:
+        out = sosfilt(butter(2, tweak["high_cut_hz"] / nyquist, "low", output="sos"), out)
+    if tweak.get("bass_db"):
+        b, d = _shelf("low", 200.0, tweak["bass_db"], sample_rate)
+        out = lfilter(b, d, out)
+    if tweak.get("treble_db"):
+        b, d = _shelf("high", min(4000.0, nyquist * 0.8), tweak["treble_db"], sample_rate)
+        out = lfilter(b, d, out)
+    return out
 
 
 def _load(instrument: Instrument, sample_rate: int) -> dict[int, np.ndarray]:
@@ -108,7 +206,7 @@ def _load(instrument: Instrument, sample_rate: int) -> dict[int, np.ndarray]:
 
             g = gcd(int(rate), int(sample_rate))
             mono = resample_poly(mono, sample_rate // g, rate // g)
-        out[pitch] = mono
+        out[pitch] = tweak_recording(mono, sample_rate, instrument.tweak)
     return out
 
 
@@ -159,13 +257,21 @@ def render(notes: list[NoteEvent], instrument: Instrument, sample_rate: int,
     recorded = _load(instrument, sample_rate)
     roots = sorted(recorded)
     release = int(RELEASE_S.get(instrument.kind, 0.08) * sample_rate)
+    # Sprint 22: the person's tuning - a pitch move, a release, a longest note.
+    tw = instrument.tweak
+    if tw.get("release_ms", -1.0) >= 0:
+        release = int(tw["release_ms"] / 1000 * sample_rate)
+    detune = tw.get("semitones", 0.0) + tw.get("cents", 0.0) / 100.0
+    longest = int(tw.get("max_s", 0.0) * sample_rate)
     far = 0
     for note in notes:
         root = nearest(roots, note.pitch)
         if abs(note.pitch - root) > FAR_SEMITONES:
             far += 1
-        voice = _resample(recorded[root], 2.0 ** ((note.pitch - root) / 12.0))
+        voice = _resample(recorded[root], 2.0 ** ((note.pitch - root + detune) / 12.0))
         held = int(max(note.end_s - note.start_s, 0.02) * sample_rate)
+        if longest:
+            held = min(held, longest)
         piece = voice[: held + release].copy()
         if piece.size > held:
             tail = piece.size - held
@@ -176,6 +282,7 @@ def render(notes: list[NoteEvent], instrument: Instrument, sample_rate: int,
         room = min(piece.size, out.size - at)
         if room > 0:
             out[at: at + room] += piece[:room] * (note.velocity / 127.0)
+    out = tweak_tone(out, sample_rate, instrument.tweak)
     peak = float(np.max(np.abs(out))) if out.size else 0.0
     if peak > 1.0:
         out /= peak

@@ -1770,3 +1770,14 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 /* -- Sprint 21: describe it -- */
 .describe-box { display: grid; gap: 6px; margin-bottom: 12px; }
 .describe-box textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
+
+/* -- Sprint 22: the piano roll's tools -- */
+.chip-group { display: inline-flex; gap: 2px; }
+#notes-tool-select.on, #notes-tool-draw.on { color: var(--ink); background: var(--accent);
+  border-color: var(--accent); }
+
+/* -- Sprint 22: tuning a sampled sound -- */
+.sampler-sounds { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 6px; }
+.tune-box { display: grid; gap: 4px; margin: 6px 0 4px 12px; }
+.tune-row { display: grid; grid-template-columns: 7em minmax(120px, 260px) auto; gap: 8px;
+  align-items: center; font-size: 0.9em; }

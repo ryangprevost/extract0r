@@ -1399,7 +1399,19 @@ const Revoice = (() => {
     render();
   }
 
-  return { init, show, chosen, reset, refreshSounds, prefetch, applyRecipe };
+  /** Sprint 22: play every part that is on this sound again - after it has been tuned. */
+  async function replayOn(voice) {
+    let n = 0;
+    for (const [stem, held] of parts) {
+      if (held.voice === voice && held.url) {
+        await run(stem);
+        n += 1;
+      }
+    }
+    return n;
+  }
+
+  return { init, show, chosen, reset, refreshSounds, prefetch, applyRecipe, replayOn };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Revoice.init());

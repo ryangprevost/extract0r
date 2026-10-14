@@ -872,6 +872,21 @@
           <button class="small" id="notes-zoom-out" aria-label="Zoom out">&minus;</button>
           <button class="small" id="notes-zoom-in" aria-label="Zoom in">+</button>
         </div>
+        <!-- Sprint 22: a DAW's tools - box select, lengths in one press, fill to the next note. -->
+        <div class="notes-tools">
+          <span class="chip-group" role="group" aria-label="Tool">
+            <button class="small chip" id="notes-tool-select" type="button" title="Select (V): drag across empty space to box-select; double-click to add a note">Select</button>
+            <button class="small chip" id="notes-tool-draw" type="button" title="Draw (B): click to add notes">Draw</button>
+          </span>
+          <span class="muted small">Length:</span>
+          <button class="small" type="button" data-notes-len="0.25" title="Every selected note - or all - to a sixteenth">1/16</button>
+          <button class="small" type="button" data-notes-len="0.5" title="Every selected note - or all - to an eighth">1/8</button>
+          <button class="small" type="button" data-notes-len="1" title="Every selected note - or all - to a quarter">1/4</button>
+          <button class="small" type="button" data-notes-len="2" title="Every selected note - or all - to a half">1/2</button>
+          <button class="small" type="button" data-notes-len="4" title="Every selected note - or all - to a whole bar">1 bar</button>
+          <button class="small" id="notes-fill" type="button" title="L: every selected note - or all - runs exactly into the next note: gaps closed, overlaps trimmed">Fill to next</button>
+          <button class="primary small" id="notes-qfill" type="button" title="Quantize, then fill every note to the next - tight and held in one press">Quantize + fill</button>
+        </div>
         <div class="notes-scroll">
           <canvas id="notes-canvas" tabindex="0" aria-label="Piano roll"></canvas>
           <canvas id="notes-vel" tabindex="0" aria-label="Velocity of each note"></canvas>
@@ -887,9 +902,13 @@
           <button class="small" id="notes-humanize" title="A few steps either way, as a player's hands vary">Humanize</button>
         </div>
         <p class="muted tiny">
-          Click empty space to add a note. Drag a note to move it, its right edge to make it
-          longer. Shift-click to pick several; Delete removes, the arrow keys move and
-          transpose, Ctrl+Z undoes, double-click deletes one. In the velocity lane, drag a
+          <strong>Select (V):</strong> drag across empty space to box-select (Shift adds),
+          double-click empty space to add a note. <strong>Draw (B):</strong> click to add. Drag a
+          note to move it, its right edge to make it longer; double-click a note to delete it.
+          Keys: Delete removes, arrows move and transpose, Shift+left/right shortens/lengthens by
+          the grid, Q quantizes, L fills to the next note, Ctrl+C/V/D copy, paste, duplicate,
+          Ctrl+A all, Esc none, Ctrl+Z undo, Ctrl+scroll zooms. Every tool works on the selected
+          notes, or on all of them when none are selected. In the velocity lane, drag a
           stick to make a note harder or softer - the selected ones move together - or drag
           across empty space to draw, say, a crescendo. Alt+Up and Alt+Down do the same from
           the keyboard.
@@ -936,6 +955,10 @@
         </div>
         <p class="muted tiny" id="sampler-notice"></p>
         <p class="small" id="sampler-made"></p>
+        <!-- Sprint 22: tune a sampled sound - pitch, start, attack, length, release, EQ. -->
+        <h4 class="library-head">Your sampled sounds</h4>
+        <p class="muted small" id="sampler-sounds-none">None from this song's reference yet.</p>
+        <ul class="sampler-sounds" id="sampler-sounds"></ul>
       </details>
       <details class="sample-box" id="sample-box">
         <summary>Use a sample of your own</summary>

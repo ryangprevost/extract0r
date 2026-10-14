@@ -89,3 +89,32 @@ The test caught it.
   - preview, keep and reset through the API.
 - **In the browser,** on a bass sampled from the demo's reference: tuned to +15 cents, a
   3 kHz high cut and 0.4 s notes; previewed, kept, then reset.
+
+## 3. VaVaVa regenerated: filled notes, better-tuned samples
+
+Ryan:
+
+> can you regenerate the vavava sample i was working on with extended midi notes and a better
+> tuned synth sample for both bass and synth mstrkrft mappings to vavava bass and guitar?
+
+**Measured first** (pitch over each recording's held part, where its attack lands, energy
+above 6 kHz, and rumble below the fundamental):
+
+- **The MSTRKRFT bass is sound.** Every note is within about 3 cents and the top is clean.
+  Several notes have rumble under the fundamental (kick bleed from the separation, up to
+  -22 dB). Its settings now: a 30 Hz low cut, a 5 kHz high cut against hat bleed, a 2 ms
+  attack and a 60 ms release.
+- **The MSTRKRFT synth had two bad recordings out of five.** A#2 is only 0.62 s long, too
+  short to hold an extended note, and its top end is hat bleed at -7 dB. F#1 is mostly noise
+  and does not read as a pitch. F4 and F5 are clean, last 3+ s, and are within 10 cents.
+  So **"MSTRKRFT Bounce synth 3"** keeps just F4 and F5, with a 150 Hz low cut (off the
+  bass), a 9 kHz high cut, a 5 ms attack and a 180 ms release, so filled notes join
+  smoothly. `octaves_to_fit` plays the chords an octave up, near the recordings.
+
+**Extended notes:** the bass, guitar chords and lead are quantized and filled into the next
+note (`edit.fill`, now also `fill` on the quantize route - the piano roll's Fill to next,
+server-side). Average length went to 1.87 beats on the bass and 1.95 on the chords and the
+lead. The stabs stay short.
+
+Everything else is as in the version Ryan liked: arrangement, chops, stabs, levels matched
+to "Bounce", and the master at -9.6/-9.7 LUFS.

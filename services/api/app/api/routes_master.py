@@ -2309,6 +2309,8 @@ class QuantizeRequest(NotesRequest):
     top_line: bool = False
     #: Sprint 19: then re-cut the chords into short complextro stabs.
     stabs: bool = False
+    #: Sprint 22: last, run every note exactly into the next one (gaps closed, overlaps cut).
+    fill: bool = False
 
 
 @router.get("/{track_id}/parts/{stem}/notes")
@@ -2467,6 +2469,8 @@ def quantize_notes(body: QuantizeRequest) -> dict:
         notes = edit.stabs(notes)
     if body.legato:
         notes = edit.legato(notes, body.legato)
+    if body.fill:
+        notes = edit.fill(notes)
     return {"notes": [n.to_dict() for n in notes]}
 
 

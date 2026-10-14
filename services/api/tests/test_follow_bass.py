@@ -57,3 +57,12 @@ def test_top_line_is_the_top_of_each_chord_in_the_lead_register():
     chords = [BeatNote(0, 1, 50, 80), BeatNote(0, 1, 54, 80), BeatNote(0, 1, 57, 80),
               BeatNote(1, 1, 52, 80), BeatNote(1, 1, 79, 80)]
     assert [(n.beat, n.pitch) for n in top_line(chords)] == [(0, 57), (1, 67)]
+
+
+def test_fill_runs_each_note_exactly_into_the_next():
+    from app.services.synth.edit import fill
+
+    notes = [BeatNote(0, 0.25, 60, 80), BeatNote(0, 3.0, 64, 80),    # a chord, one too long
+             BeatNote(1, 0.5, 62, 80), BeatNote(2, 0.25, 65, 80)]
+    out = fill(notes)
+    assert [n.length for n in out] == [1.0, 1.0, 1.0, 0.25]

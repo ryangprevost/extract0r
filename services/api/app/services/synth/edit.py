@@ -274,6 +274,20 @@ def stabs(chords: list[BeatNote], pattern: tuple[str, ...] = STABS,
     return out
 
 
+def fill(notes: list[BeatNote], longest: float = LEGATO_MAX) -> list[BeatNote]:
+    """Every note run exactly into the next note in the part: gaps closed *and* overlaps
+    trimmed, a chord's notes together - a DAW's "legato". Sprint 22, the piano roll's Fill to
+    next done here so a recipe or a script gets the same notes. The last note keeps its
+    length; none runs past `longest` beats."""
+    onsets = sorted({round(n.beat, 4) for n in notes})
+    out = []
+    for n in notes:
+        later = [b for b in onsets if b > n.beat + 1e-3]
+        length = min(later[0] - n.beat, longest) if later else n.length
+        out.append(BeatNote(n.beat, max(MIN_LENGTH, length), n.pitch, n.velocity))
+    return out
+
+
 MAJOR = (0, 2, 4, 5, 7, 9, 11)
 
 

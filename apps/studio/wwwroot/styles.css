@@ -1766,3 +1766,7 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .chops-list { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 4px; }
 .chop-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .chop-row input[type="number"] { width: 4.5em; }
+
+/* -- Sprint 21: describe it -- */
+.describe-box { display: grid; gap: 6px; margin-bottom: 12px; }
+.describe-box textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }

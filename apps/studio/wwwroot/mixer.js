@@ -933,6 +933,7 @@ const Mixer = (() => {
   }
 
   function init() {
+    $("mixer-match")?.addEventListener("click", matchReference);
     const playButton = $("mixer-play");
     if (!playButton || playButton.dataset.wired) return;
     playButton.dataset.wired = "yes";
@@ -967,7 +968,28 @@ const Mixer = (() => {
     });
   }
 
-  return { init, load, reset };
+  /** Sprint 21: the reference's balance, measured, put on the faders - each move said. */
+  async function matchReference() {
+    if (!version) return;
+    const said = $("mix-said");
+    try {
+      const moved = await api(`/tracks/${state.trackId}/version/${version.label}/match-levels`,
+        { method: "POST" });
+      const channels = {};
+      for (const [name, c] of Object.entries(settings)) {
+        channels[name] = { ...c, ...(moved.channels[name] || {}) };
+      }
+      useChannels(channels);
+      if (said) said.textContent = `Set to the reference's balance: ${moved.said.join("; ")}.`;
+      return moved;
+    } catch (error) {
+      if (said) said.textContent = error.message || String(error);
+      return null;
+    }
+  }
+
+  return { init, load, reset, useChannels: (c) => useChannels(c), bounce: () => bounce(),
+    matchReference };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Mixer.init());

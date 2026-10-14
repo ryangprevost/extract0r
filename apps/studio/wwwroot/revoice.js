@@ -655,6 +655,161 @@ const Revoice = (() => {
     }
   }
 
+  //: Sprint 21: what a recipe sets that has no control of its own on this page yet - a pump
+  //: per part, the pump through the beat's rests, parts left out. Cleared by a new song.
+  let recipeExtra = {};
+
+  async function notesApi(path, options) {
+    return api(`/tracks/${state.trackId}${path}`, options);
+  }
+
+  /** The part's notes as it was played - any earlier edit put back first. */
+  async function playedNotes(stem) {
+    await notesApi(`/parts/${stem}/notes`, { method: "DELETE" }).catch(() => {});
+    return (await notesApi(`/parts/${stem}/notes`)).notes || [];
+  }
+
+  async function noteTool(notes, options) {
+    const result = await api("/tracks/notes/quantize", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes, grid: "1/16", strength: 0, ...options }),
+    });
+    return result.notes;
+  }
+
+  async function saveNotes(stem, notes) {
+    await notesApi(`/parts/${stem}/notes`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes }),
+    });
+  }
+
+  async function followBass(stem, legato) {
+    return (await notesApi(`/parts/${stem}/follow-bass`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ legato, voices: 4 }),
+    })).notes;
+  }
+
+  /**
+   * Sprint 21: a recipe from "Describe it", carried out with this page's own controls -
+   * the parts' sounds, grit and width, their notes (tidied, on the bass's chords, held, a lead
+   * and stabs cut from the chords), the beat, the arrangement, chops - then the version, then
+   * the reference's levels. Each step lands where the person can see it and change it.
+   */
+  async function applyRecipe(recipe, say = () => {}) {
+    const stems = [...document.querySelectorAll("#revoice-parts .part-row")]
+      .map((row) => row.dataset.stem);
+    const have = (stem) => stems.includes(stem);
+    const style = recipe.style ? styles.find((s) => s.name === recipe.style) : null;
+
+    // Tempo: the song's own speed unless asked otherwise; a style's fitted tempo if named.
+    if (typeof recipe.tempo === "number") setTempo(recipe.tempo);
+    else if (recipe.tempo === "keep") setTempo(sourceBpm || null);
+    else if (style) setTempo(style.tempo);
+
+    // Sounds: the style's, then - only when asked for - ones sampled from this song's own
+    // reference. Never another song's: a sample belongs with the track it came from.
+    const reference = recipe.reference_sounds
+      ? voices.filter((v) => v.origin === "reference" && v.track_id === state.trackId) : [];
+    const refBass = reference.find((v) => v.kind === "bass");
+    const refLead = [...reference].reverse().find((v) => v.kind !== "bass");
+    const pick = { ...(style?.parts || {}) };
+    if (recipe.reference_sounds) {
+      if (refBass) pick.bass = refBass.id;
+      if (refLead) for (const s of ["guitar", "piano", "other"]) pick[s] = refLead.id;
+    }
+    if (recipe.lead_over_chords) {
+      pick.piano = refLead?.id || pick.guitar || pick.piano || "supersaw";
+      if (recipe.stabs) pick.other = refLead?.id || "stab";
+    }
+    for (const stem of ["bass", "guitar", "piano", "other"]) {
+      if (!have(stem) || !pick[stem]) continue;
+      const tune = recipe.parts?.[stem] || {};
+      parts.set(stem, { ...(parts.get(stem) || {}), voice: pick[stem],
+        ...(tune.grit !== undefined ? { grit: tune.grit } : {}),
+        ...(tune.width !== undefined ? { width: tune.width } : {}) });
+    }
+    render();
+
+    // Every part played once, so it has notes to edit.
+    for (const stem of ["bass", "guitar", "piano", "other"]) {
+      if (have(stem) && parts.get(stem)?.voice && !parts.get(stem)?.url) {
+        say(`Playing the ${stem} on the ${parts.get(stem).voice}…`);
+        await run(stem);
+      }
+    }
+
+    // The notes.
+    const editing = recipe.tidy || recipe.follow_bass || recipe.legato ||
+      recipe.lead_over_chords || recipe.stabs;
+    if (editing && have("bass") && have("guitar")) {
+      say("Tidying the notes and putting the chords on the bass's chords…");
+      const tidy = (notes) => (recipe.tidy ? noteTool(notes, { strength: 1, trim: true }) : notes);
+      let bass = await tidy(await playedNotes("bass"));
+      if (recipe.legato) bass = await noteTool(bass, { legato: 1 });
+      await saveNotes("bass", bass);
+      await saveNotes("guitar", await tidy(await playedNotes("guitar")));
+      const held = recipe.follow_bass
+        ? await followBass("guitar", recipe.legato ? 1 : 0)
+        : await noteTool((await notesApi("/parts/guitar/notes")).notes,
+          { legato: recipe.legato ? 1 : 0 });
+      if (recipe.lead_over_chords && have("piano")) {
+        const plain = recipe.follow_bass ? await followBass("guitar", 0) : held;
+        const tops = await noteTool(plain, { top_line: true });
+        await saveNotes("piano", await noteTool(tops, { trim: true, legato: recipe.legato ? 1 : 0 }));
+      }
+      const chords = recipe.lead_over_chords ? held.filter((n) => n.pitch < 72) : held;
+      if (recipe.stabs && have("other")) {
+        await playedNotes("other");
+        await saveNotes("other", await noteTool(recipe.legato ? chords
+          : await noteTool(chords, { legato: 1 }), { stabs: true }));
+      }
+      await saveNotes("guitar", chords);
+      for (const stem of ["bass", "guitar", "piano", "other"]) {
+        if (have(stem) && parts.get(stem)?.voice) {
+          say(`Playing the ${stem} from its new notes…`);
+          await run(stem);
+        }
+      }
+    }
+
+    // The beat, the pump, what is left out.
+    if (recipe.beat) {
+      $("beat-select").value = recipe.beat;
+      $("opt-leave-drums").checked = true;      // the added beat takes the drummer's place
+    } else if (style?.beat) {
+      $("beat-select").value = style.beat;
+    }
+    const kit = recipe.kit || style?.kit;
+    if (kit && KITS.includes(kit)) $("beat-kit").value = kit;
+    if (recipe.pump !== undefined || style) $("opt-pump").checked = !!(recipe.pump ?? style?.pump);
+    const pumps = Object.fromEntries(Object.entries(recipe.parts || {})
+      .filter(([, t]) => t.pump_db !== undefined && t.pump_db !== null)
+      .map(([s, t]) => [s, t.pump_db]));
+    recipeExtra = {
+      ...(Object.keys(pumps).length ? { pump_parts: pumps } : {}),
+      ...(recipe.ghost_pump ? { ghost_pump: true } : {}),
+      leave_out: recipe.leave_out || [],
+    };
+
+    // The arrangement and the chops.
+    if (typeof Arrange !== "undefined") Arrange.applyPlan(recipe.arrangement);
+    if (recipe.chops && typeof Chops !== "undefined") {
+      Chops.suggestFor(recipe.chops, !!recipe.chop_instruments,
+        recipe.lead_over_chords ? "piano" : "guitar", recipe.stabs ? "other" : "");
+    }
+
+    say("Making the version…");
+    await makeVersion();
+
+    if (recipe.reference_levels && typeof Mixer !== "undefined") {
+      say("Setting the parts to the reference's levels…");
+      const moved = await Mixer.matchReference();
+      if (moved && Object.keys(moved.channels || {}).length) await Mixer.bounce();
+    }
+  }
+
   /** Everything the controls say about the version, as one request. The bounce and the
    *  MIDI export take the same one, so the file a DAW opens is the version that was heard. */
   function versionRequest() {
@@ -683,6 +838,12 @@ const Revoice = (() => {
     request.arrangement = arrangement;
     // Sprint 20: chops, on the whole track or on single parts.
     request.chops = typeof Chops !== "undefined" ? Chops.request() : [];
+    // Sprint 21: what a recipe set that has no control of its own here yet.
+    if (recipeExtra.pump_parts) request.pump_parts = recipeExtra.pump_parts;
+    if (recipeExtra.ghost_pump) request.ghost_pump = true;
+    for (const stem of recipeExtra.leave_out || []) {
+      if (!request.leave_out.includes(stem)) request.leave_out.push(stem);
+    }
     request.drop_bar = !arrangement && $("opt-drop")?.checked
       ? parseInt($("drop-bar").value, 10) || null : null;
     return request;
@@ -1175,6 +1336,7 @@ const Revoice = (() => {
     if (typeof Notes !== "undefined") Notes.close();
     if (typeof Sampler !== "undefined") Sampler.reset();
     if (typeof Chops !== "undefined") Chops.reset();
+    recipeExtra = {};
     if (typeof Mixer !== "undefined") Mixer.reset();
     customRows = null;
     customBase = null;
@@ -1237,7 +1399,7 @@ const Revoice = (() => {
     render();
   }
 
-  return { init, show, chosen, reset, refreshSounds, prefetch };
+  return { init, show, chosen, reset, refreshSounds, prefetch, applyRecipe };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Revoice.init());

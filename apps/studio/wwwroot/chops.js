@@ -84,6 +84,33 @@ const Chops = (() => {
     return new Set(drops.flatMap((d) => [d - 2, d - 1]));
   }
 
+  /** Sprint 21: chops for a recipe - how many, and on which instruments. */
+  function suggestFor(level, instruments, lead = "piano", stabs = "") {
+    if (!level || level === "none") {
+      reset();
+      return;
+    }
+    const bars = versionBars();
+    const builds = buildBars();
+    const every = level === "few" ? 8 : 4;
+    chops = [];
+    for (let bar = every; bar <= bars; bar += every) {
+      if (builds.has(bar)) continue;
+      if (bar % 16 === 0) {
+        chops.push({ bar, beat: 2, beats: 2, kind: "rise", part: instruments ? lead : "" });
+      } else if (bar % 8 === 0) {
+        chops.push({ bar, beat: 3, beats: 1, kind: "stutter", part: "" });
+      } else {
+        chops.push({ bar, beat: 2, beats: 2, kind: "gate", part: instruments ? stabs : "" });
+      }
+      if (level === "lots" && bar % 8 === 4 && !builds.has(bar - 2)) {
+        chops.push({ bar: bar - 2, beat: 3, beats: 1, kind: "stutter",
+          part: instruments ? lead : "" });
+      }
+    }
+    render();
+  }
+
   /** At phrase ends: a stutter every eighth bar, a rise every sixteenth, a gate between. */
   function suggest() {
     const bars = versionBars();
@@ -130,7 +157,7 @@ const Chops = (() => {
     render();
   }
 
-  return { init, request, reset };
+  return { init, request, reset, suggestFor };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Chops.init());

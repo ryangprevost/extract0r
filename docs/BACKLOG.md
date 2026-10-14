@@ -2626,6 +2626,19 @@ leaps, and to pull a single lead line out of chords **so that** the parts sound 
 
 ---
 
+### X0R-1480 · Describe it: a remix in words · 5 · `DONE` 2026-10-14
+**As a** person who knows what they want to hear but not which controls make it **I want** to
+describe a remix in a sentence **so that** the app sets everything and I adjust from there.
+
+Ryan, 2026-10-14: *"something generative like Suno that takes prompts and uses a reference
+track ... keep it free for now but allow architecture to easily switch to the API."*
+
+**Done.** A recipe of the app's own controls; a free vocabulary reader by default and a Claude
+reader behind `PROMPT_READER=claude`; the page carries the recipe out with its own controls.
+See [SPRINT-21.md](sprints/SPRINT-21.md).
+
+---
+
 ### X0R-1477 · Chops on instruments, and on the page · 2 · `DONE` 2026-10-13
 **As a** person making a Madeon-style edit **I want** chops on single parts - a lead that climbs
 in a stutter, a gated stab - set from the page **so that** I can cut them myself.
@@ -2645,7 +2658,7 @@ on the quantize route. A place to add chops on the page is still to come. See
 
 ---
 
-### X0R-1475 · Match the reference's levels on a version · 3 · `TODO`
+### X0R-1475 · Match the reference's levels on a version · 3 · `DONE` 2026-10-14
 **As a** person remixing toward a reference **I want** one press to set each part's fader to
 the reference's balance **so that** my mix sits like the record I chose.
 

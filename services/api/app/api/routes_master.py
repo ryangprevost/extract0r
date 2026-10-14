@@ -1512,7 +1512,8 @@ def list_voices(settings: Settings = Depends(get_config)) -> dict:
         {"id": i.id,
          "label": f"{i.name} (from your reference)" if i.origin == "reference"
          else f"{i.name} (real synth)",
-         "about": i.about, "real": True, "kind": i.kind, "origin": i.origin}
+         "about": i.about, "real": True, "kind": i.kind, "origin": i.origin,
+         "track_id": i.track_id}
         for i in instruments.installed(settings.sample_dir).values()
     ]
     mine = [
@@ -3490,6 +3491,83 @@ def list_styles(
     have = set(instruments.installed(settings.sample_dir))
     return {"styles": [styles.resolve(name, have, bpm) for name in styles.STYLES],
             "suggested": styles.suggested(bpm)}
+
+
+class DescribeRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=2000)
+    #: The track it is for, so the song's own part names ("post-chorus") can be read.
+    track_id: str | None = None
+
+
+@router.post("/describe")
+def describe_remix(
+    body: DescribeRequest,
+    settings: Settings = Depends(get_config),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """A remix in words, read into a recipe of this app's own controls. Sprint 21.
+
+    Nothing is made here: the page sets the controls the recipe names and makes the version
+    the ordinary way. Read by the vocabulary unless `PROMPT_READER=claude` and a key are set."""
+    from app.services.drums.kit import KITS
+    from app.services.synth import describe, library, styles
+    from app.services.synth.shape import user_sounds
+
+    labels: list[str] = []
+    if body.track_id:
+        try:
+            record = registry.require(body.track_id)
+            bpm = _tempo_of(body.track_id, registry)
+            if bpm:
+                labels = sorted({s.label for s in _sections_of(record, bpm)})
+        except KeyError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    kits = [*KITS, *library.user_kits(settings.sample_dir),
+            *(n for n, s in user_sounds(settings.sample_dir).items() if s["kind"] == "kit")]
+    context = describe.Context(labels=labels, styles=list(styles.STYLES), kits=kits)
+    reader = describe.reader_for(settings)
+    try:
+        reading = reader.read(body.prompt, context)
+    except Exception as exc:  # noqa: BLE001 - a reader that fails says so, in words
+        log.info("prompt reader %s failed", reader.name, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
+                            f"The {reader.name} reader could not read that: {exc}") from exc
+    return reading.to_dict()
+
+
+@router.post("/{track_id}/version/{label}/match-levels")
+def match_reference_levels(
+    track_id: str,
+    label: str,
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+) -> dict:
+    """The fader moves that give a version the reference's balance - drums, synths and vocals
+    each set against the bass as the reference sets them. Sprint 21 (X0R-1475). Nothing is
+    applied here: the moves come back for the mixer, where the person can change them."""
+    import soundfile as sf
+
+    from app.services.synth import levels
+
+    try:
+        record = registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if not record.reference_stems:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Split the reference first, so its parts can be measured.")
+    out_dir, meta = _version_meta(storage, track_id, label)
+    gain = float(meta.get("layer_gain", 1.0))
+    layers = {}
+    for name in meta.get("layers", []):
+        path = out_dir / f"layer.{label}.{name}.flac"
+        if path.exists():
+            layers[name] = sf.read(str(path), dtype="float64", always_2d=True)[0] * gain
+    stems, rate = {}, 44100
+    for kind, path in record.reference_stems.items():
+        data, rate = sf.read(str(path), dtype="float64", always_2d=True)
+        stems[getattr(kind, "value", str(kind))] = data
+    return levels.match(layers, int(meta.get("rate", 44100)), stems, rate)
 
 
 @router.get("/grooves")

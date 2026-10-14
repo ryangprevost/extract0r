@@ -228,6 +228,30 @@ const Arrange = (() => {
     }
   }
 
+  /** Sprint 21: the song's parts, laid out as a recipe asks - some left out, some without the
+   *  beat, a drop where a part comes back. Every block stays editable in the lane. */
+  function applyPlan(plan) {
+    if (!sections.length || !plan) return false;
+    const skip = new Set((plan.skip || []).map((s) => s.toLowerCase()));
+    const quiet = new Set((plan.subdued || []).map((s) => s.toLowerCase()));
+    const dropAt = (plan.drop_at || "").toLowerCase();
+    if (!skip.size && !quiet.size && !dropAt) return false;
+    lane = [];
+    let last = "";
+    for (const s of sections) {
+      const label = (s.label || "").toLowerCase();
+      if (skip.has(label)) continue;
+      const mute = quiet.has(label) ? new Set(["beat"]) : new Set();
+      lane.push({ section: s.id, mute, drop: !!dropAt && label === dropAt && last !== label });
+      last = label;
+    }
+    // The first block cannot drop - there is nothing before it to build from.
+    if (lane.length) lane[0].drop = false;
+    touched = true;
+    render();
+    return true;
+  }
+
   /** Sprint 20: how many bars the version has - the arrangement's, else the song's. */
   function versionBars() {
     const order = touched && lane.length ? lane.map((item) => byId(item.section)) : sections;
@@ -434,7 +458,7 @@ const Arrange = (() => {
     });
   }
 
-  return { init, load, reset, request, render, versionBars, dropBars };
+  return { init, load, reset, request, render, versionBars, dropBars, applyPlan };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Arrange.init());

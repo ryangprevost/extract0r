@@ -53,12 +53,15 @@ class Instrument:
     folder: Path | None = None
     #: "reference" for a sound sampled from the person's reference (Sprint 15), else "".
     origin: str = ""
+    #: The track whose reference it was sampled from (Sprint 21), else "".
+    track_id: str = ""
 
     def to_dict(self) -> dict:
         return {"id": self.id, "name": self.name, "kind": self.kind, "about": self.about,
                 "source": self.source, "license": self.license,
                 "range": [min(self.notes), max(self.notes)] if self.notes else None,
-                "recorded_notes": len(self.notes), "origin": self.origin}
+                "recorded_notes": len(self.notes), "origin": self.origin,
+                "track_id": self.track_id}
 
 
 def instrument_dir(sample_dir: Path) -> Path:
@@ -81,7 +84,7 @@ def installed(sample_dir: Path | None) -> dict[str, Instrument]:
                 id=meta.parent.name, name=data["name"], kind=data.get("kind", "keys"),
                 about=data.get("about", ""), source=data.get("source", ""),
                 license=data.get("license", ""), notes=notes, folder=meta.parent,
-                origin=data.get("origin", ""))
+                origin=data.get("origin", ""), track_id=data.get("track_id", ""))
         except Exception:  # noqa: BLE001 - one damaged instrument should not hide the rest
             continue
     return out

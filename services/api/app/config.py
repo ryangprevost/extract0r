@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # Uploads are deleted this long after the job finishes. Keeping user audio around
     # is a legal liability, not a feature.
     retention_hours: int = 24
+    # --- describe it (Sprint 21) ------------------------------------------------
+    #: Who reads a "Describe it" prompt: "vocabulary" (free, offline - the default) or
+    #: "claude" (any wording; needs ANTHROPIC_API_KEY, and every prompt is billed to it).
+    prompt_reader: str = "vocabulary"
+    anthropic_api_key: str = ""
+    #: The Claude model that reads prompts, when the reader is "claude".
+    prompt_model: str = "claude-haiku-5-5"
     # How often the background sweep runs. 0 disables it (boot sweep still happens).
     retention_sweep_minutes: int = 30
 

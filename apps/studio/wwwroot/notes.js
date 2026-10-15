@@ -671,6 +671,7 @@ const Notes = (() => {
     if ($("notes-vel-value")) $("notes-vel-value").value = "";
     for (const b of document.querySelectorAll(".notes-pitch")) b.hidden = drums;
     panel.hidden = false;
+    if (typeof Sections !== "undefined") Sections.render();
     draw();
     panel.scrollIntoView({ block: "nearest" });
     $("notes-canvas").focus();
@@ -718,6 +719,7 @@ const Notes = (() => {
   function close() {
     $("notes-editor").hidden = true;
     isOpen = false;
+    if (typeof Sections !== "undefined") Sections.render();
   }
 
   function key(event) {

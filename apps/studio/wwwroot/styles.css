@@ -1441,7 +1441,10 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 /* Where a jumped-to section lands: clear of the sticky bar. Declared here rather than
    computed in JS, so the one number lives with the bar's own height. */
 #step-stems, #step-master, #mix-compare, #ask-panel, #groove,
-#instrument-compare, #group-export { scroll-margin-top: 76px; }
+#instrument-compare, #group-export,
+/* Sprint 25: the remix card's own stages, which the bar now carries too. */
+#preset-box, #tempo-box, #revoice-parts, #notes-editor, #arrange-box, #chops-box,
+#bounce-box, #mixer, #finish-box { scroll-margin-top: 76px; }
 
 /* ── scrolling ────────────────────────────────────────────────────────────────
    **No smooth scrolling anywhere, on purpose.** Measured in this project's own

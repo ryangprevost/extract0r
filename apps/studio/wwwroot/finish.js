@@ -12,6 +12,8 @@ const Finish = (() => {
   //: quieter one's loudness - otherwise louder always "wins", which is the oldest trap in
   //: mastering.
   let pair = null;      // {version: {audio, gain}, master: {...}, hearing: "master"}
+  //: What the canvas is currently showing, so it can be drawn again at a new size.
+  let shown = null;
 
   function label() {
     return typeof Mixer !== "undefined" && Mixer.label ? Mixer.label() : null;
@@ -133,6 +135,7 @@ const Finish = (() => {
   function drawMeters(meters) {
     const canvas = $("ab-canvas");
     if (!canvas) return;
+    shown = meters;
     const width = canvas.clientWidth || 600;
     const height = 120;
     const ratio = window.devicePixelRatio || 1;
@@ -183,9 +186,9 @@ const Finish = (() => {
     g.moveTo(0, base + span / 2 + 0.5);
     g.lineTo(width, base + span / 2 + 0.5);
     g.stroke();
-    const shown = meters.master || meters.version;
-    shown.times.forEach((time, i) => {
-      const value = shown.correlation[i];
+    const phased = meters.master || meters.version;
+    phased.times.forEach((time, i) => {
+      const value = phased.correlation[i];
       const x = (time / span_s) * width;
       const y = base + span / 2 - (value * span) / 2;
       g.strokeStyle = value < 0 ? css("--warn") : colors[meters.master ? "master" : "version"];
@@ -242,6 +245,7 @@ const Finish = (() => {
 
   function reset() {
     last = null;
+    shown = null;
     stopPair();
     if ($("finish-result")) $("finish-result").innerHTML = "";
     if ($("ab-result")) $("ab-result").innerHTML = "";
@@ -253,6 +257,12 @@ const Finish = (() => {
     $("finish-btn").dataset.wired = "yes";
     $("finish-btn").addEventListener("click", run);
     $("ab-measure")?.addEventListener("click", compare);
+    // A canvas sized once is stretched and blurry at any other width: it is drawn in CSS
+    // pixels times the display's ratio, and neither follows a resize on its own. Measured
+    // here at 300 px wide against a 308 px box on a 2x display.
+    window.addEventListener("resize", () => {
+      if (shown) drawMeters(shown);
+    }, { passive: true });
     $("ab-play")?.addEventListener("click", playPair);
     for (const button of document.querySelectorAll("[data-ab]")) {
       button.addEventListener("click", () => hear(button.dataset.ab));

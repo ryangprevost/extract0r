@@ -31,6 +31,13 @@ const Sections = (() => {
   //: pr0ducer's own sections are listed too. The bar is built from whichever of these is
   //: actually on screen, and the two pages never show each other's, so one list serves
   //: both rather than each page needing its own copy.
+  //:
+  //: Sprint 25: the remix card's own stages. Measured on the demo after a version was made,
+  //: `#revoice` alone is **4 868 px - nearly seven screens** - and until now the bar stopped
+  //: at "Drum by drum", three entries before any of it. Everything built from Sprint 3 on
+  //: lives inside that one card, in the order a remix is actually made, so the bar follows
+  //: that order: describe it, set the tempo, choose the sounds, edit the notes, add the
+  //: beat, arrange it, chop it, make it, mix it, finish it.
   const PLACES = [
     ["step-stems", "Stems"],
     ["step-master", "Reference"],
@@ -39,6 +46,15 @@ const Sections = (() => {
     ["group-export", "Export"],
     ["groove", "What each plays"],
     ["produce-drums", "Drum by drum"],
+    ["preset-box", "Describe it"],
+    ["tempo-box", "Tempo"],
+    ["revoice-parts", "Parts"],
+    ["notes-editor", "Notes"],
+    ["arrange-box", "Arrangement"],
+    ["chops-box", "Chops"],
+    ["bounce-box", "Make the version"],
+    ["mixer", "Mix"],
+    ["finish-box", "Finish"],
   ];
 
   //: How far above a section to land, so its heading is not under the sticky bar itself.
@@ -47,6 +63,8 @@ const Sections = (() => {
   const HEADROOM = 76;
 
   let spying = false;
+  //: Sprint 25: what actually drives the highlight - see `watch`.
+  let watcher = null;
 
   function visible(id) {
     const el = document.getElementById(id);
@@ -82,7 +100,41 @@ const Sections = (() => {
       }
     }
     bar.hidden = false;
+    watch(here.map(([id]) => id));
     spy();
+  }
+
+  /**
+   * Keep the highlight honest when the page moves without a scroll event.
+
+   * A scroll listener only hears about scrolling. It does not hear a section opening above
+   * you, the mixer appearing when a version is made, or the piano roll closing - all of
+   * which move everything below them and change which section you are actually looking at.
+   * An `IntersectionObserver` is driven by layout, so it covers those too, and it is
+   * cheaper than a handler that runs on every scroll frame.
+   *
+   * The root margin leaves a one-pixel line just under the bar: whenever a section crosses
+   * it, the answer could have changed, which is exactly when `spy` should run. The scroll
+   * listener stays as well, because the two cost nothing together and either one alone has
+   * a gap.
+   *
+   * Neither fires in a browser pane that is not rendering - measured here, where scrolling
+   * moved the page, `scrollY` changed and the section landed on its `scroll-margin-top`
+   * exactly, while no callback of either kind arrived until the pane drew a frame. Nothing
+   * can be done about that from this side, and nothing needs to be: a page nobody is
+   * looking at has no highlight to get wrong.
+   */
+  function watch(ids) {
+    if (watcher) watcher.disconnect();
+    if (typeof IntersectionObserver === "undefined") return;
+    watcher = new IntersectionObserver(() => spy(), {
+      rootMargin: `-${HEADROOM}px 0px -${Math.max(0, window.innerHeight - HEADROOM - 1)}px 0px`,
+      threshold: 0,
+    });
+    for (const id of ids) {
+      const el = visible(id);
+      if (el) watcher.observe(el);
+    }
   }
 
   /**

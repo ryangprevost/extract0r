@@ -2643,6 +2643,19 @@ leaps, and to pull a single lead line out of chords **so that** the parts sound 
 
 ---
 
+### X0R-1510 · The section bar covers the remix card · 2 · `DONE` 2026-10-15
+**As a** person building a remix **I want** to jump between the stages **so that** I am not
+scrolling seven screens from "Describe it" to "Finish it".
+
+Measured: `#revoice` alone is 4 868 px of seventeen stacked blocks; the bar stopped three
+entries before any of it.
+
+**Done.** The bar carries Describe it, Tempo, Parts, Notes, Arrangement, Chops, Make the
+version, Mix and Finish; the highlight is driven by an IntersectionObserver so it also
+follows sections opening and closing. See [SPRINT-25.md](sprints/SPRINT-25.md).
+
+---
+
 ### X0R-1501 · A version comes back with the song · 1 · `DONE` 2026-10-15 · **defect**
 Reopening a track left the mixer and the finish unavailable until the version was bounced
 again, though it was on disk. `GET /tracks/{id}/versions`, and the page loads the newest. See

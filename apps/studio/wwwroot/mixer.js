@@ -936,6 +936,8 @@ const Mixer = (() => {
     settings = kept;
     $("mixer").hidden = false;
     $("mixer-result").innerHTML = "";
+    // Sprint 25: "Mix" and "Finish" are reachable from the bar the moment they exist.
+    if (typeof Sections !== "undefined") Sections.render();
     draw();
     fillLanePickers();
     drawLanes();
@@ -949,6 +951,7 @@ const Mixer = (() => {
     settings = {};
     loadedFor = "";
     if ($("mixer")) $("mixer").hidden = true;
+    if (typeof Sections !== "undefined") Sections.render();
   }
 
   function init() {

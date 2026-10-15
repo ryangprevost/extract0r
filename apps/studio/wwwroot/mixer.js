@@ -904,6 +904,24 @@ const Mixer = (() => {
   }
 
   /** A new version was made: mix its layers, keeping the settings of any layer it still has. */
+  /** Sprint 23: the newest version this track already has, so reopening a song brings the
+   *  mixer and the finish back without bouncing again. Does nothing once a version is loaded. */
+  async function reopen() {
+    if (version || !state.trackId) return;
+    try {
+      const found = (await api(`/tracks/${state.trackId}/versions`)).versions || [];
+      if (found.length) {
+        load(found[0]);
+        if ($("mix-said")) {
+          $("mix-said").textContent =
+            `Your ${found[0].label === "same" ? "" : `${found[0].label} BPM `}version, as you left it.`;
+        }
+      }
+    } catch {
+      /* nothing made yet */
+    }
+  }
+
   function load(result) {
     if (!result?.layers?.length) return;
     if (playing) pause();
@@ -926,6 +944,7 @@ const Mixer = (() => {
 
   function reset() {
     if (playing) pause();
+    if (typeof Finish !== "undefined") Finish.reset();
     version = null;
     settings = {};
     loadedFor = "";
@@ -989,7 +1008,7 @@ const Mixer = (() => {
   }
 
   return { init, load, reset, useChannels: (c) => useChannels(c), bounce: () => bounce(),
-    matchReference };
+    matchReference, label: () => version?.label || null, reopen };
 })();
 
 document.addEventListener("DOMContentLoaded", () => Mixer.init());

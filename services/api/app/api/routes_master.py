@@ -3446,6 +3446,129 @@ def apply_mix(
     return {"channels": checked, "notes": notes, "beats": round(beats, 2)}
 
 
+class FinishRequest(BaseModel):
+    """Sprint 23: how loud to finish a version, and whether to move it towards the
+    reference's tone on the way."""
+
+    #: A named target ("club", "loud", "streaming", "gentle") or a loudness in LUFS.
+    target: str | float = "club"
+    #: Move the tone towards the reference's - cuts anywhere, lifts only below 1.5 kHz.
+    match_reference: bool = False
+
+
+@router.post("/{track_id}/version/{label}/finish", response_model=JobResponse)
+def finish_version(
+    track_id: str,
+    label: str,
+    body: FinishRequest,
+    storage: TrackStorage = Depends(get_storage),
+    registry: TrackRegistry = Depends(get_registry),
+    jobs: JobStore = Depends(get_jobs),
+) -> JobResponse:
+    """Finish a version for a club: glued, clipped, limited and landed on a loudness, under a
+    -1 dBTP ceiling. Sprint 23, see `mastering/club.py`.
+
+    Written beside the version as `master.{label}.*`, never over it - the sketch stays, so the
+    two can be compared and the finish can be run again at another target."""
+    from app.services.mastering.club import TARGETS
+
+    try:
+        registry.require(track_id)
+    except KeyError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
+    if not _LABEL.fullmatch(label):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such version.")
+    out_dir = storage.exports_dir(track_id)
+    source = out_dir / f"version.{label}.wav"
+    if not source.exists():
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Make the version first - this finishes what the bounce wrote.")
+    if isinstance(body.target, str):
+        if body.target not in TARGETS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"No target called {body.target!r}. Try "
+                                f"{', '.join(TARGETS)}, or a loudness in LUFS.")
+        target = TARGETS[body.target]
+    else:
+        target = float(body.target)
+    if not -30.0 <= target <= -5.0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "A target between -30 and -5 LUFS, please. Past -8 a master is "
+                            "squashed rather than loud.")
+    reference = storage.reference_path(track_id) if body.match_reference else None
+    if body.match_reference and (reference is None or not Path(reference).exists()):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "There is no reference to match - upload one, or finish without it.")
+
+    def work(handle: JobHandle) -> dict:
+        import soundfile as sf
+
+        from app.services.mastering import club
+        from app.services.mixdown.encode import write_mp3, write_wav
+
+        handle.update(JobState.RUNNING, 0.15, "reading the version")
+        audio, rate = sf.read(str(source), dtype="float64", always_2d=True)
+        theirs, their_rate = (None, None)
+        if reference is not None:
+            theirs, their_rate = sf.read(str(reference), dtype="float64", always_2d=True)
+        handle.update(JobState.RUNNING, 0.35, "gluing, clipping and limiting")
+        done, report = club.finish(audio, rate, target, theirs, their_rate)
+        handle.update(JobState.RUNNING, 0.8, "writing the file")
+        wav = write_wav(out_dir / f"master.{label}.wav", done, rate, "24")
+        mp3 = write_mp3(out_dir / f"master.{label}.mp3", done, rate)
+        return {
+            "label": label,
+            "target_lufs": target,
+            "wav": f"/api/v1/tracks/{track_id}/version/{wav.name}",
+            "mp3": f"/api/v1/tracks/{track_id}/version/{mp3.name}",
+            "report": report.to_dict(),
+            "lines": report.said(),
+            "note": "Finished for playing out. The version itself is untouched beside it, so "
+                    "you can compare them or finish again at another loudness.",
+        }
+
+    return to_response(jobs.submit("finish", track_id, work))
+
+
+@router.get("/{track_id}/versions")
+def list_versions(track_id: str, storage: TrackStorage = Depends(get_storage)) -> dict:
+    """Every version this track has, newest first - enough for the mixer to pick one up
+    again. Sprint 23.
+
+    Versions have always survived a restart on disk, but only the page that made one knew
+    about it: reopening a track left the mixer and the finish unavailable until it was
+    bounced again, for no reason but that nothing listed them."""
+    from app.services.synth.mixer import LAYERS
+
+    out_dir = storage.exports_dir(track_id)
+    found = []
+    for meta_path in out_dir.glob("layer.*.json"):
+        label = meta_path.name[len("layer."):-len(".json")]
+        if not _LABEL.fullmatch(label):
+            continue
+        try:
+            meta = json.loads(meta_path.read_text("utf-8"))
+        except (OSError, ValueError):
+            continue
+        names = [n for n in meta.get("layers", []) if _layer_path(out_dir, label, n).exists()]
+        if not names:
+            continue
+        found.append({
+            "label": label,
+            "tempo_bpm": meta.get("bpm") or None,
+            "layer_gain": meta.get("layer_gain", 1.0),
+            "layers": [{"name": n, "label": LAYERS.get(n, n),
+                        "url": f"/api/v1/tracks/{track_id}/version/{label}/layers/{n}"}
+                       for n in names],
+            "mp3": f"/api/v1/tracks/{track_id}/version/version.{label}.mp3",
+            "wav": f"/api/v1/tracks/{track_id}/version/version.{label}.wav",
+            "mastered": (out_dir / f"master.{label}.mp3").exists(),
+            "made_at": meta_path.stat().st_mtime,
+        })
+    found.sort(key=lambda v: v["made_at"], reverse=True)
+    return {"versions": found}
+
+
 @router.get("/{track_id}/version/{label}/mix")
 def version_mix(track_id: str, label: str,
                 storage: TrackStorage = Depends(get_storage)) -> dict:
@@ -3955,7 +4078,7 @@ def version_file(
     track_id: str, name: str, storage: TrackStorage = Depends(get_storage)
 ) -> FileResponse:
     """A bounced version. The name is checked against the only shape a bounce writes."""
-    if not re.fullmatch(r"version\.(\d{2,3}|same)\.(wav|mp3|mid)", name):
+    if not re.fullmatch(r"(version|master)\.(\d{2,3}|same)\.(wav|mp3|mid)", name):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such version.")
     path = storage.exports_dir(track_id) / name
     if not path.exists():

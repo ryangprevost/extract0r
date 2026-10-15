@@ -355,6 +355,8 @@ const Revoice = (() => {
     await Promise.all([
       loadDrops(),
       typeof Arrange !== "undefined" ? Arrange.load() : null,
+      // Sprint 23: a version made earlier comes back with the song.
+      typeof Mixer !== "undefined" && Mixer.reopen ? Mixer.reopen() : null,
     ]);
   }
 

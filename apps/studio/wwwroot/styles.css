@@ -1781,3 +1781,6 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .tune-box { display: grid; gap: 4px; margin: 6px 0 4px 12px; }
 .tune-row { display: grid; grid-template-columns: 7em minmax(120px, 260px) auto; gap: 8px;
   align-items: center; font-size: 0.9em; }
+
+/* -- Sprint 23: the club finish -- */
+.finish-box { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--edge); }

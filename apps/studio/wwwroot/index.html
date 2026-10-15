@@ -1219,6 +1219,34 @@
           <button class="small" id="mixer-reset" type="button">Reset the mix</button>
           <span class="muted small">Seconds, not minutes - nothing is played again, the parts are just mixed.</span>
         </div>
+        <!-- Sprint 23: the club finish - the last step, on whatever the version is now. -->
+        <div class="finish-box" id="finish-box">
+          <h4 class="library-head">Finish it for a club</h4>
+          <p class="muted small">
+            A version is a sketch: it is mixed, not mastered, so it plays quieter than a
+            record. This glues it, rounds off the tips of the transients and limits what is
+            left, until it is as loud as you ask under a -1 dBTP ceiling - the order club
+            masters use, so the kick keeps its punch. It writes a master beside the version
+            and leaves the version alone, so you can compare them.
+          </p>
+          <div class="preset-row">
+            <label>How loud
+              <select id="finish-target" aria-label="how loud to finish">
+                <option value="club">club &middot; -9.5 LUFS</option>
+                <option value="loud">loud &middot; -8 LUFS</option>
+                <option value="gentle">gentle &middot; -12 LUFS</option>
+                <option value="streaming">streaming &middot; -14 LUFS</option>
+              </select>
+            </label>
+            <label class="check" title="Move the tone towards your reference's. It may cut anywhere, but never lifts above 1.5 kHz: on a gritty mix that lift is the grinding.">
+              <input type="checkbox" id="finish-match" />
+              and move it towards my reference's tone
+            </label>
+            <button class="primary" id="finish-btn" type="button">Finish it</button>
+          </div>
+          <div id="finish-working"></div>
+          <div id="finish-result"></div>
+        </div>
         <div id="mixer-result"></div>
       </section>
       <p class="muted small working" id="revoice-working" hidden></p>
@@ -1348,6 +1376,7 @@
 <script src="sampler.js"></script>
 <script src="chops.js"></script>
 <script src="describe.js"></script>
+<script src="finish.js"></script>
 <script src="shaper.js"></script>
 <script src="dropzone.js"></script>
 <script src="spectrum.js"></script>

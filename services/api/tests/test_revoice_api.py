@@ -1057,3 +1057,30 @@ def test_a_sound_is_tuned_previewed_and_kept(client, tmp_path):
     assert data["tweak"] == {"cents": 20.0, "bass_db": -3.0}
     assert client.put("/api/v1/tracks/instruments/tone/tweak", json={}).json()["tweak"] == {}
     assert client.put("/api/v1/tracks/instruments/nope/tweak", json={}).status_code == 404
+
+
+def test_a_version_is_listed_and_finished_through_the_api(client, separated):
+    """Sprint 23: a made version is listed (so the mixer can pick it up again) and finished."""
+    started = client.post(f"/api/v1/tracks/{separated}/bounce", json={})
+    assert finish(client, started.json()["job_id"])["state"] == "succeeded"
+
+    listed = client.get(f"/api/v1/tracks/{separated}/versions").json()["versions"]
+    assert listed and listed[0]["label"] == "same"
+    assert listed[0]["layers"] and listed[0]["mastered"] is False
+
+    bad = client.post(f"/api/v1/tracks/{separated}/version/same/finish", json={"target": "huge"})
+    assert bad.status_code == 400
+    loud = client.post(f"/api/v1/tracks/{separated}/version/same/finish", json={"target": -40})
+    assert loud.status_code == 400
+    missing = client.post(f"/api/v1/tracks/{separated}/version/same/finish",
+                          json={"match_reference": True})
+    assert missing.status_code == 409          # no reference uploaded
+
+    done = finish(client, client.post(f"/api/v1/tracks/{separated}/version/same/finish",
+                                        json={"target": "gentle"}).json()["job_id"])
+    assert done["state"] == "succeeded", done
+    result = done["result"]
+    assert result["report"]["after_lufs"] == pytest.approx(-12.0, abs=0.4)
+    assert result["mp3"].endswith("master.same.mp3")
+    assert client.get(result["mp3"]).status_code == 200
+    assert client.get(f"/api/v1/tracks/{separated}/versions").json()["versions"][0]["mastered"]

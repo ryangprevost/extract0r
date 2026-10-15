@@ -2626,6 +2626,25 @@ leaps, and to pull a single lead line out of chords **so that** the parts sound 
 
 ---
 
+### X0R-1501 · A version comes back with the song · 1 · `DONE` 2026-10-15 · **defect**
+Reopening a track left the mixer and the finish unavailable until the version was bounced
+again, though it was on disk. `GET /tracks/{id}/versions`, and the page loads the newest. See
+[SPRINT-23.md](sprints/SPRINT-23.md) §2.
+
+---
+
+### X0R-1500 · Finish a version for a club · 3 · `DONE` 2026-10-15
+**As a** person who has made a remix **I want** one press to make it as loud as a record
+**so that** I can play it out without sending it to somebody else to master.
+
+Every remix through Sprints 16-22 was finished by a script outside the app.
+
+**Done.** `mastering/club.py`: glue, optional tonal match, soft clip, limit, true-peak
+ceiling, landed on a chosen loudness, with a report that says what it cost. See
+[SPRINT-23.md](sprints/SPRINT-23.md).
+
+---
+
 ### X0R-1491 · Tune a sampled sound · 2 · `DONE` 2026-10-14
 **As a** person who sampled a sound from the reference **I want** to fine-tune its pitch, start,
 attack, length, release and EQ **so that** it sits right in my remix.

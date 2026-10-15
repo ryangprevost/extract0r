@@ -28,7 +28,7 @@ costs minutes. Congestion needs stems, and those we always have for the source.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -82,13 +82,6 @@ class BandReading:
     crowding: float = 0.0
     #: Share of the band held by each stem, largest first.
     holders: tuple[tuple[str, float], ...] = ()
-
-
-@dataclass
-class ClarityReport:
-    yours: list[BandReading] = field(default_factory=list)
-    theirs: list[BandReading] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)
 
 
 def _spectrum(samples: np.ndarray, n_fft: int, sample_rate: int) -> np.ndarray:

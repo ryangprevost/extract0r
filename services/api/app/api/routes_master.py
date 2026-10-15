@@ -3473,7 +3473,7 @@ def finish_version(
     from app.services.mastering.club import TARGETS
 
     try:
-        registry.require(track_id)
+        record = registry.require(track_id)
     except KeyError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown track.") from exc
     if not _LABEL.fullmatch(label):
@@ -3515,7 +3515,10 @@ def finish_version(
         done, report = club.finish(audio, rate, target, theirs, their_rate)
         handle.update(JobState.RUNNING, 0.8, "writing the file")
         wav = write_wav(out_dir / f"master.{label}.wav", done, rate, "24")
-        mp3 = write_mp3(out_dir / f"master.{label}.mp3", done, rate)
+        tags = dict(_export_tags(record))
+        tags["COMM"] = (f"Finished with extract0r studio at {report.after_lufs:.1f} LUFS"
+                        + (f", towards {Path(reference).stem}" if reference else ""))
+        mp3 = write_mp3(out_dir / f"master.{label}.mp3", done, rate, tags=tags)
         return {
             "label": label,
             "target_lufs": target,
@@ -3528,6 +3531,49 @@ def finish_version(
         }
 
     return to_response(jobs.submit("finish", track_id, work))
+
+
+@router.get("/{track_id}/version/{label}/meters")
+def version_meters(
+    track_id: str,
+    label: str,
+    which: Literal["version", "master", "both"] = Query("both"),
+    storage: TrackStorage = Depends(get_storage),
+) -> dict:
+    """What a version and its master do over the song: short-term and momentary loudness,
+    phase correlation, loudness range. X0R-1205, the remix half. Sprint 24.
+
+    Also what the two must be played at to compare them honestly: `match_db` attenuates the
+    louder one to the quieter one's loudness, so an A/B is about the sound rather than about
+    which is louder."""
+    import soundfile as sf
+
+    from app.services.mastering import meters
+
+    if not _LABEL.fullmatch(label):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such version.")
+    out_dir = storage.exports_dir(track_id)
+    wanted = ("version", "master") if which == "both" else (which,)
+    found = {}
+    for name in wanted:
+        path = out_dir / f"{name}.{label}.wav"
+        if not path.exists():
+            continue
+        audio, rate = sf.read(str(path), dtype="float64", always_2d=True)
+        found[name] = meters.over_time(audio, rate)
+    if not found:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Make the version first." if which != "master" else
+            "Finish the version first - there is no master to measure.")
+    # Loudness-matched playback: the louder one comes down to the quieter one.
+    quietest = min(m["integrated_lufs"] for m in found.values())
+    for name, m in found.items():
+        m["match_db"] = round(quietest - m["integrated_lufs"], 2)
+        m["mp3"] = f"/api/v1/tracks/{track_id}/version/{name}.{label}.mp3"
+    return {"label": label, "meters": found,
+            "note": "Compared at the same loudness - otherwise the louder one always sounds "
+                    "better, which is the oldest trap in mastering."}
 
 
 @router.get("/{track_id}/versions")
@@ -4742,12 +4788,12 @@ def _export_tags(record) -> dict[str, str]:
     """
     original = getattr(getattr(record, "stored", None), "original_filename", "") or ""
     reference = getattr(record, "reference_name", "") or ""
-    comment = "Mastered with extract0r"
+    comment = "Mastered with extract0r studio"
     if reference:
         comment += f" against {Path(reference).stem}"
     return {
         "TIT2": Path(original).stem or "master",
-        "TENC": "extract0r",
+        "TENC": "extract0r studio",
         "COMM": comment,
     }
 

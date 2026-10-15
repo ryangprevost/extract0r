@@ -1062,10 +1062,14 @@ but normalised as though there were a synthesis window too, making every master 
 
 ---
 
-### X0R-804 · Mastering preview and A/B · 3 · `TODO`
+### X0R-804 · Mastering preview and A/B · 3 · `PARTLY DONE` 2026-10-15
 **Acceptance criteria**
-- 30-second preview rendered before committing to a full pass.
-- Loudness-matched A/B toggle, so the louder version does not simply "win".
+- 30-second preview rendered before committing to a full pass. ⏳ Still open: the club
+  finish takes about 20 s on a four-minute song, so the saving is small; the mastering
+  page's own pass is where a preview would earn its place.
+- Loudness-matched A/B toggle, so the louder version does not simply "win". ✅ Under the
+  club finish: both files play at once, the louder turned down to the quieter's loudness,
+  switching instantly in the same place. See [SPRINT-24.md](sprints/SPRINT-24.md) §1.
 
 ---
 
@@ -1661,17 +1665,24 @@ timed in `docs/WALKTHROUGH.md`, so the remaining work is recording rather than a
 
 ---
 
-### X0R-1111 · Audit what is no longer used · 2 · `TODO`
+### X0R-1111 · Audit what is no longer used · 2 · `DONE` 2026-10-15
 **Acceptance criteria**
 - Candidates already noted: `matchering_engine`, the single-band `widen_above` now that
-  per-band width matching exists, the ffmpeg path in `loudness.py`.
-- Each one either deleted or given a comment saying what it is still for.
+  per-band width matching exists, the ffmpeg path in `loudness.py`. ✅ All three are still
+  reachable, and now say so where they live.
+- Each one either deleted or given a comment saying what it is still for. ✅ A sweep for
+  never-referenced definitions found four genuinely dead ones (`RightsAttestation`,
+  `pitch_range`, `ClarityReport`, `describe_space`), all deleted. See
+  [SPRINT-24.md](sprints/SPRINT-24.md) §3.
 
 ---
 
-### X0R-1112 · Name the application "extract0r studio" · 1 · `TODO`
+### X0R-1112 · Name the application "extract0r studio" · 1 · `DONE` 2026-10-15
 **Acceptance criteria**
-- Consistent in the title, the brand mark, the About page and the export metadata.
+- Consistent in the title, the brand mark, the About page and the export metadata. ✅ The
+  API and the ID3 encoder tag said "Extract0r API" and "extract0r"; both now say
+  "extract0r studio", and the club finish's master carries provenance too. The download
+  filename keeps its short `[extract0r]` suffix - a filename, not a brand mark.
 
 ---
 
@@ -1848,7 +1859,7 @@ detector rather than twice.
 
 ---
 
-### X0R-1205 · Metering worth the name · 3 · `TODO`
+### X0R-1205 · Metering worth the name · 3 · `PARTLY DONE` 2026-10-15
 **As a** person deciding whether a master is finished **I want** to see what it is doing over
 time **so that** I am not judging a four-minute song by four numbers.
 
@@ -1864,7 +1875,13 @@ and nothing currently warns about it.
 - Phase correlation over time, with anything sustained below zero called out.
 - A loudness-range figure computed the EBU way, distinct from the crest figure already shown.
 - Reuses the peaks endpoint's caching, which already solves the "recompute on every load"
-  problem this would otherwise have.
+  problem this would otherwise have. ⏳
+
+**Done for the remix path** (`mastering/meters.py`, `GET /version/{label}/meters`, drawn under
+the club finish): short-term and momentary loudness, phase correlation with sustained negative
+stretches called out, and an EBU loudness range that says `None` rather than 0.0 when it
+cannot be measured. Still open: the same series on the mastering page's own time axis, and
+the caching. See [SPRINT-24.md](sprints/SPRINT-24.md) §2.
 
 ---
 

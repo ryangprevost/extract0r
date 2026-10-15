@@ -49,6 +49,10 @@ def measure(path: Path) -> LoudnessStats:
 
 
 class LoudnessMatchEngine:
+    """The default mastering backend, and the fallback when matchering is absent (audited,
+    X0R-1111). Its ffmpeg path is live: `/capabilities` reports whether ffmpeg is there, and
+    `measure` is what runs when it is."""
+
     name = "loudness"
 
     def available(self) -> bool:

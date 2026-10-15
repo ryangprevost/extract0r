@@ -66,7 +66,8 @@ def test_the_tag_records_which_reference_was_used():
 
 def test_a_master_with_no_reference_says_only_what_it_knows():
     tags = _export_tags(_Record("My Song.mp3"))
-    assert tags["COMM"] == "Mastered with extract0r"
+    # X0R-1112: one name for the application, in the metadata too.
+    assert tags["COMM"] == "Mastered with extract0r studio"
     assert "against" not in tags["COMM"]
 
 

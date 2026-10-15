@@ -6,7 +6,7 @@ tab engine can be unit-tested without torch, librosa, or ffmpeg installed.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -108,11 +108,6 @@ def quantize(value_s: float, tempo_bpm: float, division: int = 16) -> int:
     """Snap a timestamp to the nearest grid column at ``division`` notes per whole note."""
     seconds_per_column = (60.0 / tempo_bpm) * (4.0 / division)
     return int(round(value_s / seconds_per_column))
-
-
-def pitch_range(notes: Iterable[NoteEvent]) -> tuple[int, int] | None:
-    pitches = [n.pitch for n in notes]
-    return (min(pitches), max(pitches)) if pitches else None
 
 
 #: How close two same-pitch notes must be before a merge is even considered.

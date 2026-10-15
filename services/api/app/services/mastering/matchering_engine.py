@@ -13,6 +13,10 @@ from app.services.mastering.base import MasteringReport
 
 
 class MatcheringEngine:
+    """Still here, and still reachable (audited, X0R-1111): `MASTERING_BACKEND=matchering`
+    selects it in `factory.make_mastering_engine`, and `/capabilities` reports whether the
+    library is installed. Not the default - that is the loudness engine below it."""
+
     name = "matchering"
 
     def __init__(self, bit_depth: int = 24, preview: bool = False) -> None:

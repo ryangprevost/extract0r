@@ -9,22 +9,6 @@ from pydantic import BaseModel, Field
 from app.domain.notes import StemKind
 
 
-class RightsAttestation(BaseModel):
-    """What the uploader affirms before we touch their file.
-
-    Recorded on the track and stamped into every .x0r export. It is the difference
-    between a tool and an infringement service.
-    """
-
-    owns_or_licensed: bool = Field(
-        description="Uploader owns the recording, has a license, or the use is otherwise lawful"
-    )
-    personal_use_only: bool = Field(
-        description="Output will be used for study, practice, or other personal use"
-    )
-    accepted_terms_version: str = "2026-08-31"
-
-
 class TrackResponse(BaseModel):
     track_id: str
     original_filename: str

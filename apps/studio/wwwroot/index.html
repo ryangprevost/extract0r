@@ -1246,6 +1246,19 @@
           </div>
           <div id="finish-working"></div>
           <div id="finish-result"></div>
+          <!-- Sprint 24 (X0R-804, X0R-1205): the two at the same loudness, and what each
+               does across the song. -->
+          <div class="preset-row">
+            <button class="small" id="ab-measure" type="button" title="Measure both and compare them at the same loudness">Compare and measure</button>
+            <span class="chip-group" id="ab-row" role="group" aria-label="Which one you hear" hidden>
+              <button class="small chip" id="ab-play" type="button">&#9654; Play both</button>
+              <button class="small chip" type="button" data-ab="version">Version</button>
+              <button class="small chip on" type="button" data-ab="master">Master</button>
+              <span class="muted small" id="ab-said"></span>
+            </span>
+          </div>
+          <canvas id="ab-canvas" aria-label="Loudness over time, and left/right agreement"></canvas>
+          <div id="ab-result"></div>
         </div>
         <div id="mixer-result"></div>
       </section>
@@ -1298,7 +1311,7 @@
   <section class="step" id="step-about" hidden>
     <h2>What this server can actually do</h2>
     <p class="muted hint-line">
-      extract0r degrades rather than failing: when an engine is missing it falls back to a
+      extract0r studio degrades rather than failing: when an engine is missing it falls back to a
       stub and carries on. Convenient, and also a trap — so this reports what is installed
       right now, not what the configuration asked for.
     </p>

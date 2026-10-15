@@ -144,7 +144,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Extract0r API",
+    title="extract0r studio API",
     version=get_settings().app_version,
     description=(
         "Stem separation, automatic tablature, and reference mastering.\n\n"
@@ -172,4 +172,4 @@ app.include_router(routes_jobs.router)
 
 @app.get("/", include_in_schema=False)
 def root() -> dict:
-    return {"name": "Extract0r API", "docs": "/docs", "health": "/api/v1/health"}
+    return {"name": "extract0r studio API", "docs": "/docs", "health": "/api/v1/health"}

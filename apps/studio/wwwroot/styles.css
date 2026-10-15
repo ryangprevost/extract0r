@@ -1784,3 +1784,7 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 
 /* -- Sprint 23: the club finish -- */
 .finish-box { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--edge); }
+
+/* -- Sprint 24: the A/B and its meters -- */
+#ab-canvas { display: block; width: 100%; border-radius: 6px; margin: 6px 0; }
+[data-ab].on { color: var(--ink); background: var(--accent); border-color: var(--accent); }

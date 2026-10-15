@@ -126,15 +126,6 @@ def gap_depth_db(samples: np.ndarray, sample_rate: int) -> float | None:
     return round(typical - quiet, 2)
 
 
-def describe_space(gap_difference_db: float) -> str:
-    """Which way round a gap-depth difference reads, in words.
-
-    Positive means the reference drops further between hits than this stem does, so the
-    reference is the drier of the two.
-    """
-    return "wetter" if gap_difference_db > 0 else "drier"
-
-
 def width_ratio(mine: float, theirs: float) -> float | None:
     """Reference width over this stem's. None when either is effectively mono.
 

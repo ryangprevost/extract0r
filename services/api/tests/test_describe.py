@@ -19,8 +19,10 @@ def read(prompt):
 
 
 def test_complextro_sets_the_controls_it_means():
+    # Sprint 26: complextro is its own style now, with its own config - it used to be read
+    # as "EDM, with these extras", which is how a genre ends up half-described.
     r = read("complextro, gritty lead over clean chords, wide, punchy kick").recipe
-    assert r.style == "EDM" and r.beat == "techno" and r.stabs and r.lead_over_chords
+    assert r.style == "Complextro" and r.beat == "techno" and r.stabs and r.lead_over_chords
     assert r.parts["piano"].grit == 0.65 and r.parts["guitar"].grit == 0.0
     assert r.parts["guitar"].width == 1.0 and r.kit == "club punch tight"
 
@@ -115,3 +117,71 @@ def test_a_part_that_is_hardly_there_is_left_alone():
 def test_stabs_keep_their_grit_when_they_are_also_wide():
     r = read("complextro, wide").recipe
     assert r.parts["other"].grit == 0.5 and r.parts["other"].width == 1.0
+
+
+# --- Sprint 26: styles carry the whole recipe, and the words come from them ------------------
+
+
+def test_every_style_has_a_recipe_the_reader_can_use():
+    """A style is a config, not four settings: each one must name parts this app has, a kit
+    and beat it knows, and nothing the Recipe cannot hold."""
+    from app.services.drums.kit import KITS
+    from app.services.synth import styles
+    from app.services.synth.groove import BUILT_IN
+
+    for name in styles.STYLES:
+        made = styles.recipe_for(name)
+        describe.Recipe.model_validate(made)         # every field is a real control
+        style = styles.STYLES[name]
+        assert style["kit"] in KITS, f"{name}: unknown kit"
+        assert not style["beat"] or style["beat"] in BUILT_IN, f"{name}: unknown beat"
+        for stem in (made.get("parts") or {}):
+            assert stem in describe.PARTS, f"{name}: unknown part {stem}"
+        assert styles.guide(name), f"{name}: says nothing about itself"
+
+
+def test_the_genres_ryan_named_are_all_there():
+    from app.services.synth import styles
+
+    names = {n.lower() for n in styles.STYLES}
+    for wanted in ("techno", "trance", "electro house", "house", "complextro", "electro"):
+        assert wanted in names or wanted in describe.genres(CONTEXT), wanted
+
+
+def test_a_genre_word_brings_its_whole_recipe():
+    """"more complextro" sets what complextro is, not just a style name."""
+    r = read("make it more complextro").recipe
+    assert r.style == "Complextro"
+    assert r.stabs and r.lead_over_chords and r.chop_instruments
+    assert r.chops == "lots" and r.fill and r.follow_bass and r.tidy
+    assert r.parts["bass"].grit == 0.5 and r.parts["guitar"].width == 1.0
+    assert r.parts["guitar"].pump_db == 14.0
+
+
+def test_the_longest_genre_name_wins():
+    assert read("electro house please").recipe.style == "Electro house"
+    assert read("just electro").recipe.style == "Electro"
+
+
+def test_the_new_words_ryan_asked_for():
+    extended = read("extend the midi notes").recipe
+    assert extended.fill and not extended.legato
+
+    chopped = read("add suggested chops at key areas").recipe
+    assert chopped.chops == "some"
+
+    swung = read("house but swung").recipe
+    assert swung.swing == 0.25 and swung.style == "House"
+
+    straight = read("techno, dead straight, no chops").recipe
+    assert straight.swing == 0.0 and straight.chops == "none"
+
+    drums = read("no drums").recipe
+    assert drums.leave_out == ["drums"]
+
+
+def test_a_style_says_what_it_will_do_before_it_does_it():
+    reading = read("complextro")
+    said = " ".join(reading.understood).lower()
+    assert "recipe" in said and "stabs" in said and "chopped" in said
+    assert any("bpm" in line.lower() for line in reading.understood)

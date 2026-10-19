@@ -73,6 +73,10 @@ class Recipe(BaseModel):
     follow_bass: bool | None = None
     #: Hold notes to the next one.
     legato: bool | None = None
+    #: Sprint 26: run every note exactly into the next - gaps closed, overlaps trimmed.
+    fill: bool | None = None
+    #: Swing the off-sixteenths, 0..1 of a triplet.
+    swing: float | None = Field(None, ge=0.0, le=1.0)
     #: Pump everything on the kick; and keep pulsing where the beat drops out.
     pump: bool | None = None
     ghost_pump: bool | None = None
@@ -120,29 +124,34 @@ class Reader(Protocol):
 # --- the vocabulary ---------------------------------------------------------------------------
 
 STOP = {
-    "a", "also", "an", "and", "are", "as", "be", "bit", "but", "feel", "feeling", "for", "give",
+    "a", "add", "also", "an", "and", "are", "as", "be", "bit", "but", "feel", "feeling", "for",
+    "give",
     "i", "i'm", "im", "in", "into", "is", "it", "it's", "its", "just", "keep", "less", "like",
-    "little", "lot", "lots", "make", "me", "more", "my", "of", "on", "or", "please", "really",
+    "little", "lot", "lots", "make", "me", "more", "my", "note", "notes", "of", "on", "or",
+    "please", "really",
     "so", "some", "sound", "sounds", "than", "that", "the", "then", "this", "to", "too", "very",
     "want", "was", "with"
 }
 
-#: Genre words -> (style, what else they set).
-GENRES = {
-    "complextro": ("EDM", {"beat": "techno", "lead_over_chords": True, "stabs": True,
-                           "chops": "some", "chop_instruments": True, "pump": True,
-                           "ghost_pump": True, "tidy": True, "follow_bass": True,
-                           "legato": True}),
-    "electro": ("EDM", {"beat": "house", "lead_over_chords": True, "pump": True, "tidy": True,
-                        "follow_bass": True}),
-    "madeon": ("EDM", {"chops": "some", "chop_instruments": True, "stabs": True,
-                       "lead_over_chords": True}),
-    "edm": ("EDM", {}), "house": ("House", {}), "trance": ("Trance", {}),
-    "dnb": ("Drum and bass", {}), "drum and bass": ("Drum and bass", {}),
-    "half-time": ("Half-time", {}), "half time": ("Half-time", {}),
-    "future bass": ("Half-time", {}), "trap": ("Half-time", {}),
-    "hard dance": ("Hard dance", {}), "synthwave": ("Synthwave", {}),
-}
+def genres(context: Context) -> dict[str, str]:
+    """Every word that names a style -> the style's own name.
+
+    Sprint 26: this used to be a second table of genres living here, with its own idea of
+    what "complextro" meant. There is one table now, in `synth/styles.py`, where the style
+    picker reads it too - so a word and a button cannot drift apart, and a style added there
+    is understood here the same day.
+    """
+    from app.services.synth import styles
+
+    # Every style this build has, not whatever the caller happened to list: `context.styles`
+    # is what Claude is *shown*, and a reader that forgot "complextro" because a client sent
+    # a short list would be a puzzle rather than a limit.
+    out = {}
+    for name in styles.STYLES:
+        out[name.lower()] = name
+        for alias in styles.ALIASES.get(name, ()):
+            out[alias] = name
+    return out
 
 
 def _part_of(text: str) -> list[str]:
@@ -187,20 +196,32 @@ class VocabularyReader:
                 use("kick")
             return found[0] if found else None
 
-        # Genre first: it sets several controls at once, and later words override it.
-        for word, (style, sets) in GENRES.items():
-            if f" {word} " in text:
-                use(word)
-                recipe.style = recipe.style or style
-                for k, v in sets.items():
-                    setattr(recipe, k, v)
-                said.append(f"{word}: the {style} style" + (
-                    ", " + ", ".join(k.replace("_", " ") for k in sets) if sets else ""))
-        for name in context.styles:
-            if f" {name.lower()} " in text and recipe.style is None:
-                recipe.style = name
-                use(name.lower())
-                said.append(f"the {name} style")
+        # A genre first: it brings a whole recipe, and later words override single parts of
+        # it. The longest name wins, so "electro house" is not read as "electro".
+        from app.services.synth import styles as style_book
+
+        for word in sorted(genres(context), key=len, reverse=True):
+            if f" {word} " not in text or recipe.style:
+                continue
+            name = genres(context)[word]
+            use(word)
+            recipe.style = name
+            # The beat and the kit are as much a part of a genre as its grit is; they live
+            # on the style itself because the picker uses them, so carry them across too.
+            # An empty beat means the band's own drummer (Synthwave), which is `None` here.
+            recipe.beat = style_book.STYLES[name]["beat"] or None
+            recipe.kit = style_book.STYLES[name]["kit"]
+            found = style_book.recipe_for(name)
+            for key, value in found.items():
+                if key == "parts":
+                    for stem, tune in value.items():
+                        recipe.parts[stem] = PartRecipe(**tune)
+                else:
+                    setattr(recipe, key, value)
+            # The whole guide, not a summary of it: what the style is about to do is the
+            # insight, and hiding it behind one line is how a preset becomes a black box.
+            said.append(f"{word}: the {name} recipe.")
+            said.extend(style_book.guide(name))
 
         bpm = re.search(r"\b(\d{2,3}(?:\.\d+)?)\s*bpm\b", text)
         if bpm:
@@ -253,9 +274,22 @@ class VocabularyReader:
             recipe.parts.setdefault("bass", PartRecipe()).pump_db = 11.0
             recipe.parts.setdefault("vocals", PartRecipe()).pump_db = 4.0
             said.append("a deep pump on the synths, light on the vocal, on through breakdowns")
-        if has("legato", "held", "sustained", "smooth", "less choppy"):
+        if has("extend the midi", "extend the notes", "extend every note", "longer notes",
+               "butt up", "butt them up", "fill to next", "fill the notes", "no gaps",
+               "run into each other", "run into the next"):
+            recipe.fill = True
+            said.append("every note run exactly into the next - gaps closed, overlaps cut")
+        elif has("legato", "held", "sustained", "smooth", "less choppy", "hold the notes",
+                 "drag out the notes"):
             recipe.legato = True
             said.append("notes held to the next")
+        if has("swing", "shuffle", "swung", "groovy", "loose"):
+            recipe.swing = 0.25
+            said.append("the off-sixteenths swung")
+        if has("square", "straight", "no swing", "tight timing"):
+            recipe.swing = 0.0
+            recipe.tidy = True
+            said.append("dead straight, on the grid")
         if has("follow the bass", "no clashing", "in key", "consonant"):
             recipe.follow_bass = True
             said.append("chords on the bass's chords")
@@ -264,13 +298,16 @@ class VocabularyReader:
             recipe.tidy = True
             said.append("notes tidied and on the grid")
 
-        if has("no chops", "without chops"):
+        if has("no chops", "without chops", "nothing chopped", "leave it running"):
             recipe.chops = "none"
-        elif has("lots of chops", "lots of stutters", "glitchy", "glitch", "heavy chops"):
+        elif has("lots of chops", "lots of stutters", "glitchy", "glitch", "heavy chops",
+                 "chop it up", "chop it to pieces", "more chops"):
             recipe.chops = "lots"
-        elif has("few chops", "subtle chops", "a few stutters"):
+        elif has("few chops", "subtle chops", "a few stutters", "the odd stutter"):
             recipe.chops = "few"
-        elif has("chops", "chop", "stutters", "stutter", "glitches"):
+        elif has("chops", "chop", "stutters", "stutter", "glitches", "rises", "tape stop",
+                 "suggested chops", "chops at key areas", "chops at the key areas",
+                 "chops in key areas", "chops at phrase ends", "breaks in the beat"):
             recipe.chops = recipe.chops or "some"
         if recipe.chops and recipe.chops != "none":
             if has("on the instruments", "instrument chops", "on instruments"):
@@ -303,11 +340,18 @@ class VocabularyReader:
                 said.append(f"a build and drop into the {lab}")
             work = re.sub(word, " ", work)
 
+        # Which parts carry it, and which sit out.
+        if has("no drums", "drop the drums", "without drums", "lose the drummer"):
+            recipe.leave_out.append("drums")
+            said.append("the band's drums out, the added beat in their place")
+        if has("keep the drums", "keep the drummer", "their drums"):
+            recipe.beat = None
+            said.append("the band's own drums kept")
         if has("instrumental", "no vocals", "without vocals"):
             recipe.leave_out.append("vocals")
             said.append("no vocals")
         if has("their synth", "their sounds", "sampled", "sample the reference",
-               "reference sounds", "like the reference sound"):
+               "reference sounds", "like the reference sound", "use their sounds"):
             recipe.reference_sounds = True
             said.append("sounds sampled from the reference")
         if has("reference levels", "levels like the reference", "like the reference",

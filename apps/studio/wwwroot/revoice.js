@@ -725,10 +725,18 @@ const Revoice = (() => {
       pick.piano = refLead?.id || pick.guitar || pick.piano || "supersaw";
       if (recipe.stabs) pick.other = refLead?.id || "stab";
     }
-    for (const stem of ["bass", "guitar", "piano", "other"]) {
-      if (!have(stem) || !pick[stem]) continue;
+    // A named style is a complete statement of how the parts are treated, so anything it
+    // does not mention goes back to nothing. Without this a style inherits the last one's
+    // settings: picking Techno after Complextro left the keys at 65% grit, which is not
+    // techno and not anything the person asked for. A sentence with no style in it only
+    // changes what it names.
+    const whole = !!recipe.style;
+    for (const stem of ["bass", "guitar", "piano", "other", "vocals"]) {
+      if (!have(stem)) continue;
       const tune = recipe.parts?.[stem] || {};
-      parts.set(stem, { ...(parts.get(stem) || {}), voice: pick[stem],
+      const held = parts.get(stem) || {};
+      const base = whole ? { ...held, grit: 0, width: 0 } : held;
+      parts.set(stem, { ...base, ...(pick[stem] ? { voice: pick[stem] } : {}),
         ...(tune.grit !== undefined ? { grit: tune.grit } : {}),
         ...(tune.width !== undefined ? { width: tune.width } : {}) });
     }
@@ -743,29 +751,33 @@ const Revoice = (() => {
     }
 
     // The notes.
-    const editing = recipe.tidy || recipe.follow_bass || recipe.legato ||
+    const editing = recipe.tidy || recipe.follow_bass || recipe.legato || recipe.fill ||
       recipe.lead_over_chords || recipe.stabs;
+    // Sprint 26: "fill" runs every note exactly into the next - gaps closed *and* overlaps
+    // trimmed - where "legato" only ever lengthens. A style asks for one or the other.
+    const holding = recipe.fill ? { fill: true } : recipe.legato ? { legato: 1 } : {};
     if (editing && have("bass") && have("guitar")) {
       say("Tidying the notes and putting the chords on the bass's chords…");
       const tidy = (notes) => (recipe.tidy ? noteTool(notes, { strength: 1, trim: true }) : notes);
       let bass = await tidy(await playedNotes("bass"));
-      if (recipe.legato) bass = await noteTool(bass, { legato: 1 });
+      if (recipe.fill || recipe.legato) bass = await noteTool(bass, holding);
       await saveNotes("bass", bass);
       await saveNotes("guitar", await tidy(await playedNotes("guitar")));
-      const held = recipe.follow_bass
-        ? await followBass("guitar", recipe.legato ? 1 : 0)
-        : await noteTool((await notesApi("/parts/guitar/notes")).notes,
-          { legato: recipe.legato ? 1 : 0 });
+      // Following the bass holds notes within a chord; filling runs them into the next
+      // note afterwards, which is the stricter of the two and must come last.
+      let held = recipe.follow_bass
+        ? await followBass("guitar", recipe.legato && !recipe.fill ? 1 : 0)
+        : (await notesApi("/parts/guitar/notes")).notes;
+      if (recipe.fill || recipe.legato) held = await noteTool(held, holding);
       if (recipe.lead_over_chords && have("piano")) {
         const plain = recipe.follow_bass ? await followBass("guitar", 0) : held;
         const tops = await noteTool(plain, { top_line: true });
-        await saveNotes("piano", await noteTool(tops, { trim: true, legato: recipe.legato ? 1 : 0 }));
+        await saveNotes("piano", await noteTool(await noteTool(tops, { trim: true }), holding));
       }
       const chords = recipe.lead_over_chords ? held.filter((n) => n.pitch < 72) : held;
       if (recipe.stabs && have("other")) {
         await playedNotes("other");
-        await saveNotes("other", await noteTool(recipe.legato ? chords
-          : await noteTool(chords, { legato: 1 }), { stabs: true }));
+        await saveNotes("other", await noteTool(chords, { stabs: true }));
       }
       await saveNotes("guitar", chords);
       for (const stem of ["bass", "guitar", "piano", "other"]) {
@@ -785,6 +797,9 @@ const Revoice = (() => {
     }
     const kit = recipe.kit || style?.kit;
     if (kit && KITS.includes(kit)) $("beat-kit").value = kit;
+    if (recipe.swing !== undefined && recipe.swing !== null) {
+      $("beat-swing").value = recipe.swing ? String(recipe.swing) : "";
+    }
     if (recipe.pump !== undefined || style) $("opt-pump").checked = !!(recipe.pump ?? style?.pump);
     const pumps = Object.fromEntries(Object.entries(recipe.parts || {})
       .filter(([, t]) => t.pump_db !== undefined && t.pump_db !== null)
@@ -962,6 +977,17 @@ const Revoice = (() => {
     }
     $("style-about").textContent =
       `${speed}${style.about || ""}${real} Then change anything you like below.`;
+    // Sprint 26: the style's own parameters, read back out - a preset you can argue with.
+    const guide = $("style-guide");
+    if (guide) {
+      guide.innerHTML = "";
+      for (const line of style.guide || []) {
+        const item = document.createElement("li");
+        item.textContent = line;
+        guide.appendChild(item);
+      }
+      guide.hidden = !(style.guide || []).length;
+    }
   }
 
   /**
@@ -970,32 +996,34 @@ const Revoice = (() => {
    * Parts with nothing pitched in them come back empty and are simply stretched instead -
    * a song with no piano should not fail because the preset asked for a piano pad.
    */
+  /**
+   * Make the whole style, not four settings of it.
+   *
+   * Sprint 26: this used to set the tempo, the sounds, the beat, the kit, the pump and the
+   * drop, and stop - so "Make it Complextro" produced none of the chopping, grit, width or
+   * note editing that is what complextro actually *is*. Each style now carries a full
+   * recipe, and this runs it through the same `applyRecipe` the Describe box uses, so a
+   * style and a sentence that names it land in exactly the same place.
+   */
   async function makeItEdm() {
     const button = $("preset-edm");
     button.disabled = true;
     const was = button.textContent;
     const style = chosenStyle();
     try {
-      setTempo(style.tempo);
-      for (const [stem, voice] of Object.entries(style.parts)) {
-        parts.set(stem, { voice });
-      }
-      render();
-      for (const stem of Object.keys(style.parts)) {
-        button.textContent = `Playing the ${stem}…`;
-        await run(stem);
-      }
-      $("opt-pump").checked = !!style.pump;
-      pumpDb = null;
-      $("beat-select").value = style.beat || "";
-      if (KITS.includes(style.kit)) $("beat-kit").value = style.kit;
-      $("beat-swing").value = "";
+      const recipe = {
+        style: style.name,
+        beat: style.beat || undefined,
+        kit: style.kit,
+        pump: !!style.pump,
+        ...(style.recipe || {}),
+      };
       $("opt-leave-drums").checked = false;
       // The drop only if the style has one and the song has room - a short loop has
       // nowhere to build.
       $("opt-drop").checked = !!style.drop && !$("opt-drop").disabled;
-      button.textContent = "Putting it together…";
-      await makeVersion();
+      pumpDb = null;
+      await applyRecipe(recipe, (text) => { button.textContent = text; });
     } finally {
       button.disabled = false;
       button.textContent = was;

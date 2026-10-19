@@ -1785,6 +1785,11 @@ dialog ol { color: var(--muted); font-size: 14px; padding-left: 20px; }
 .tune-row { display: grid; grid-template-columns: 7em minmax(120px, 260px) auto; gap: 8px;
   align-items: center; font-size: 0.9em; }
 
+/* -- Sprint 26: what a style sets -- */
+.style-guide-box { margin: 4px 0 0 0; }
+.style-guide-box summary { cursor: pointer; }
+#style-guide { margin: 4px 0 0 18px; }
+
 /* -- Sprint 23: the club finish -- */
 .finish-box { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--edge); }
 

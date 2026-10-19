@@ -2643,6 +2643,22 @@ leaps, and to pull a single lead line out of chords **so that** the parts sound 
 
 ---
 
+### X0R-1520 · A style is a whole recipe · 3 · `DONE` 2026-10-19
+**As a** person picking a genre **I want** the style to set everything that makes it that
+genre, and to tell me what that is **so that** "Make it Complextro" sounds like complextro
+rather than like EDM with a different kit.
+
+Ryan, 2026-10-19: *"maybe have a style guideline with parameters of what make each type
+unique in the background ... use them as a starting point for the remix."*
+
+**Done.** Every style carries a `recipe` (grit, width, pump depths, stabs, lead over chords,
+note editing, chops, swing); four new styles (Electro house, Complextro, Electro, Techno);
+"Make it X" runs the whole recipe; the picker shows the config in sentences; the suggestion
+box reads the same table and learned Ryan's phrasings. See
+[SPRINT-26.md](sprints/SPRINT-26.md).
+
+---
+
 ### X0R-1510 · The section bar covers the remix card · 2 · `DONE` 2026-10-15
 **As a** person building a remix **I want** to jump between the stages **so that** I am not
 scrolling seven screens from "Describe it" to "Finish it".
